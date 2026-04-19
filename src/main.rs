@@ -776,6 +776,18 @@ impl TextRope {
         self.root.as_ref().map_or(0, |node| node.graphemes())
     }
 
+    #[cfg(test)]
+    fn height(&self) -> usize {
+        self.root.as_ref().map_or(0, |node| node.height())
+    }
+
+    #[cfg(test)]
+    fn assert_balanced(&self) {
+        if let Some(root) = self.root.as_ref() {
+            root.assert_balanced();
+        }
+    }
+
     fn from_str(text: &str) -> Self {
         Self {
             root: RopeNode::from_str(text),
@@ -815,10 +827,36 @@ impl TextRope {
         debug_assert!(range.start <= range.end);
         debug_assert!(range.end <= self.len_bytes());
 
+        if range.start == range.end
+            && range.end == self.len_bytes()
+            && self.try_append_to_last_leaf(text)
+        {
+            return;
+        }
+
         let root = self.root.take();
         let (left, rest) = split_node(root, range.start);
         let (_, right) = split_node(rest, range.end - range.start);
         self.root = concat_nodes(concat_nodes(left, RopeNode::from_str(text)), right);
+    }
+
+    fn try_append_to_last_leaf(&mut self, text: &str) -> bool {
+        if text.is_empty() {
+            return true;
+        }
+
+        if self.root.is_none() {
+            self.root = RopeNode::from_str(text);
+            return true;
+        }
+
+        if text.len() > ROPE_LEAF_BYTES {
+            return false;
+        }
+
+        self.root
+            .as_mut()
+            .is_some_and(|root| root.try_append_to_last_leaf(text))
     }
 
     fn byte_to_utf16(&self, byte_offset: usize) -> usize {
@@ -912,22 +950,52 @@ impl RopeNode {
         }
     }
 
+    fn try_append_to_last_leaf(&mut self, appended_text: &str) -> bool {
+        match self {
+            Self::Leaf {
+                text,
+                bytes,
+                utf16,
+                graphemes,
+                ..
+            } => {
+                if text.len() + appended_text.len() > ROPE_LEAF_BYTES {
+                    return false;
+                }
+
+                text.push_str(appended_text);
+                *bytes = text.len();
+                *utf16 = text.encode_utf16().count();
+                *graphemes = text.graphemes(true).count();
+                true
+            }
+            Self::Branch {
+                left,
+                right,
+                bytes,
+                utf16,
+                graphemes,
+                height,
+            } => {
+                if !right.try_append_to_last_leaf(appended_text) {
+                    return false;
+                }
+
+                *bytes = left.bytes() + right.bytes();
+                *utf16 = left.utf16() + right.utf16();
+                *graphemes = left.graphemes() + right.graphemes();
+                *height = left.height().max(right.height()) + 1;
+                true
+            }
+        }
+    }
+
     fn push_to_string(&self, output: &mut String) {
         match self {
             Self::Leaf { text, .. } => output.push_str(text),
             Self::Branch { left, right, .. } => {
                 left.push_to_string(output);
                 right.push_to_string(output);
-            }
-        }
-    }
-
-    fn push_leaves(&self, leaves: &mut Vec<String>) {
-        match self {
-            Self::Leaf { text, .. } => leaves.push(text.clone()),
-            Self::Branch { left, right, .. } => {
-                left.push_leaves(leaves);
-                right.push_leaves(leaves);
             }
         }
     }
@@ -1065,6 +1133,45 @@ impl RopeNode {
             }
         }
     }
+
+    #[cfg(test)]
+    fn assert_balanced(&self) -> usize {
+        match self {
+            Self::Leaf {
+                text,
+                bytes,
+                utf16,
+                graphemes,
+                height,
+            } => {
+                assert_eq!(*bytes, text.len());
+                assert_eq!(*utf16, text.encode_utf16().count());
+                assert_eq!(*graphemes, text.graphemes(true).count());
+                assert_eq!(*height, 1);
+                1
+            }
+            Self::Branch {
+                left,
+                right,
+                bytes,
+                utf16,
+                graphemes,
+                height,
+            } => {
+                let left_height = left.assert_balanced();
+                let right_height = right.assert_balanced();
+                assert!(
+                    left_height.abs_diff(right_height) <= 1,
+                    "rope branch is unbalanced: left height {left_height}, right height {right_height}"
+                );
+                assert_eq!(*bytes, left.bytes() + right.bytes());
+                assert_eq!(*utf16, left.utf16() + right.utf16());
+                assert_eq!(*graphemes, left.graphemes() + right.graphemes());
+                assert_eq!(*height, left_height.max(right_height) + 1);
+                *height
+            }
+        }
+    }
 }
 
 fn split_node(
@@ -1075,18 +1182,20 @@ fn split_node(
         return (None, None);
     };
 
+    if byte_offset == 0 {
+        return (None, Some(node));
+    }
+
+    if byte_offset >= node.bytes() {
+        return (Some(node), None);
+    }
+
     match *node {
         RopeNode::Leaf { text, .. } => {
-            if byte_offset == 0 {
-                (None, RopeNode::from_str(&text))
-            } else if byte_offset >= text.len() {
-                (RopeNode::from_str(&text), None)
-            } else {
-                debug_assert!(text.is_char_boundary(byte_offset));
-                let left = RopeNode::from_str(&text[..byte_offset]);
-                let right = RopeNode::from_str(&text[byte_offset..]);
-                (left, right)
-            }
+            debug_assert!(text.is_char_boundary(byte_offset));
+            let left = RopeNode::from_str(&text[..byte_offset]);
+            let right = RopeNode::from_str(&text[byte_offset..]);
+            (left, right)
         }
         RopeNode::Branch { left, right, .. } => {
             let left_len = left.bytes();
@@ -1110,36 +1219,119 @@ fn concat_nodes(
     match (left, right) {
         (None, right) => right,
         (left, None) => left,
-        (Some(left), Some(right)) => {
-            if left.bytes() + right.bytes() <= ROPE_LEAF_BYTES {
-                let mut text = String::with_capacity(left.bytes() + right.bytes());
-                left.push_to_string(&mut text);
-                right.push_to_string(&mut text);
-                return Some(RopeNode::leaf(text));
-            }
+        (Some(left), Some(right)) => Some(concat_non_empty(left, right)),
+    }
+}
 
-            let height_gap = left.height().abs_diff(right.height());
-            if height_gap > 1 {
-                let mut leaves = Vec::new();
-                left.push_leaves(&mut leaves);
-                right.push_leaves(&mut leaves);
-                return build_balanced(leaves);
-            }
+fn concat_non_empty(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
+    if left.bytes() + right.bytes() <= ROPE_LEAF_BYTES {
+        let mut text = String::with_capacity(left.bytes() + right.bytes());
+        left.push_to_string(&mut text);
+        right.push_to_string(&mut text);
+        return RopeNode::leaf(text);
+    }
 
-            let bytes = left.bytes() + right.bytes();
-            let utf16 = left.utf16() + right.utf16();
-            let graphemes = left.graphemes() + right.graphemes();
-            let height = left.height().max(right.height()) + 1;
-            Some(Box::new(RopeNode::Branch {
-                left,
-                right,
-                bytes,
-                utf16,
-                graphemes,
-                height,
-            }))
+    if left.height() > right.height() + 1 {
+        match *left {
+            RopeNode::Branch {
+                left: left_left,
+                right: left_right,
+                ..
+            } => {
+                return balance_branch(left_left, concat_non_empty(left_right, right));
+            }
+            leaf => return branch_node(Box::new(leaf), right),
         }
     }
+
+    if right.height() > left.height() + 1 {
+        match *right {
+            RopeNode::Branch {
+                left: right_left,
+                right: right_right,
+                ..
+            } => {
+                return balance_branch(concat_non_empty(left, right_left), right_right);
+            }
+            leaf => return branch_node(left, Box::new(leaf)),
+        }
+    }
+
+    branch_node(left, right)
+}
+
+fn balance_branch(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
+    if left.height() > right.height() + 1 {
+        return match *left {
+            RopeNode::Branch {
+                left: left_left,
+                right: left_right,
+                ..
+            } => {
+                if left_left.height() >= left_right.height() {
+                    branch_node(left_left, branch_node(left_right, right))
+                } else {
+                    match *left_right {
+                        RopeNode::Branch {
+                            left: left_right_left,
+                            right: left_right_right,
+                            ..
+                        } => branch_node(
+                            branch_node(left_left, left_right_left),
+                            branch_node(left_right_right, right),
+                        ),
+                        leaf => branch_node(left_left, branch_node(Box::new(leaf), right)),
+                    }
+                }
+            }
+            leaf => branch_node(Box::new(leaf), right),
+        };
+    }
+
+    if right.height() > left.height() + 1 {
+        return match *right {
+            RopeNode::Branch {
+                left: right_left,
+                right: right_right,
+                ..
+            } => {
+                if right_right.height() >= right_left.height() {
+                    branch_node(branch_node(left, right_left), right_right)
+                } else {
+                    match *right_left {
+                        RopeNode::Branch {
+                            left: right_left_left,
+                            right: right_left_right,
+                            ..
+                        } => branch_node(
+                            branch_node(left, right_left_left),
+                            branch_node(right_left_right, right_right),
+                        ),
+                        leaf => branch_node(branch_node(left, Box::new(leaf)), right_right),
+                    }
+                }
+            }
+            leaf => branch_node(left, Box::new(leaf)),
+        };
+    }
+
+    branch_node(left, right)
+}
+
+fn branch_node(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
+    let bytes = left.bytes() + right.bytes();
+    let utf16 = left.utf16() + right.utf16();
+    let graphemes = left.graphemes() + right.graphemes();
+    let height = left.height().max(right.height()) + 1;
+
+    Box::new(RopeNode::Branch {
+        left,
+        right,
+        bytes,
+        utf16,
+        graphemes,
+        height,
+    })
 }
 
 fn build_balanced(mut leaves: Vec<String>) -> Option<Box<RopeNode>> {
@@ -1372,5 +1564,38 @@ mod tests {
         assert_eq!(visible[0].text, "三");
         assert_eq!(visible[1].logical_index, 3);
         assert_eq!(visible[1].text, "四");
+    }
+
+    #[test]
+    fn rope_keeps_right_edge_appends_balanced() {
+        let mut rope = TextRope::new();
+
+        for _ in 0..20_000 {
+            let end = rope.len_bytes();
+            rope.replace_range(end..end, "文");
+        }
+
+        assert_eq!(rope.len_graphemes(), 20_000);
+        assert!(rope.height() <= 32);
+        rope.assert_balanced();
+
+        let visible = rope.visible_graphemes(19_998, 2);
+        assert_eq!(visible.len(), 2);
+        assert_eq!(visible[0].logical_index, 19_998);
+        assert_eq!(visible[1].logical_index, 19_999);
+    }
+
+    #[test]
+    fn rope_keeps_middle_edits_balanced() {
+        let mut rope = TextRope::from_str(&"a".repeat(20_000));
+
+        for _ in 0..500 {
+            let midpoint = rope.byte_offset_for_grapheme_index(rope.len_graphemes() / 2);
+            rope.replace_range(midpoint..midpoint, "文");
+        }
+
+        assert_eq!(rope.len_graphemes(), 20_500);
+        assert!(rope.height() <= 32);
+        rope.assert_balanced();
     }
 }
