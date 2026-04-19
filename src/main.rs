@@ -16,7 +16,7 @@ use gpui::{
     WindowOptions, actions, div, prelude::*, px, rgb, size,
 };
 
-const COLUMNS: usize = 20;
+const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 const CELL_SIZE: f32 = 28.0;
 
 actions!(
@@ -57,6 +57,7 @@ pub(crate) struct GenkoApp {
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) scroll_column: usize,
     scroll_remainder_columns: f32,
+    visible_columns: usize,
 }
 
 impl GenkoApp {
@@ -75,6 +76,7 @@ impl GenkoApp {
             last_board_bounds: None,
             scroll_column: 0,
             scroll_remainder_columns: 0.0,
+            visible_columns: DEFAULT_VISIBLE_COLUMNS,
         }
     }
 
@@ -149,8 +151,17 @@ impl GenkoApp {
         self.settings.rows_per_column
     }
 
+    pub(crate) fn visible_columns(&self) -> usize {
+        self.visible_columns
+    }
+
+    fn update_visible_columns(&mut self, visible_columns: usize) {
+        self.visible_columns = visible_columns.max(1);
+        self.ensure_cursor_visible();
+    }
+
     fn visible_cell_capacity(&self) -> usize {
-        self.rows_per_column() * COLUMNS
+        self.rows_per_column() * self.visible_columns()
     }
 
     fn first_visible_cell_index(&self) -> usize {
@@ -167,7 +178,7 @@ impl GenkoApp {
     }
 
     fn max_scroll_column(&self) -> usize {
-        self.total_columns().saturating_sub(COLUMNS)
+        self.total_columns().saturating_sub(self.visible_columns())
     }
 
     fn clamp_scroll_column(&mut self) {
@@ -178,8 +189,8 @@ impl GenkoApp {
         let cursor_column = self.cursor_column();
         if cursor_column < self.scroll_column {
             self.scroll_column = cursor_column;
-        } else if cursor_column >= self.scroll_column + COLUMNS {
-            self.scroll_column = cursor_column + 1 - COLUMNS;
+        } else if cursor_column >= self.scroll_column + self.visible_columns() {
+            self.scroll_column = cursor_column + 1 - self.visible_columns();
         }
         self.clamp_scroll_column();
     }
@@ -395,6 +406,7 @@ impl GenkoApp {
             event.position,
             self.scroll_column,
             self.rows_per_column(),
+            self.visible_columns(),
         ) {
             if event.modifiers.shift {
                 self.select_to_display_cell(cell_index, cx);
@@ -427,8 +439,13 @@ impl GenkoApp {
 
     fn byte_offset_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
         let bounds = self.last_board_bounds?;
-        let index =
-            logical_index_for_point(bounds, position, self.scroll_column, self.rows_per_column())?;
+        let index = logical_index_for_point(
+            bounds,
+            position,
+            self.scroll_column,
+            self.rows_per_column(),
+            self.visible_columns(),
+        )?;
         Some(self.draft.byte_offset_for_display_cell(index))
     }
 
@@ -447,6 +464,7 @@ impl GenkoApp {
             logical_index,
             self.scroll_column,
             self.rows_per_column(),
+            self.visible_columns(),
         )
     }
 
@@ -467,7 +485,7 @@ impl GenkoApp {
                 "vertical / {} cells / columns {}-{} of {}",
                 self.used_cells(),
                 self.scroll_column + 1,
-                (self.scroll_column + COLUMNS).min(self.total_columns()),
+                (self.scroll_column + self.visible_columns()).min(self.total_columns()),
                 self.total_columns()
             )))
     }
@@ -579,7 +597,11 @@ impl EntityInputHandler for GenkoApp {
 }
 
 impl Render for GenkoApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.update_visible_columns(visible_columns_for_window_width(
+            window.viewport_size().width,
+        ));
+
         div()
             .size_full()
             .bg(rgb(0xebe5d8))
@@ -619,6 +641,12 @@ impl Render for GenkoApp {
                     .child(BoardElement { app: cx.entity() }),
             )
     }
+}
+
+fn visible_columns_for_window_width(width: Pixels) -> usize {
+    ((width / px(CELL_SIZE)).floor() as usize)
+        .saturating_sub(2)
+        .max(1)
 }
 
 impl Focusable for GenkoApp {

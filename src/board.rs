@@ -6,7 +6,7 @@ use gpui::{
     LayoutId, Pixels, Style, TextRun, Window, fill, point, px, rgb, rgba, size,
 };
 
-use crate::{CELL_SIZE, COLUMNS, GenkoApp};
+use crate::{CELL_SIZE, GenkoApp};
 
 pub(crate) struct BoardElement {
     pub(crate) app: Entity<GenkoApp>,
@@ -39,9 +39,11 @@ impl Element for BoardElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let rows_per_column = self.app.read(cx).rows_per_column();
+        let app = self.app.read(cx);
+        let rows_per_column = app.rows_per_column();
+        let visible_columns = app.visible_columns();
         let mut style = Style::default();
-        style.size.width = px(CELL_SIZE * COLUMNS as f32).into();
+        style.size.width = px(CELL_SIZE * visible_columns as f32).into();
         style.size.height = px(CELL_SIZE * rows_per_column as f32).into();
         (window.request_layout(style, [], cx), ())
     }
@@ -86,6 +88,7 @@ impl Element for BoardElement {
             cursor_index,
             scroll_column,
             rows_per_column,
+            visible_columns,
             show_grid,
         ) = {
             let app = self.app.read(cx);
@@ -96,6 +99,7 @@ impl Element for BoardElement {
                 app.cursor_cell,
                 app.scroll_column,
                 app.rows_per_column(),
+                app.visible_columns(),
                 app.settings.show_grid_lines,
             )
         };
@@ -107,21 +111,30 @@ impl Element for BoardElement {
             bounds,
             scroll_column,
             rows_per_column,
+            visible_columns,
             window,
         );
         if show_grid {
-            self.paint_grid(bounds, rows_per_column, window);
+            self.paint_grid(bounds, rows_per_column, visible_columns, window);
         }
         self.paint_text(
             &visible_text,
             bounds,
             scroll_column,
             rows_per_column,
+            visible_columns,
             window,
             cx,
         );
         if focus_handle.is_focused(window) {
-            self.paint_cursor(cursor_index, bounds, scroll_column, rows_per_column, window);
+            self.paint_cursor(
+                cursor_index,
+                bounds,
+                scroll_column,
+                rows_per_column,
+                visible_columns,
+                window,
+            );
         }
     }
 }
@@ -131,8 +144,14 @@ impl BoardElement {
         window.paint_quad(fill(bounds, rgb(0xfffbf2)));
     }
 
-    fn paint_grid(&self, bounds: Bounds<Pixels>, rows_per_column: usize, window: &mut Window) {
-        for column in 0..=COLUMNS {
+    fn paint_grid(
+        &self,
+        bounds: Bounds<Pixels>,
+        rows_per_column: usize,
+        visible_columns: usize,
+        window: &mut Window,
+    ) {
+        for column in 0..=visible_columns {
             let x = bounds.left() + px(column as f32 * CELL_SIZE);
             window.paint_quad(fill(
                 Bounds::new(point(x, bounds.top()), size(px(1.0), bounds.size.height)),
@@ -157,6 +176,7 @@ impl BoardElement {
         bounds: Bounds<Pixels>,
         scroll_column: usize,
         rows_per_column: usize,
+        visible_columns: usize,
         window: &mut Window,
     ) {
         for cell_text in visible_text {
@@ -166,6 +186,7 @@ impl BoardElement {
                     cell_text.logical_index,
                     scroll_column,
                     rows_per_column,
+                    visible_columns,
                 ) else {
                     continue;
                 };
@@ -176,6 +197,7 @@ impl BoardElement {
                     cell_text.logical_index,
                     scroll_column,
                     rows_per_column,
+                    visible_columns,
                 ) else {
                     continue;
                 };
@@ -197,6 +219,7 @@ impl BoardElement {
         bounds: Bounds<Pixels>,
         scroll_column: usize,
         rows_per_column: usize,
+        visible_columns: usize,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -206,6 +229,7 @@ impl BoardElement {
                 cell_text.logical_index,
                 scroll_column,
                 rows_per_column,
+                visible_columns,
             ) else {
                 continue;
             };
@@ -282,11 +306,16 @@ impl BoardElement {
         bounds: Bounds<Pixels>,
         scroll_column: usize,
         rows_per_column: usize,
+        visible_columns: usize,
         window: &mut Window,
     ) {
-        let Some(cell_bounds) =
-            cell_bounds_for_logical_index(bounds, cursor_index, scroll_column, rows_per_column)
-        else {
+        let Some(cell_bounds) = cell_bounds_for_logical_index(
+            bounds,
+            cursor_index,
+            scroll_column,
+            rows_per_column,
+            visible_columns,
+        ) else {
             return;
         };
         window.paint_quad(fill(
@@ -307,20 +336,22 @@ pub(crate) fn row_column_for_logical_index(
     logical_index: usize,
     first_visible_column: usize,
     rows_per_column: usize,
+    visible_columns: usize,
 ) -> Option<(usize, usize)> {
     let rows_per_column = rows_per_column.max(1);
+    let visible_columns = visible_columns.max(1);
     let logical_column = logical_index / rows_per_column;
     if logical_column < first_visible_column {
         return None;
     }
 
     let column_from_right = logical_column - first_visible_column;
-    if column_from_right >= COLUMNS {
+    if column_from_right >= visible_columns {
         return None;
     }
 
     let row = logical_index % rows_per_column;
-    let column = COLUMNS - 1 - column_from_right;
+    let column = visible_columns - 1 - column_from_right;
     Some((row, column))
 }
 
@@ -329,9 +360,14 @@ pub(crate) fn cell_bounds_for_logical_index(
     logical_index: usize,
     first_visible_column: usize,
     rows_per_column: usize,
+    visible_columns: usize,
 ) -> Option<Bounds<Pixels>> {
-    let (row, column) =
-        row_column_for_logical_index(logical_index, first_visible_column, rows_per_column)?;
+    let (row, column) = row_column_for_logical_index(
+        logical_index,
+        first_visible_column,
+        rows_per_column,
+        visible_columns,
+    )?;
     Some(Bounds::new(
         point(
             board_bounds.left() + px(column as f32 * CELL_SIZE),
@@ -346,19 +382,21 @@ pub(crate) fn logical_index_for_point(
     position: gpui::Point<Pixels>,
     first_visible_column: usize,
     rows_per_column: usize,
+    visible_columns: usize,
 ) -> Option<usize> {
     let rows_per_column = rows_per_column.max(1);
+    let visible_columns = visible_columns.max(1);
     if !board_bounds.contains(&position) {
         return None;
     }
 
     let column = ((position.x - board_bounds.left()) / px(CELL_SIZE))
         .floor()
-        .clamp(0.0, (COLUMNS - 1) as f32) as usize;
+        .clamp(0.0, (visible_columns - 1) as f32) as usize;
     let row = ((position.y - board_bounds.top()) / px(CELL_SIZE))
         .floor()
         .clamp(0.0, (rows_per_column - 1) as f32) as usize;
-    let column_from_right = COLUMNS - 1 - column;
+    let column_from_right = visible_columns - 1 - column;
     Some((first_visible_column + column_from_right) * rows_per_column + row)
 }
 #[cfg(test)]
@@ -366,21 +404,23 @@ mod tests {
     use super::*;
     use genko_rope::DEFAULT_ROWS_PER_COLUMN;
 
+    const VISIBLE_COLUMNS: usize = 20;
+
     #[test]
     fn vertical_flow_starts_at_top_right() {
         let rows = DEFAULT_ROWS_PER_COLUMN;
 
         assert_eq!(
-            row_column_for_logical_index(0, 0, rows),
-            Some((0, COLUMNS - 1))
+            row_column_for_logical_index(0, 0, rows, VISIBLE_COLUMNS),
+            Some((0, VISIBLE_COLUMNS - 1))
         );
         assert_eq!(
-            row_column_for_logical_index(1, 0, rows),
-            Some((1, COLUMNS - 1))
+            row_column_for_logical_index(1, 0, rows, VISIBLE_COLUMNS),
+            Some((1, VISIBLE_COLUMNS - 1))
         );
         assert_eq!(
-            row_column_for_logical_index(rows, 0, rows),
-            Some((0, COLUMNS - 2))
+            row_column_for_logical_index(rows, 0, rows, VISIBLE_COLUMNS),
+            Some((0, VISIBLE_COLUMNS - 2))
         );
     }
 
@@ -388,17 +428,20 @@ mod tests {
     fn virtual_scroll_offsets_visible_columns() {
         let rows = DEFAULT_ROWS_PER_COLUMN;
 
-        assert_eq!(row_column_for_logical_index(0, 1, rows), None);
         assert_eq!(
-            row_column_for_logical_index(rows, 1, rows),
-            Some((0, COLUMNS - 1))
+            row_column_for_logical_index(0, 1, rows, VISIBLE_COLUMNS),
+            None
         );
         assert_eq!(
-            row_column_for_logical_index(rows * COLUMNS, 1, rows),
+            row_column_for_logical_index(rows, 1, rows, VISIBLE_COLUMNS),
+            Some((0, VISIBLE_COLUMNS - 1))
+        );
+        assert_eq!(
+            row_column_for_logical_index(rows * VISIBLE_COLUMNS, 1, rows, VISIBLE_COLUMNS),
             Some((0, 0))
         );
         assert_eq!(
-            row_column_for_logical_index(rows * (COLUMNS + 1), 1, rows),
+            row_column_for_logical_index(rows * (VISIBLE_COLUMNS + 1), 1, rows, VISIBLE_COLUMNS),
             None
         );
     }
@@ -408,12 +451,12 @@ mod tests {
         let rows = 24;
 
         assert_eq!(
-            row_column_for_logical_index(rows, 0, rows),
-            Some((0, COLUMNS - 2))
+            row_column_for_logical_index(rows, 0, rows, VISIBLE_COLUMNS),
+            Some((0, VISIBLE_COLUMNS - 2))
         );
         assert_eq!(
-            row_column_for_logical_index(rows - 1, 0, rows),
-            Some((rows - 1, COLUMNS - 1))
+            row_column_for_logical_index(rows - 1, 0, rows, VISIBLE_COLUMNS),
+            Some((rows - 1, VISIBLE_COLUMNS - 1))
         );
     }
 }
