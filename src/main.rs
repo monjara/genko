@@ -34,6 +34,7 @@ actions!(
         Paste,
         Cut,
         Copy,
+        Enter,
         ShowCharacterPalette,
         Quit,
     ]
@@ -123,11 +124,11 @@ impl GenkoApp {
     fn visible_text(&self) -> Vec<CellText> {
         let first_visible_index = self.first_visible_cell_index();
         self.draft
-            .visible_graphemes(first_visible_index, VISIBLE_CELL_CAPACITY)
+            .visible_cells(first_visible_index, VISIBLE_CELL_CAPACITY)
     }
 
     fn used_cells(&self) -> usize {
-        self.draft.len_graphemes()
+        self.draft.len_display_cells()
     }
 
     fn first_visible_cell_index(&self) -> usize {
@@ -135,7 +136,7 @@ impl GenkoApp {
     }
 
     fn cursor_column(&self) -> usize {
-        self.grapheme_index_for_byte(self.cursor_offset()) / ROWS
+        self.display_cell_for_byte(self.cursor_offset()) / ROWS
     }
 
     fn total_columns(&self) -> usize {
@@ -183,6 +184,10 @@ impl GenkoApp {
 
     fn range_from_utf16(&self, range_utf16: &Range<usize>) -> Range<usize> {
         self.draft.utf16_to_byte(range_utf16.start)..self.draft.utf16_to_byte(range_utf16.end)
+    }
+
+    fn display_cell_for_byte(&self, byte_offset: usize) -> usize {
+        self.draft.display_cell_for_byte(byte_offset)
     }
 
     fn replace_text_in_byte_range(
@@ -303,6 +308,10 @@ impl GenkoApp {
         }
     }
 
+    fn enter(&mut self, _: &Enter, _window: &mut Window, cx: &mut Context<Self>) {
+        self.replace_text_in_byte_range(self.selected_range.clone(), "\n", cx);
+    }
+
     fn copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
@@ -369,7 +378,7 @@ impl GenkoApp {
     fn byte_offset_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
         let bounds = self.last_board_bounds?;
         let index = logical_index_for_point(bounds, position, self.scroll_column)?;
-        Some(self.byte_offset_for_grapheme_index(index.min(self.used_cells())))
+        Some(self.draft.byte_offset_for_display_cell(index))
     }
 
     fn bounds_for_byte_range(
@@ -377,7 +386,7 @@ impl GenkoApp {
         range: Range<usize>,
         board_bounds: Bounds<Pixels>,
     ) -> Option<Bounds<Pixels>> {
-        let logical_index = self.grapheme_index_for_byte(range.start);
+        let logical_index = self.display_cell_for_byte(range.start);
         cell_bounds_for_logical_index(board_bounds, logical_index, self.scroll_column)
     }
 
@@ -529,6 +538,7 @@ impl Render for GenkoApp {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::enter))
             .on_action(cx.listener(Self::show_character_palette))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
@@ -633,7 +643,7 @@ impl Element for BoardElement {
                 app.visible_text(),
                 app.selected_range.clone(),
                 app.marked_range.clone(),
-                app.grapheme_index_for_byte(app.cursor_offset()),
+                app.display_cell_for_byte(app.cursor_offset()),
                 app.scroll_column,
             )
         };
@@ -791,6 +801,10 @@ impl TextRope {
         self.root.as_ref().map_or(0, |node| node.graphemes())
     }
 
+    fn len_display_cells(&self) -> usize {
+        self.root.as_ref().map_or(0, |node| node.cell_advance(0))
+    }
+
     #[cfg(test)]
     fn height(&self) -> usize {
         self.root.as_ref().map_or(0, |node| node.height())
@@ -839,10 +853,10 @@ impl TextRope {
         output
     }
 
-    fn visible_graphemes(&self, start_index: usize, max_count: usize) -> Vec<CellText> {
-        let mut cells = Vec::with_capacity(max_count.min(self.len_graphemes()));
+    fn visible_cells(&self, start_index: usize, max_count: usize) -> Vec<CellText> {
+        let mut cells = Vec::with_capacity(max_count.min(self.len_display_cells()));
         if let Some(root) = self.root.as_ref() {
-            root.push_graphemes(
+            root.push_visible_cells(
                 start_index..start_index.saturating_add(max_count),
                 0,
                 0,
@@ -850,6 +864,11 @@ impl TextRope {
             );
         }
         cells
+    }
+
+    #[cfg(test)]
+    fn visible_graphemes(&self, start_index: usize, max_count: usize) -> Vec<CellText> {
+        self.visible_cells(start_index, max_count)
     }
 
     fn replace_range(&mut self, range: Range<usize>, text: &str) {
@@ -930,6 +949,18 @@ impl TextRope {
             .as_ref()
             .map_or(0, |node| node.byte_to_grapheme(byte_offset))
     }
+
+    fn display_cell_for_byte(&self, byte_offset: usize) -> usize {
+        self.root
+            .as_ref()
+            .map_or(0, |node| node.byte_to_display_cell(byte_offset, 0))
+    }
+
+    fn byte_offset_for_display_cell(&self, display_cell_index: usize) -> usize {
+        self.root.as_ref().map_or(0, |node| {
+            node.display_cell_to_byte(display_cell_index, 0, 0)
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -939,6 +970,7 @@ enum RopeNode {
         bytes: usize,
         utf16: usize,
         graphemes: usize,
+        cell_advances: [usize; ROWS],
         height: usize,
     },
     Branch {
@@ -947,6 +979,7 @@ enum RopeNode {
         bytes: usize,
         utf16: usize,
         graphemes: usize,
+        cell_advances: [usize; ROWS],
         height: usize,
     },
 }
@@ -1028,11 +1061,13 @@ impl RopeNode {
                 text.graphemes(true).count(),
             )
         };
+        let cell_advances = cell_advances_for_text(text.as_str(), graphemes);
         Box::new(Self::Leaf {
             text,
             bytes,
             utf16,
             graphemes,
+            cell_advances,
             height: 1,
         })
     }
@@ -1055,6 +1090,14 @@ impl RopeNode {
         }
     }
 
+    fn cell_advance(&self, start_row: usize) -> usize {
+        match self {
+            Self::Leaf { cell_advances, .. } | Self::Branch { cell_advances, .. } => {
+                cell_advances[start_row]
+            }
+        }
+    }
+
     fn height(&self) -> usize {
         match self {
             Self::Leaf { height, .. } | Self::Branch { height, .. } => *height,
@@ -1068,6 +1111,7 @@ impl RopeNode {
                 bytes,
                 utf16,
                 graphemes,
+                cell_advances,
                 ..
             } => {
                 if text.len() + appended_text.len() > ROPE_LEAF_BYTES {
@@ -1078,6 +1122,7 @@ impl RopeNode {
                 *bytes = text.len();
                 *utf16 = text.encode_utf16().count();
                 *graphemes = text.graphemes(true).count();
+                *cell_advances = cell_advances_for_text(text, *graphemes);
                 true
             }
             Self::Leaf { .. } => false,
@@ -1087,6 +1132,7 @@ impl RopeNode {
                 bytes,
                 utf16,
                 graphemes,
+                cell_advances,
                 height,
             } => {
                 if !right.try_append_to_last_leaf(appended_text) {
@@ -1096,6 +1142,7 @@ impl RopeNode {
                 *bytes = left.bytes() + right.bytes();
                 *utf16 = left.utf16() + right.utf16();
                 *graphemes = left.graphemes() + right.graphemes();
+                *cell_advances = compose_cell_advances(&left, &right);
                 *height = left.height().max(right.height()) + 1;
                 true
             }
@@ -1131,47 +1178,52 @@ impl RopeNode {
         }
     }
 
-    fn push_graphemes(
+    fn push_visible_cells(
         &self,
         target_range: Range<usize>,
         node_byte_start: usize,
-        node_grapheme_start: usize,
+        node_cell_start: usize,
         output: &mut Vec<CellText>,
     ) {
-        let node_grapheme_end = node_grapheme_start + self.graphemes();
-        if target_range.end <= node_grapheme_start || target_range.start >= node_grapheme_end {
+        let node_cell_end = node_cell_start + self.cell_advance(node_cell_start % ROWS);
+        if target_range.end <= node_cell_start || target_range.start >= node_cell_end {
             return;
         }
 
         match self {
             Self::Leaf { text, .. } => {
                 let text = text.as_str();
-                for (local_index, (local_byte_start, grapheme)) in
-                    text.grapheme_indices(true).enumerate()
-                {
-                    let logical_index = node_grapheme_start + local_index;
-                    if !target_range.contains(&logical_index) {
+                let mut cell_index = node_cell_start;
+                for (local_byte_start, grapheme) in text.grapheme_indices(true) {
+                    if grapheme == "\n" {
+                        cell_index = next_line_cell_index(cell_index);
                         continue;
                     }
-                    let byte_start = node_byte_start + local_byte_start;
-                    output.push(CellText {
-                        logical_index,
-                        text: grapheme.to_string(),
-                        range: byte_start..byte_start + grapheme.len(),
-                    });
+
+                    if target_range.contains(&cell_index) {
+                        let byte_start = node_byte_start + local_byte_start;
+                        output.push(CellText {
+                            logical_index: cell_index,
+                            text: grapheme.to_string(),
+                            range: byte_start..byte_start + grapheme.len(),
+                        });
+                    }
+
+                    cell_index += 1;
                 }
             }
             Self::Branch { left, right, .. } => {
-                left.push_graphemes(
+                left.push_visible_cells(
                     target_range.clone(),
                     node_byte_start,
-                    node_grapheme_start,
+                    node_cell_start,
                     output,
                 );
-                right.push_graphemes(
+                let right_cell_start = node_cell_start + left.cell_advance(node_cell_start % ROWS);
+                right.push_visible_cells(
                     target_range,
                     node_byte_start + left.bytes(),
-                    node_grapheme_start + left.graphemes(),
+                    right_cell_start,
                     output,
                 );
             }
@@ -1253,6 +1305,77 @@ impl RopeNode {
         }
     }
 
+    fn byte_to_display_cell(&self, byte_offset: usize, node_cell_start: usize) -> usize {
+        match self {
+            Self::Leaf { text, bytes, .. } => {
+                let mut cell_index = node_cell_start;
+                for (local_byte_start, grapheme) in text.as_str().grapheme_indices(true) {
+                    if local_byte_start >= byte_offset.min(*bytes) {
+                        break;
+                    }
+
+                    if grapheme == "\n" {
+                        cell_index = next_line_cell_index(cell_index);
+                    } else {
+                        cell_index += 1;
+                    }
+                }
+                cell_index
+            }
+            Self::Branch { left, right, .. } => {
+                if byte_offset <= left.bytes() {
+                    left.byte_to_display_cell(byte_offset, node_cell_start)
+                } else {
+                    let right_cell_start =
+                        node_cell_start + left.cell_advance(node_cell_start % ROWS);
+                    right.byte_to_display_cell(byte_offset - left.bytes(), right_cell_start)
+                }
+            }
+        }
+    }
+
+    fn display_cell_to_byte(
+        &self,
+        target_cell_index: usize,
+        node_byte_start: usize,
+        node_cell_start: usize,
+    ) -> usize {
+        match self {
+            Self::Leaf { text, bytes, .. } => {
+                let mut cell_index = node_cell_start;
+                for (local_byte_start, grapheme) in text.as_str().grapheme_indices(true) {
+                    if target_cell_index <= cell_index {
+                        return node_byte_start + local_byte_start;
+                    }
+
+                    if grapheme == "\n" {
+                        let next_cell_index = next_line_cell_index(cell_index);
+                        if target_cell_index < next_cell_index {
+                            return node_byte_start + local_byte_start;
+                        }
+                        cell_index = next_cell_index;
+                    } else {
+                        cell_index += 1;
+                    }
+                }
+
+                node_byte_start + bytes
+            }
+            Self::Branch { left, right, .. } => {
+                let right_cell_start = node_cell_start + left.cell_advance(node_cell_start % ROWS);
+                if target_cell_index < right_cell_start {
+                    left.display_cell_to_byte(target_cell_index, node_byte_start, node_cell_start)
+                } else {
+                    right.display_cell_to_byte(
+                        target_cell_index,
+                        node_byte_start + left.bytes(),
+                        right_cell_start,
+                    )
+                }
+            }
+        }
+    }
+
     #[cfg(test)]
     fn assert_balanced(&self) -> usize {
         match self {
@@ -1261,12 +1384,14 @@ impl RopeNode {
                 bytes,
                 utf16,
                 graphemes,
+                cell_advances,
                 height,
             } => {
                 let text = text.as_str();
                 assert_eq!(*bytes, text.len());
                 assert_eq!(*utf16, text.encode_utf16().count());
                 assert_eq!(*graphemes, text.graphemes(true).count());
+                assert_eq!(*cell_advances, cell_advances_for_text(text, *graphemes));
                 assert_eq!(*height, 1);
                 1
             }
@@ -1276,6 +1401,7 @@ impl RopeNode {
                 bytes,
                 utf16,
                 graphemes,
+                cell_advances,
                 height,
             } => {
                 let left_height = left.assert_balanced();
@@ -1287,6 +1413,7 @@ impl RopeNode {
                 assert_eq!(*bytes, left.bytes() + right.bytes());
                 assert_eq!(*utf16, left.utf16() + right.utf16());
                 assert_eq!(*graphemes, left.graphemes() + right.graphemes());
+                assert_eq!(*cell_advances, compose_cell_advances(left, right));
                 assert_eq!(*height, left_height.max(right_height) + 1);
                 *height
             }
@@ -1454,6 +1581,7 @@ fn branch_node(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
     let bytes = left.bytes() + right.bytes();
     let utf16 = left.utf16() + right.utf16();
     let graphemes = left.graphemes() + right.graphemes();
+    let cell_advances = compose_cell_advances(&left, &right);
     let height = left.height().max(right.height()) + 1;
 
     Box::new(RopeNode::Branch {
@@ -1462,8 +1590,47 @@ fn branch_node(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
         bytes,
         utf16,
         graphemes,
+        cell_advances,
         height,
     })
+}
+
+fn next_line_cell_index(cell_index: usize) -> usize {
+    ((cell_index / ROWS) + 1) * ROWS
+}
+
+fn cell_advances_for_text(text: &str, graphemes: usize) -> [usize; ROWS] {
+    if !text.as_bytes().contains(&b'\n') {
+        return [graphemes; ROWS];
+    }
+
+    let mut advances = [0; ROWS];
+
+    for start_row in 0..ROWS {
+        let mut cell_index = start_row;
+        for grapheme in text.graphemes(true) {
+            if grapheme == "\n" {
+                cell_index = next_line_cell_index(cell_index);
+            } else {
+                cell_index += 1;
+            }
+        }
+        advances[start_row] = cell_index - start_row;
+    }
+
+    advances
+}
+
+fn compose_cell_advances(left: &RopeNode, right: &RopeNode) -> [usize; ROWS] {
+    let mut advances = [0; ROWS];
+
+    for start_row in 0..ROWS {
+        let left_advance = left.cell_advance(start_row);
+        let right_advance = right.cell_advance((start_row + left_advance) % ROWS);
+        advances[start_row] = left_advance + right_advance;
+    }
+
+    advances
 }
 
 fn build_balanced(leaves: Vec<String>) -> Option<Box<RopeNode>> {
@@ -1641,6 +1808,7 @@ fn main() {
             KeyBinding::new("ctrl-c", Copy, None),
             KeyBinding::new("cmd-x", Cut, None),
             KeyBinding::new("ctrl-x", Cut, None),
+            KeyBinding::new("enter", Enter, None),
             KeyBinding::new("home", Home, None),
             KeyBinding::new("end", End, None),
             KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
@@ -1725,6 +1893,33 @@ mod tests {
         assert_eq!(visible[0].text, "三");
         assert_eq!(visible[1].logical_index, 3);
         assert_eq!(visible[1].text, "四");
+    }
+
+    #[test]
+    fn rope_newline_advances_to_next_vertical_column() {
+        let rope = TextRope::from_str("あ\nい");
+        let visible = rope.visible_cells(0, ROWS + 1);
+
+        assert_eq!(rope.len_graphemes(), 3);
+        assert_eq!(rope.len_display_cells(), ROWS + 1);
+        assert_eq!(visible.len(), 2);
+        assert_eq!(visible[0].logical_index, 0);
+        assert_eq!(visible[0].text, "あ");
+        assert_eq!(visible[1].logical_index, ROWS);
+        assert_eq!(visible[1].text, "い");
+    }
+
+    #[test]
+    fn rope_maps_newline_gap_to_line_break_byte_offset() {
+        let rope = TextRope::from_str("あ\nい");
+        let newline_start = "あ".len();
+        let after_newline = "あ\n".len();
+
+        assert_eq!(rope.display_cell_for_byte(newline_start), 1);
+        assert_eq!(rope.display_cell_for_byte(after_newline), ROWS);
+        assert_eq!(rope.byte_offset_for_display_cell(1), newline_start);
+        assert_eq!(rope.byte_offset_for_display_cell(ROWS - 1), newline_start);
+        assert_eq!(rope.byte_offset_for_display_cell(ROWS), after_newline);
     }
 
     #[test]
