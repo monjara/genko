@@ -1,9 +1,11 @@
 use std::ops::Range;
 
 mod board;
+mod settings;
 
 use board::{BoardElement, cell_bounds_for_logical_index, logical_index_for_point};
 use genko_rope::{CellText, ROWS, TextRope, utf16_to_byte_in_text};
+use settings::AppSettings;
 
 use gpui::{
     App, Application, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle,
@@ -44,6 +46,7 @@ actions!(
 pub(crate) struct GenkoApp {
     title: SharedString,
     draft: TextRope,
+    pub(crate) settings: AppSettings,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) selected_range: Range<usize>,
     selection_reversed: bool,
@@ -59,6 +62,7 @@ impl GenkoApp {
         Self {
             title: "Genko".into(),
             draft: TextRope::new(),
+            settings: AppSettings::load(),
             focus_handle: cx.focus_handle(),
             selected_range: 0..0,
             selection_reversed: false,

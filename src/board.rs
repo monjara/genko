@@ -78,7 +78,7 @@ impl Element for BoardElement {
 
         self.paint_paper(bounds, window);
 
-        let (visible_text, selected_range, marked_range, cursor_index, scroll_column) = {
+        let (visible_text, selected_range, marked_range, cursor_index, scroll_column, show_grid) = {
             let app = self.app.read(cx);
             (
                 app.visible_text(),
@@ -86,6 +86,7 @@ impl Element for BoardElement {
                 app.marked_range.clone(),
                 app.cursor_cell,
                 app.scroll_column,
+                app.settings.show_grid_lines,
             )
         };
 
@@ -97,7 +98,9 @@ impl Element for BoardElement {
             scroll_column,
             window,
         );
-        self.paint_grid(bounds, window);
+        if show_grid {
+            self.paint_grid(bounds, window);
+        }
         self.paint_text(&visible_text, bounds, scroll_column, window, cx);
         if focus_handle.is_focused(window) {
             self.paint_cursor(cursor_index, bounds, scroll_column, window);
