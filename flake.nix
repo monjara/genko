@@ -5,18 +5,67 @@
     utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, utils, naersk }:
+  outputs = { nixpkgs, utils, naersk, ... }:
     utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
         naersk-lib = pkgs.callPackage naersk { };
+        nativeBuildInputs = with pkgs; [
+          cmake
+          llvmPackages.clang
+          pkg-config
+          rustPlatform.bindgenHook
+        ];
+        buildInputs = with pkgs; [
+          alsa-lib
+          fontconfig
+          glib
+          libGL
+          libva
+          libxkbcommon
+          openssl
+          pipewire
+          sqlite
+          vulkan-loader
+          wayland
+          xdg-desktop-portal
+          libx11
+          libxcursor
+          libxi
+          libxrandr
+          libxcb
+          zstd
+        ];
+        devTools = with pkgs; [
+          cargo
+          nixpkgs-fmt
+          pre-commit
+          rust-analyzer
+          rustc
+          rustfmt
+          rustPackages.clippy
+          vulkan-tools
+        ];
+        runtimeLibraryPath = pkgs.lib.makeLibraryPath buildInputs;
+        package = naersk-lib.buildPackage {
+          src = ./.;
+          inherit nativeBuildInputs buildInputs;
+        };
+        devShell = pkgs.mkShell {
+          packages = devTools;
+          inherit nativeBuildInputs buildInputs;
+
+          LD_LIBRARY_PATH = runtimeLibraryPath;
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+          RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
+        };
       in
       {
-        defaultPackage = naersk-lib.buildPackage ./.;
-        devShell = with pkgs; mkShell {
-          buildInputs = [ cargo rustc rustfmt pre-commit rustPackages.clippy ];
-          RUST_SRC_PATH = rustPlatform.rustLibSrc;
-        };
+        packages.default = package;
+        apps.default = utils.lib.mkApp { drv = package; };
+        devShells.default = devShell;
+        checks.default = package;
+        formatter = pkgs.nixpkgs-fmt;
       }
     );
 }
