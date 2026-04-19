@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
 
 use gpui::{
     App, Application, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
@@ -200,6 +200,21 @@ impl GenkoApp {
         cx.notify();
     }
 
+    fn replace_text_in_byte_range_owned(
+        &mut self,
+        range: Range<usize>,
+        new_text: String,
+        cx: &mut Context<Self>,
+    ) {
+        let cursor = range.start + new_text.len();
+        self.draft.replace_range_owned(range, new_text);
+        self.selected_range = cursor..cursor;
+        self.selection_reversed = false;
+        self.marked_range = None;
+        self.ensure_cursor_visible();
+        cx.notify();
+    }
+
     fn editing_range(&self, range_utf16: Option<Range<usize>>) -> Range<usize> {
         range_utf16
             .as_ref()
@@ -284,7 +299,7 @@ impl GenkoApp {
 
     fn paste(&mut self, _: &Paste, _window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_byte_range(self.selected_range.clone(), &text, cx);
+            self.replace_text_in_byte_range_owned(self.selected_range.clone(), text, cx);
         }
     }
 
@@ -788,9 +803,23 @@ impl TextRope {
         }
     }
 
+    #[cfg(test)]
+    fn shared_leaf_count(&self) -> usize {
+        self.root
+            .as_ref()
+            .map_or(0, |node| node.shared_leaf_count())
+    }
+
     fn from_str(text: &str) -> Self {
         Self {
             root: RopeNode::from_str(text),
+        }
+    }
+
+    #[cfg(test)]
+    fn from_string(text: String) -> Self {
+        Self {
+            root: RopeNode::from_string(text),
         }
     }
 
@@ -840,6 +869,25 @@ impl TextRope {
         self.root = concat_nodes(concat_nodes(left, RopeNode::from_str(text)), right);
     }
 
+    fn replace_range_owned(&mut self, range: Range<usize>, text: String) {
+        debug_assert!(range.start <= range.end);
+        debug_assert!(range.end <= self.len_bytes());
+
+        if range.start == range.end
+            && range.end == self.len_bytes()
+            && self.root.is_some()
+            && self.try_append_to_last_leaf(&text)
+        {
+            return;
+        }
+
+        let inserted = RopeNode::from_string(text);
+        let root = self.root.take();
+        let (left, rest) = split_node(root, range.start);
+        let (_, right) = split_node(rest, range.end - range.start);
+        self.root = concat_nodes(concat_nodes(left, inserted), right);
+    }
+
     fn try_append_to_last_leaf(&mut self, text: &str) -> bool {
         if text.is_empty() {
             return true;
@@ -887,7 +935,7 @@ impl TextRope {
 #[derive(Clone, Debug)]
 enum RopeNode {
     Leaf {
-        text: String,
+        text: RopeLeafText,
         bytes: usize,
         utf16: usize,
         graphemes: usize,
@@ -903,6 +951,40 @@ enum RopeNode {
     },
 }
 
+#[derive(Clone, Debug)]
+enum RopeLeafText {
+    Owned(String),
+    Shared {
+        source: Arc<String>,
+        range: Range<usize>,
+    },
+}
+
+impl RopeLeafText {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Owned(text) => text,
+            Self::Shared { source, range } => &source[range.clone()],
+        }
+    }
+
+    fn split_at(self, byte_offset: usize) -> (Option<Box<RopeNode>>, Option<Box<RopeNode>>) {
+        match self {
+            Self::Owned(mut text) => {
+                let right = text.split_off(byte_offset);
+                (RopeNode::from_string(text), RopeNode::from_string(right))
+            }
+            Self::Shared { source, range } => {
+                let split_offset = range.start + byte_offset;
+                (
+                    RopeNode::shared_leaf(source.clone(), range.start..split_offset),
+                    RopeNode::shared_leaf(source, split_offset..range.end),
+                )
+            }
+        }
+    }
+}
+
 impl RopeNode {
     fn from_str(text: &str) -> Option<Box<Self>> {
         if text.is_empty() {
@@ -913,10 +995,39 @@ impl RopeNode {
         build_balanced(chunks)
     }
 
+    fn from_string(text: String) -> Option<Box<Self>> {
+        if text.is_empty() {
+            return None;
+        }
+
+        if text.len() <= ROPE_LEAF_BYTES {
+            return Some(Self::leaf(text));
+        }
+
+        build_balanced_nodes(chunk_shared_string(Arc::new(text)))
+    }
+
     fn leaf(text: String) -> Box<Self> {
-        let bytes = text.len();
-        let utf16 = text.encode_utf16().count();
-        let graphemes = text.graphemes(true).count();
+        Self::leaf_text(RopeLeafText::Owned(text))
+    }
+
+    fn shared_leaf(source: Arc<String>, range: Range<usize>) -> Option<Box<Self>> {
+        if range.is_empty() {
+            None
+        } else {
+            Some(Self::leaf_text(RopeLeafText::Shared { source, range }))
+        }
+    }
+
+    fn leaf_text(text: RopeLeafText) -> Box<Self> {
+        let (bytes, utf16, graphemes) = {
+            let text = text.as_str();
+            (
+                text.len(),
+                text.encode_utf16().count(),
+                text.graphemes(true).count(),
+            )
+        };
         Box::new(Self::Leaf {
             text,
             bytes,
@@ -953,7 +1064,7 @@ impl RopeNode {
     fn try_append_to_last_leaf(&mut self, appended_text: &str) -> bool {
         match self {
             Self::Leaf {
-                text,
+                text: RopeLeafText::Owned(text),
                 bytes,
                 utf16,
                 graphemes,
@@ -969,6 +1080,7 @@ impl RopeNode {
                 *graphemes = text.graphemes(true).count();
                 true
             }
+            Self::Leaf { .. } => false,
             Self::Branch {
                 left,
                 right,
@@ -992,7 +1104,7 @@ impl RopeNode {
 
     fn push_to_string(&self, output: &mut String) {
         match self {
-            Self::Leaf { text, .. } => output.push_str(text),
+            Self::Leaf { text, .. } => output.push_str(text.as_str()),
             Self::Branch { left, right, .. } => {
                 left.push_to_string(output);
                 right.push_to_string(output);
@@ -1010,7 +1122,7 @@ impl RopeNode {
             Self::Leaf { text, .. } => {
                 let local_start = range.start.saturating_sub(node_start);
                 let local_end = (range.end.min(node_end)) - node_start;
-                output.push_str(&text[local_start..local_end]);
+                output.push_str(&text.as_str()[local_start..local_end]);
             }
             Self::Branch { left, right, .. } => {
                 left.push_range(range.clone(), node_start, output);
@@ -1033,6 +1145,7 @@ impl RopeNode {
 
         match self {
             Self::Leaf { text, .. } => {
+                let text = text.as_str();
                 for (local_index, (local_byte_start, grapheme)) in
                     text.grapheme_indices(true).enumerate()
                 {
@@ -1067,7 +1180,9 @@ impl RopeNode {
 
     fn byte_to_utf16(&self, byte_offset: usize) -> usize {
         match self {
-            Self::Leaf { text, bytes, .. } => byte_to_utf16_in_str(text, byte_offset.min(*bytes)),
+            Self::Leaf { text, bytes, .. } => {
+                byte_to_utf16_in_str(text.as_str(), byte_offset.min(*bytes))
+            }
             Self::Branch { left, right, .. } => {
                 if byte_offset <= left.bytes() {
                     left.byte_to_utf16(byte_offset)
@@ -1080,7 +1195,9 @@ impl RopeNode {
 
     fn utf16_to_byte(&self, utf16_offset: usize) -> usize {
         match self {
-            Self::Leaf { text, utf16, .. } => utf16_to_byte_in_str(text, utf16_offset.min(*utf16)),
+            Self::Leaf { text, utf16, .. } => {
+                utf16_to_byte_in_str(text.as_str(), utf16_offset.min(*utf16))
+            }
             Self::Branch { left, right, .. } => {
                 if utf16_offset <= left.utf16() {
                     left.utf16_to_byte(utf16_offset)
@@ -1102,7 +1219,8 @@ impl RopeNode {
                 if grapheme_index >= *graphemes {
                     *bytes
                 } else {
-                    text.grapheme_indices(true)
+                    text.as_str()
+                        .grapheme_indices(true)
                         .nth(grapheme_index)
                         .map(|(offset, _)| offset)
                         .unwrap_or(*bytes)
@@ -1121,6 +1239,7 @@ impl RopeNode {
     fn byte_to_grapheme(&self, byte_offset: usize) -> usize {
         match self {
             Self::Leaf { text, bytes, .. } => text
+                .as_str()
                 .grapheme_indices(true)
                 .take_while(|(offset, _)| *offset < byte_offset.min(*bytes))
                 .count(),
@@ -1144,6 +1263,7 @@ impl RopeNode {
                 graphemes,
                 height,
             } => {
+                let text = text.as_str();
                 assert_eq!(*bytes, text.len());
                 assert_eq!(*utf16, text.encode_utf16().count());
                 assert_eq!(*graphemes, text.graphemes(true).count());
@@ -1172,6 +1292,20 @@ impl RopeNode {
             }
         }
     }
+
+    #[cfg(test)]
+    fn shared_leaf_count(&self) -> usize {
+        match self {
+            Self::Leaf {
+                text: RopeLeafText::Shared { .. },
+                ..
+            } => 1,
+            Self::Leaf { .. } => 0,
+            Self::Branch { left, right, .. } => {
+                left.shared_leaf_count() + right.shared_leaf_count()
+            }
+        }
+    }
 }
 
 fn split_node(
@@ -1192,10 +1326,8 @@ fn split_node(
 
     match *node {
         RopeNode::Leaf { text, .. } => {
-            debug_assert!(text.is_char_boundary(byte_offset));
-            let left = RopeNode::from_str(&text[..byte_offset]);
-            let right = RopeNode::from_str(&text[byte_offset..]);
-            (left, right)
+            debug_assert!(text.as_str().is_char_boundary(byte_offset));
+            text.split_at(byte_offset)
         }
         RopeNode::Branch { left, right, .. } => {
             let left_len = left.bytes();
@@ -1334,24 +1466,27 @@ fn branch_node(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
     })
 }
 
-fn build_balanced(mut leaves: Vec<String>) -> Option<Box<RopeNode>> {
-    if leaves.is_empty() {
-        return None;
-    }
-    build_balanced_slice(&mut leaves)
+fn build_balanced(leaves: Vec<String>) -> Option<Box<RopeNode>> {
+    build_balanced_nodes(leaves.into_iter().map(RopeNode::leaf).collect())
 }
 
-fn build_balanced_slice(leaves: &mut [String]) -> Option<Box<RopeNode>> {
-    match leaves.len() {
-        0 => None,
-        1 => Some(RopeNode::leaf(std::mem::take(&mut leaves[0]))),
-        len => {
-            let midpoint = len / 2;
-            let left = build_balanced_slice(&mut leaves[..midpoint]);
-            let right = build_balanced_slice(&mut leaves[midpoint..]);
-            concat_nodes(left, right)
+fn build_balanced_nodes(mut nodes: Vec<Box<RopeNode>>) -> Option<Box<RopeNode>> {
+    while nodes.len() > 1 {
+        let mut next_nodes = Vec::with_capacity(nodes.len().div_ceil(2));
+        let mut iter = nodes.into_iter();
+
+        while let Some(left) = iter.next() {
+            if let Some(right) = iter.next() {
+                next_nodes.push(concat_non_empty(left, right));
+            } else {
+                next_nodes.push(left);
+            }
         }
+
+        nodes = next_nodes;
     }
+
+    nodes.pop()
 }
 
 fn chunk_string(text: &str) -> Vec<String> {
@@ -1367,6 +1502,32 @@ fn chunk_string(text: &str) -> Vec<String> {
 
     if !current.is_empty() {
         chunks.push(current);
+    }
+
+    chunks
+}
+
+fn chunk_shared_string(source: Arc<String>) -> Vec<Box<RopeNode>> {
+    let mut chunks = Vec::new();
+    let mut chunk_start = 0;
+    let mut chunk_bytes = 0;
+
+    for (byte_offset, grapheme) in source.grapheme_indices(true) {
+        if chunk_bytes > 0 && chunk_bytes + grapheme.len() > ROPE_LEAF_BYTES {
+            if let Some(chunk) = RopeNode::shared_leaf(source.clone(), chunk_start..byte_offset) {
+                chunks.push(chunk);
+            }
+            chunk_start = byte_offset;
+            chunk_bytes = 0;
+        }
+
+        chunk_bytes += grapheme.len();
+    }
+
+    if chunk_start < source.len() {
+        if let Some(chunk) = RopeNode::shared_leaf(source.clone(), chunk_start..source.len()) {
+            chunks.push(chunk);
+        }
     }
 
     chunks
@@ -1597,5 +1758,38 @@ mod tests {
         assert_eq!(rope.len_graphemes(), 20_500);
         assert!(rope.height() <= 32);
         rope.assert_balanced();
+    }
+
+    #[test]
+    fn rope_uses_shared_chunks_for_owned_large_text() {
+        let rope = TextRope::from_string("文".repeat(20_000));
+
+        assert_eq!(rope.len_graphemes(), 20_000);
+        assert!(rope.shared_leaf_count() > 0);
+        assert!(rope.height() <= 32);
+        rope.assert_balanced();
+
+        let visible = rope.visible_graphemes(19_998, 2);
+        assert_eq!(visible.len(), 2);
+        assert_eq!(visible[0].text, "文");
+        assert_eq!(visible[1].text, "文");
+    }
+
+    #[test]
+    fn rope_pastes_owned_large_text_into_existing_document() {
+        let mut rope = TextRope::from_str("開始終了");
+        let insert_at = "開始".len();
+
+        rope.replace_range_owned(insert_at..insert_at, "文".repeat(20_000));
+
+        assert_eq!(rope.len_graphemes(), 20_004);
+        assert!(rope.shared_leaf_count() > 0);
+        assert!(rope.height() <= 32);
+        rope.assert_balanced();
+
+        let visible = rope.visible_graphemes(0, 3);
+        assert_eq!(visible[0].text, "開");
+        assert_eq!(visible[1].text, "始");
+        assert_eq!(visible[2].text, "文");
     }
 }
