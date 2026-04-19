@@ -200,25 +200,7 @@ impl BoardElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let style = window.text_style();
-        let font_size = px(21.0);
-        let line_height = px(24.0);
-
         for cell_text in visible_text {
-            let run = TextRun {
-                len: cell_text.text.len(),
-                font: style.font(),
-                color: rgb(0x2f241d).into(),
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            };
-            let line = window.text_system().shape_line(
-                cell_text.text.clone().into(),
-                font_size,
-                &[run],
-                None,
-            );
             let Some(cell_bounds) = cell_bounds_for_logical_index(
                 bounds,
                 cell_text.logical_index,
@@ -227,12 +209,71 @@ impl BoardElement {
             ) else {
                 continue;
             };
-            let text_origin = point(
-                cell_bounds.left() + (px(CELL_SIZE) - line.width) / 2.0,
-                cell_bounds.top() + (px(CELL_SIZE) - line_height) / 2.0,
-            );
-            line.paint(text_origin, line_height, window, cx).ok();
+
+            if cell_text.attached_to_previous {
+                self.paint_attached_punctuation(cell_text, cell_bounds, window, cx);
+            } else {
+                self.paint_cell_text(cell_text, cell_bounds, window, cx);
+            }
         }
+    }
+
+    fn paint_cell_text(
+        &self,
+        cell_text: &CellText,
+        cell_bounds: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let style = window.text_style();
+        let font_size = px(21.0);
+        let line_height = px(24.0);
+        let run = TextRun {
+            len: cell_text.text.len(),
+            font: style.font(),
+            color: rgb(0x2f241d).into(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let line =
+            window
+                .text_system()
+                .shape_line(cell_text.text.clone().into(), font_size, &[run], None);
+        let text_origin = point(
+            cell_bounds.left() + (px(CELL_SIZE) - line.width) / 2.0,
+            cell_bounds.top() + (px(CELL_SIZE) - line_height) / 2.0,
+        );
+        line.paint(text_origin, line_height, window, cx).ok();
+    }
+
+    fn paint_attached_punctuation(
+        &self,
+        cell_text: &CellText,
+        cell_bounds: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let style = window.text_style();
+        let font_size = px(14.0);
+        let line_height = px(16.0);
+        let run = TextRun {
+            len: cell_text.text.len(),
+            font: style.font(),
+            color: rgb(0x2f241d).into(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let line =
+            window
+                .text_system()
+                .shape_line(cell_text.text.clone().into(), font_size, &[run], None);
+        let text_origin = point(
+            cell_bounds.right() - line.width - px(3.0),
+            cell_bounds.bottom() - line_height - px(1.0),
+        );
+        line.paint(text_origin, line_height, window, cx).ok();
     }
 
     fn paint_cursor(

@@ -12,6 +12,7 @@ pub struct CellText {
     pub logical_index: usize,
     pub text: String,
     pub range: Range<usize>,
+    pub attached_to_previous: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -63,7 +64,9 @@ impl TextRope {
     }
 
     pub fn len_display_cells(&self) -> usize {
-        self.root.as_ref().map_or(0, |node| node.cell_advance(0))
+        self.root
+            .as_ref()
+            .map_or(0, |node| node.cell_advance_from(0, self.rows_per_column))
     }
 
     #[cfg(test)]
@@ -128,16 +131,18 @@ impl TextRope {
     }
 
     pub fn visible_cells(&self, start_index: usize, max_count: usize) -> Vec<CellText> {
+        let target_range = start_index..start_index.saturating_add(max_count);
         let mut cells = Vec::with_capacity(max_count.min(self.len_display_cells()));
         if let Some(root) = self.root.as_ref() {
             root.push_visible_cells(
-                start_index..start_index.saturating_add(max_count),
+                start_index..start_index.saturating_add(max_count).saturating_add(1),
                 0,
                 0,
                 self.rows_per_column,
                 &mut cells,
             );
         }
+        cells.retain(|cell| target_range.contains(&cell.logical_index));
         cells
     }
 
@@ -271,7 +276,7 @@ enum RopeNode {
         bytes: usize,
         utf16: usize,
         graphemes: usize,
-        cell_advances: Vec<usize>,
+        cell_advances: CellAdvances,
         height: usize,
     },
     Branch {
@@ -280,9 +285,15 @@ enum RopeNode {
         bytes: usize,
         utf16: usize,
         graphemes: usize,
-        cell_advances: Vec<usize>,
+        cell_advances: CellAdvances,
         height: usize,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CellAdvances {
+    at_document_start: Vec<usize>,
+    after_document_start: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -412,10 +423,15 @@ impl RopeNode {
         }
     }
 
-    fn cell_advance(&self, start_row: usize) -> usize {
+    fn cell_advance_from(&self, start_cell: usize, rows_per_column: usize) -> usize {
+        let start_row = start_cell % rows_per_column;
         match self {
             Self::Leaf { cell_advances, .. } | Self::Branch { cell_advances, .. } => {
-                cell_advances[start_row]
+                if start_cell == 0 {
+                    cell_advances.at_document_start[start_row]
+                } else {
+                    cell_advances.after_document_start[start_row]
+                }
             }
         }
     }
@@ -494,6 +510,20 @@ impl RopeNode {
         }
     }
 
+    fn advance_cell_for_grapheme(
+        cell_index: usize,
+        grapheme: &str,
+        rows_per_column: usize,
+    ) -> usize {
+        if is_leading_attached_punctuation(grapheme, cell_index, rows_per_column) {
+            cell_index
+        } else if grapheme == "\n" {
+            next_line_cell_index(cell_index, rows_per_column)
+        } else {
+            cell_index + 1
+        }
+    }
+
     fn push_to_string(&self, output: &mut String) {
         match self {
             Self::Leaf { text, .. } => output.push_str(text.as_str()),
@@ -531,7 +561,8 @@ impl RopeNode {
         rows_per_column: usize,
         output: &mut Vec<CellText>,
     ) {
-        let node_cell_end = node_cell_start + self.cell_advance(node_cell_start % rows_per_column);
+        let node_cell_end =
+            node_cell_start + self.cell_advance_from(node_cell_start, rows_per_column);
         if target_range.end <= node_cell_start || target_range.start >= node_cell_end {
             return;
         }
@@ -542,20 +573,31 @@ impl RopeNode {
                 let mut cell_index = node_cell_start;
                 for (local_byte_start, grapheme) in text.grapheme_indices(true) {
                     if grapheme == "\n" {
-                        cell_index = next_line_cell_index(cell_index, rows_per_column);
+                        cell_index =
+                            Self::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
                         continue;
                     }
 
-                    if target_range.contains(&cell_index) {
+                    let attached_to_previous =
+                        is_leading_attached_punctuation(grapheme, cell_index, rows_per_column);
+                    let display_cell_index = if attached_to_previous {
+                        cell_index - 1
+                    } else {
+                        cell_index
+                    };
+
+                    if target_range.contains(&display_cell_index) {
                         let byte_start = node_byte_start + local_byte_start;
                         output.push(CellText {
-                            logical_index: cell_index,
+                            logical_index: display_cell_index,
                             text: grapheme.to_string(),
                             range: byte_start..byte_start + grapheme.len(),
+                            attached_to_previous,
                         });
                     }
 
-                    cell_index += 1;
+                    cell_index =
+                        Self::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
                 }
             }
             Self::Branch { left, right, .. } => {
@@ -567,7 +609,7 @@ impl RopeNode {
                     output,
                 );
                 let right_cell_start =
-                    node_cell_start + left.cell_advance(node_cell_start % rows_per_column);
+                    node_cell_start + left.cell_advance_from(node_cell_start, rows_per_column);
                 right.push_visible_cells(
                     target_range,
                     node_byte_start + left.bytes(),
@@ -668,11 +710,8 @@ impl RopeNode {
                         break;
                     }
 
-                    if grapheme == "\n" {
-                        cell_index = next_line_cell_index(cell_index, rows_per_column);
-                    } else {
-                        cell_index += 1;
-                    }
+                    cell_index =
+                        Self::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
                 }
                 cell_index
             }
@@ -681,7 +720,7 @@ impl RopeNode {
                     left.byte_to_display_cell(byte_offset, node_cell_start, rows_per_column)
                 } else {
                     let right_cell_start =
-                        node_cell_start + left.cell_advance(node_cell_start % rows_per_column);
+                        node_cell_start + left.cell_advance_from(node_cell_start, rows_per_column);
                     right.byte_to_display_cell(
                         byte_offset - left.bytes(),
                         right_cell_start,
@@ -703,26 +742,29 @@ impl RopeNode {
             Self::Leaf { text, bytes, .. } => {
                 let mut cell_index = node_cell_start;
                 for (local_byte_start, grapheme) in text.as_str().grapheme_indices(true) {
-                    if target_cell_index <= cell_index {
+                    let next_cell_index =
+                        Self::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
+
+                    if grapheme == "\n" {
+                        if target_cell_index <= cell_index || target_cell_index < next_cell_index {
+                            return node_byte_start + local_byte_start;
+                        }
+                    } else if next_cell_index == cell_index {
+                        if target_cell_index < cell_index {
+                            return node_byte_start + local_byte_start;
+                        }
+                    } else if target_cell_index <= cell_index {
                         return node_byte_start + local_byte_start;
                     }
 
-                    if grapheme == "\n" {
-                        let next_cell_index = next_line_cell_index(cell_index, rows_per_column);
-                        if target_cell_index < next_cell_index {
-                            return node_byte_start + local_byte_start;
-                        }
-                        cell_index = next_cell_index;
-                    } else {
-                        cell_index += 1;
-                    }
+                    cell_index = next_cell_index;
                 }
 
                 node_byte_start + bytes
             }
             Self::Branch { left, right, .. } => {
                 let right_cell_start =
-                    node_cell_start + left.cell_advance(node_cell_start % rows_per_column);
+                    node_cell_start + left.cell_advance_from(node_cell_start, rows_per_column);
                 if target_cell_index < right_cell_start {
                     left.display_cell_to_byte(
                         target_cell_index,
@@ -1014,6 +1056,14 @@ fn next_line_cell_index(cell_index: usize, rows_per_column: usize) -> usize {
     ((cell_index / rows_per_column) + 1) * rows_per_column
 }
 
+fn is_leading_attached_punctuation(
+    grapheme: &str,
+    cell_index: usize,
+    rows_per_column: usize,
+) -> bool {
+    cell_index > 0 && cell_index % rows_per_column == 0 && matches!(grapheme, "。" | "、")
+}
+
 fn filler_text_between_cells(
     mut current_cell: usize,
     target_cell: usize,
@@ -1035,34 +1085,75 @@ fn filler_text_between_cells(
     filler
 }
 
-fn cell_advances_for_text(text: &str, graphemes: usize, rows_per_column: usize) -> Vec<usize> {
-    if !text.as_bytes().contains(&b'\n') {
-        return vec![graphemes; rows_per_column];
+fn cell_advances_for_text(text: &str, graphemes: usize, rows_per_column: usize) -> CellAdvances {
+    if !has_layout_sensitive_grapheme(text) {
+        let advances = vec![graphemes; rows_per_column];
+        return CellAdvances {
+            at_document_start: advances.clone(),
+            after_document_start: advances,
+        };
     }
 
-    let mut advances = vec![0; rows_per_column];
+    CellAdvances {
+        at_document_start: cell_advances_for_text_context(text, rows_per_column, false),
+        after_document_start: cell_advances_for_text_context(text, rows_per_column, true),
+    }
+}
 
+fn cell_advances_for_text_context(
+    text: &str,
+    rows_per_column: usize,
+    after_document_start: bool,
+) -> Vec<usize> {
+    let mut advances = vec![0; rows_per_column];
     for start_row in 0..rows_per_column {
-        let mut cell_index = start_row;
+        let start_cell = if after_document_start && start_row == 0 {
+            rows_per_column
+        } else {
+            start_row
+        };
+        let mut cell_index = start_cell;
         for grapheme in text.graphemes(true) {
-            if grapheme == "\n" {
-                cell_index = next_line_cell_index(cell_index, rows_per_column);
-            } else {
-                cell_index += 1;
-            }
+            cell_index = RopeNode::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
         }
-        advances[start_row] = cell_index - start_row;
+        advances[start_row] = cell_index - start_cell;
     }
 
     advances
 }
 
-fn compose_cell_advances(left: &RopeNode, right: &RopeNode, rows_per_column: usize) -> Vec<usize> {
+fn has_layout_sensitive_grapheme(text: &str) -> bool {
+    text.contains('\n') || text.contains('。') || text.contains('、')
+}
+
+fn compose_cell_advances(
+    left: &RopeNode,
+    right: &RopeNode,
+    rows_per_column: usize,
+) -> CellAdvances {
+    CellAdvances {
+        at_document_start: compose_cell_advances_context(left, right, rows_per_column, false),
+        after_document_start: compose_cell_advances_context(left, right, rows_per_column, true),
+    }
+}
+
+fn compose_cell_advances_context(
+    left: &RopeNode,
+    right: &RopeNode,
+    rows_per_column: usize,
+    after_document_start: bool,
+) -> Vec<usize> {
     let mut advances = vec![0; rows_per_column];
 
     for start_row in 0..rows_per_column {
-        let left_advance = left.cell_advance(start_row);
-        let right_advance = right.cell_advance((start_row + left_advance) % rows_per_column);
+        let start_cell = if after_document_start && start_row == 0 {
+            rows_per_column
+        } else {
+            start_row
+        };
+        let left_advance = left.cell_advance_from(start_cell, rows_per_column);
+        let right_cell_start = start_cell + left_advance;
+        let right_advance = right.cell_advance_from(right_cell_start, rows_per_column);
         advances[start_row] = left_advance + right_advance;
     }
 
@@ -1214,6 +1305,72 @@ mod tests {
         assert_eq!(visible[0].text, "三");
         assert_eq!(visible[1].logical_index, 3);
         assert_eq!(visible[1].text, "四");
+    }
+
+    #[test]
+    fn rope_attaches_leading_punctuation_to_previous_column_end() {
+        let rope = TextRope::from_str_with_rows("一二三、四", 3);
+        let visible = rope.visible_cells(0, 3);
+        let after_punctuation = "一二三、".len();
+
+        assert_eq!(visible.len(), 4);
+        assert_eq!(rope.len_display_cells(), 4);
+        assert_eq!(rope.display_cell_for_byte(after_punctuation), 3);
+        assert_eq!(rope.byte_offset_for_display_cell(3), after_punctuation);
+        assert_eq!(visible[0].logical_index, 0);
+        assert_eq!(visible[0].text, "一");
+        assert!(!visible[0].attached_to_previous);
+        assert_eq!(visible[2].logical_index, 2);
+        assert_eq!(visible[2].text, "三");
+        assert!(!visible[2].attached_to_previous);
+        assert_eq!(visible[3].logical_index, 2);
+        assert_eq!(visible[3].text, "、");
+        assert!(visible[3].attached_to_previous);
+    }
+
+    #[test]
+    fn rope_places_cursor_after_leading_punctuation_before_next_character() {
+        let mut rope = TextRope::from_str_with_rows("一二三", 3);
+        let punctuation_at = rope.byte_offset_for_display_cell(3);
+
+        rope.replace_range(punctuation_at..punctuation_at, "、");
+        let next_insert_at = rope.byte_offset_for_display_cell(3);
+        rope.replace_range(next_insert_at..next_insert_at, "四");
+
+        assert_eq!(rope.to_string(), "一二三、四");
+        assert_eq!(rope.display_cell_for_byte("一二三、".len()), 3);
+        assert_eq!(rope.display_cell_for_byte("一二三、四".len()), 4);
+    }
+
+    #[test]
+    fn rope_attaches_leading_punctuation_across_node_boundary() {
+        let rows = 4;
+        let prefix = "a".repeat(ROPE_LEAF_BYTES);
+        let text = format!("{prefix}、文");
+        let rope = TextRope::from_str_with_rows(&text, rows);
+        let after_punctuation = prefix.len() + "、".len();
+        let visible = rope.visible_cells(prefix.len() - 2, 4);
+        let punctuation = visible.iter().find(|cell| cell.text == "、").unwrap();
+
+        assert!(rope.height() > 1);
+        assert_eq!(rope.len_display_cells(), prefix.len() + 1);
+        assert_eq!(rope.display_cell_for_byte(after_punctuation), prefix.len());
+        assert_eq!(
+            rope.byte_offset_for_display_cell(prefix.len()),
+            after_punctuation
+        );
+        assert_eq!(punctuation.logical_index, prefix.len() - 1);
+        assert!(punctuation.attached_to_previous);
+    }
+
+    #[test]
+    fn rope_does_not_attach_punctuation_inside_column() {
+        let rope = TextRope::from_str_with_rows("一二、三", 3);
+        let visible = rope.visible_cells(0, 3);
+        let punctuation = visible.iter().find(|cell| cell.text == "、").unwrap();
+
+        assert_eq!(punctuation.logical_index, 2);
+        assert!(!punctuation.attached_to_previous);
     }
 
     #[test]
