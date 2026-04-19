@@ -29,17 +29,32 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn toggle_vim_mode(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.draft.vim_mode = !self.draft.vim_mode;
+        self.status = "".into();
+        cx.notify();
+    }
+
+    fn toggle_rows_auto(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.draft.rows_per_column = self.draft.rows_per_column.map_or_else(
+            || Some(AppSettings::default_fixed_rows_per_column()),
+            |_| None,
+        );
+        self.status = "".into();
+        cx.notify();
+    }
+
     fn decrement_rows_per_column(
         &mut self,
         _: &ClickEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.draft.rows_per_column = self
+        let rows = self
             .draft
             .rows_per_column
-            .saturating_sub(1)
-            .max(MIN_ROWS_PER_COLUMN);
+            .unwrap_or_else(AppSettings::default_fixed_rows_per_column);
+        self.draft.rows_per_column = Some(rows.saturating_sub(1).max(MIN_ROWS_PER_COLUMN));
         self.status = "".into();
         cx.notify();
     }
@@ -50,7 +65,11 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.draft.rows_per_column = (self.draft.rows_per_column + 1).min(MAX_ROWS_PER_COLUMN);
+        let rows = self
+            .draft
+            .rows_per_column
+            .unwrap_or_else(AppSettings::default_fixed_rows_per_column);
+        self.draft.rows_per_column = Some((rows + 1).min(MAX_ROWS_PER_COLUMN));
         self.status = "".into();
         cx.notify();
     }
@@ -73,6 +92,16 @@ impl SettingsWindow {
     }
 
     fn render_rows_per_column(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows_label = self
+            .draft
+            .rows_per_column
+            .map_or_else(|| "自動".to_string(), |rows| rows.to_string());
+        let mode_label = if self.draft.rows_per_column.is_some() {
+            "固定"
+        } else {
+            "自動"
+        };
+
         div()
             .flex()
             .items_center()
@@ -89,7 +118,7 @@ impl SettingsWindow {
                     .gap_1()
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("1列の文字数"))
                     .child(div().text_sm().text_color(rgb(0x705a4a)).child(format!(
-                        "{}から{}の範囲で設定できます",
+                        "未指定ならウィンドウの高さに合わせます。固定は{}から{}の範囲です",
                         MIN_ROWS_PER_COLUMN, MAX_ROWS_PER_COLUMN
                     ))),
             )
@@ -98,6 +127,22 @@ impl SettingsWindow {
                     .flex()
                     .items_center()
                     .gap_2()
+                    .child(
+                        div()
+                            .id("settings-rows-auto-toggle")
+                            .px_3()
+                            .h(px(32.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(rgb(0xd9cbb8))
+                            .cursor_pointer()
+                            .active(|this| this.opacity(0.85))
+                            .child(mode_label)
+                            .on_click(cx.listener(Self::toggle_rows_auto)),
+                    )
                     .child(
                         div()
                             .id("settings-rows-decrement")
@@ -123,7 +168,7 @@ impl SettingsWindow {
                             .justify_center()
                             .rounded_sm()
                             .bg(rgb(0xe7ded0))
-                            .child(self.draft.rows_per_column.to_string()),
+                            .child(rows_label),
                     )
                     .child(
                         div()
@@ -195,6 +240,57 @@ impl SettingsWindow {
             )
     }
 
+    fn render_vim_mode_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let value_label = if self.draft.vim_mode {
+            "有効"
+        } else {
+            "無効"
+        };
+
+        div()
+            .id("settings-vim-mode-toggle")
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .p_3()
+            .border_1()
+            .border_color(rgb(0xd9cbb8))
+            .rounded_sm()
+            .cursor_pointer()
+            .on_click(cx.listener(Self::toggle_vim_mode))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Vimモード"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(0x705a4a))
+                            .child("Vimの通常モードと挿入モードで編集します"),
+                    ),
+            )
+            .child(
+                div()
+                    .px_3()
+                    .py_1()
+                    .rounded_sm()
+                    .bg(if self.draft.vim_mode {
+                        rgb(0x2f6fff)
+                    } else {
+                        rgb(0xe7ded0)
+                    })
+                    .text_color(if self.draft.vim_mode {
+                        rgb(0xffffff)
+                    } else {
+                        rgb(0x2f241d)
+                    })
+                    .child(value_label),
+            )
+    }
+
     fn render_apply_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("settings-apply")
@@ -234,6 +330,7 @@ impl Render for SettingsWindow {
                     ),
             )
             .child(self.render_grid_toggle(cx))
+            .child(self.render_vim_mode_toggle(cx))
             .child(self.render_rows_per_column(cx))
             .child(
                 div()

@@ -6,7 +6,7 @@ mod settings_window;
 
 use board::{BoardElement, cell_bounds_for_logical_index, logical_index_for_point};
 use genko_rope::{CellText, TextRope, utf16_to_byte_in_text};
-use settings::AppSettings;
+use settings::{AppSettings, MAX_ROWS_PER_COLUMN};
 use settings_window::SettingsWindow;
 
 use gpui::{
@@ -17,6 +17,7 @@ use gpui::{
 };
 
 const DEFAULT_VISIBLE_COLUMNS: usize = 20;
+const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
 const CELL_SIZE: f32 = 28.0;
 
 actions!(
@@ -41,13 +42,26 @@ actions!(
         Enter,
         ShowCharacterPalette,
         OpenSettings,
+        VimEnterInsertMode,
+        VimAppend,
+        VimNormalMode,
+        VimVisualMode,
+        VimDeleteChar,
         Quit,
     ]
 );
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VimMode {
+    Normal,
+    Insert,
+    Visual,
+}
+
 pub(crate) struct GenkoApp {
     title: SharedString,
     draft: TextRope,
+    rows_per_column: usize,
     pub(crate) settings: AppSettings,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) selected_range: Range<usize>,
@@ -58,15 +72,26 @@ pub(crate) struct GenkoApp {
     pub(crate) scroll_column: usize,
     scroll_remainder_columns: f32,
     visible_columns: usize,
+    vim_mode: VimMode,
+    visual_anchor_cell: Option<usize>,
 }
 
 impl GenkoApp {
     fn new(cx: &mut Context<Self>) -> Self {
         let settings = AppSettings::load();
-        let draft = TextRope::new_with_rows(settings.rows_per_column);
+        let rows_per_column = settings
+            .rows_per_column
+            .unwrap_or_else(AppSettings::default_fixed_rows_per_column);
+        let draft = TextRope::new_with_rows(rows_per_column);
+        let vim_mode = if settings.vim_mode {
+            VimMode::Normal
+        } else {
+            VimMode::Insert
+        };
         Self {
             title: "Genko".into(),
             draft,
+            rows_per_column,
             settings,
             focus_handle: cx.focus_handle(),
             selected_range: 0..0,
@@ -77,14 +102,25 @@ impl GenkoApp {
             scroll_column: 0,
             scroll_remainder_columns: 0.0,
             visible_columns: DEFAULT_VISIBLE_COLUMNS,
+            vim_mode,
+            visual_anchor_cell: None,
         }
     }
 
     pub(crate) fn apply_settings(&mut self, settings: AppSettings, cx: &mut Context<Self>) {
+        let was_vim_mode = self.settings.vim_mode;
         self.settings = settings.normalized();
-        self.draft
-            .set_rows_per_column(self.settings.rows_per_column);
-        self.cursor_cell = self.display_cell_for_byte(self.cursor_offset());
+        if self.settings.vim_mode != was_vim_mode {
+            self.vim_mode = if self.settings.vim_mode {
+                VimMode::Normal
+            } else {
+                VimMode::Insert
+            };
+            self.visual_anchor_cell = None;
+        }
+        if let Some(rows_per_column) = self.settings.rows_per_column {
+            self.update_rows_per_column(rows_per_column);
+        }
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -97,11 +133,28 @@ impl GenkoApp {
         }
     }
 
+    fn vim_key_context(&self) -> &'static str {
+        if !self.settings.vim_mode {
+            "Genko vim_mode=off"
+        } else {
+            match self.vim_mode {
+                VimMode::Normal => "Genko vim_mode=normal",
+                VimMode::Insert => "Genko vim_mode=insert",
+                VimMode::Visual => "Genko vim_mode=visual",
+            }
+        }
+    }
+
+    fn is_vim_command_mode(&self) -> bool {
+        self.settings.vim_mode && self.vim_mode != VimMode::Insert
+    }
+
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
         let offset = self.draft.byte_offset_for_display_cell(cell_index);
         self.selected_range = offset..offset;
         self.selection_reversed = false;
         self.cursor_cell = cell_index;
+        self.visual_anchor_cell = None;
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -118,6 +171,28 @@ impl GenkoApp {
             self.selected_range = self.selected_range.end..self.selected_range.start;
         }
         self.cursor_cell = cell_index;
+        self.ensure_cursor_visible();
+        cx.notify();
+    }
+
+    fn update_visual_selection(&mut self) {
+        let Some(anchor_cell) = self.visual_anchor_cell else {
+            return;
+        };
+        let start_cell = anchor_cell.min(self.cursor_cell);
+        let end_cell = anchor_cell.max(self.cursor_cell);
+        let start = self.draft.byte_offset_for_display_cell(start_cell);
+        let end = self
+            .next_boundary(self.draft.byte_offset_for_display_cell(end_cell))
+            .max(start);
+        self.selected_range = start..end;
+        self.selection_reversed = self.cursor_cell < anchor_cell;
+    }
+
+    fn vim_select_to_cell_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let target = self.cursor_cell.saturating_add_signed(delta);
+        self.cursor_cell = target;
+        self.update_visual_selection();
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -148,7 +223,7 @@ impl GenkoApp {
     }
 
     pub(crate) fn rows_per_column(&self) -> usize {
-        self.settings.rows_per_column
+        self.rows_per_column
     }
 
     pub(crate) fn visible_columns(&self) -> usize {
@@ -157,6 +232,25 @@ impl GenkoApp {
 
     fn update_visible_columns(&mut self, visible_columns: usize) {
         self.visible_columns = visible_columns.max(1);
+        self.ensure_cursor_visible();
+    }
+
+    fn update_rows_per_column(&mut self, rows_per_column: usize) {
+        let rows_per_column = rows_per_column.clamp(1, MAX_ROWS_PER_COLUMN);
+        if self.rows_per_column == rows_per_column {
+            return;
+        }
+
+        let cursor_offset = self.cursor_offset();
+        self.rows_per_column = rows_per_column;
+        self.draft.set_rows_per_column(rows_per_column);
+        self.cursor_cell = self.display_cell_for_byte(cursor_offset);
+        if self.vim_mode == VimMode::Visual {
+            self.selected_range = cursor_offset..cursor_offset;
+            self.selection_reversed = false;
+            self.vim_mode = VimMode::Normal;
+        }
+        self.visual_anchor_cell = None;
         self.ensure_cursor_visible();
     }
 
@@ -249,6 +343,7 @@ impl GenkoApp {
         self.selection_reversed = false;
         self.cursor_cell = self.display_cell_for_byte(cursor);
         self.marked_range = None;
+        self.visual_anchor_cell = None;
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -270,6 +365,7 @@ impl GenkoApp {
         self.selection_reversed = false;
         self.cursor_cell = self.display_cell_for_byte(cursor);
         self.marked_range = None;
+        self.visual_anchor_cell = None;
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -300,7 +396,7 @@ impl GenkoApp {
         self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
     }
 
-    fn delete(&mut self, _: &Delete, _window: &mut Window, cx: &mut Context<Self>) {
+    fn delete_forward(&mut self, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
             let next = self.next_boundary(self.cursor_offset());
             self.selected_range = self.cursor_offset()..next;
@@ -308,19 +404,39 @@ impl GenkoApp {
         self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
     }
 
+    fn delete(&mut self, _: &Delete, _window: &mut Window, cx: &mut Context<Self>) {
+        self.delete_forward(cx);
+    }
+
     fn up(&mut self, _: &Up, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.vim_mode == VimMode::Visual {
+            self.vim_select_to_cell_delta(-1, cx);
+            return;
+        }
         self.move_to_cell_delta(-1, cx);
     }
 
     fn down(&mut self, _: &Down, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.vim_mode == VimMode::Visual {
+            self.vim_select_to_cell_delta(1, cx);
+            return;
+        }
         self.move_to_cell_delta(1, cx);
     }
 
     fn left(&mut self, _: &Left, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.vim_mode == VimMode::Visual {
+            self.vim_select_to_cell_delta(self.rows_per_column() as isize, cx);
+            return;
+        }
         self.move_to_cell_delta(self.rows_per_column() as isize, cx);
     }
 
     fn right(&mut self, _: &Right, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.vim_mode == VimMode::Visual {
+            self.vim_select_to_cell_delta(-(self.rows_per_column() as isize), cx);
+            return;
+        }
         self.move_to_cell_delta(-(self.rows_per_column() as isize), cx);
     }
 
@@ -389,6 +505,57 @@ impl GenkoApp {
         _cx: &mut Context<Self>,
     ) {
         window.show_character_palette();
+    }
+
+    fn vim_enter_insert_mode(
+        &mut self,
+        _: &VimEnterInsertMode,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.vim_mode = VimMode::Insert;
+        self.visual_anchor_cell = None;
+        self.selected_range = self.cursor_offset()..self.cursor_offset();
+        self.selection_reversed = false;
+        cx.notify();
+    }
+
+    fn vim_append(&mut self, _: &VimAppend, _window: &mut Window, cx: &mut Context<Self>) {
+        self.vim_mode = VimMode::Insert;
+        self.visual_anchor_cell = None;
+        self.move_to_cell_delta(1, cx);
+    }
+
+    fn vim_normal_mode(&mut self, _: &VimNormalMode, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.vim_mode {
+            let cursor_offset = if self.vim_mode == VimMode::Visual {
+                self.draft.byte_offset_for_display_cell(self.cursor_cell)
+            } else {
+                self.cursor_offset()
+            };
+            self.vim_mode = VimMode::Normal;
+            self.visual_anchor_cell = None;
+            self.marked_range = None;
+            self.selected_range = cursor_offset..cursor_offset;
+            self.selection_reversed = false;
+            self.cursor_cell = self.display_cell_for_byte(cursor_offset);
+            self.ensure_cursor_visible();
+            cx.notify();
+        }
+    }
+
+    fn vim_visual_mode(&mut self, _: &VimVisualMode, _window: &mut Window, cx: &mut Context<Self>) {
+        self.vim_mode = VimMode::Visual;
+        self.visual_anchor_cell = Some(self.cursor_cell);
+        self.update_visual_selection();
+        cx.notify();
+    }
+
+    fn vim_delete_char(&mut self, _: &VimDeleteChar, _window: &mut Window, cx: &mut Context<Self>) {
+        self.delete_forward(cx);
+        if self.settings.vim_mode {
+            self.vim_mode = VimMode::Normal;
+        }
     }
 
     fn on_board_mouse_down(
@@ -469,6 +636,16 @@ impl GenkoApp {
     }
 
     fn render_header(&self) -> impl IntoElement {
+        let mode_label = if self.settings.vim_mode {
+            match self.vim_mode {
+                VimMode::Normal => " / NORMAL",
+                VimMode::Insert => " / INSERT",
+                VimMode::Visual => " / VISUAL",
+            }
+        } else {
+            ""
+        };
+
         div()
             .w_full()
             .flex()
@@ -482,7 +659,8 @@ impl GenkoApp {
                     .child(self.title.clone()),
             )
             .child(div().text_sm().text_color(rgb(0x705a4a)).child(format!(
-                "vertical / {} cells / columns {}-{} of {}",
+                "vertical{} / {} cells / columns {}-{} of {}",
+                mode_label,
                 self.used_cells(),
                 self.scroll_column + 1,
                 (self.scroll_column + self.visible_columns()).min(self.total_columns()),
@@ -538,6 +716,10 @@ impl EntityInputHandler for GenkoApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.is_vim_command_mode() {
+            return;
+        }
+
         let range = self.editing_range(range_utf16);
         self.replace_text_in_byte_range(range, text, cx);
     }
@@ -550,6 +732,10 @@ impl EntityInputHandler for GenkoApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.is_vim_command_mode() {
+            return;
+        }
+
         let range = self.editing_range(range_utf16);
         let range = if new_text.is_empty() {
             range
@@ -598,9 +784,11 @@ impl EntityInputHandler for GenkoApp {
 
 impl Render for GenkoApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.update_visible_columns(visible_columns_for_window_width(
-            window.viewport_size().width,
-        ));
+        let viewport_size = window.viewport_size();
+        self.update_visible_columns(visible_columns_for_window_width(viewport_size.width));
+        if self.settings.rows_per_column.is_none() {
+            self.update_rows_per_column(rows_per_column_for_window_height(viewport_size.height));
+        }
 
         div()
             .size_full()
@@ -609,7 +797,7 @@ impl Render for GenkoApp {
             .items_center()
             .justify_center()
             .track_focus(&self.focus_handle(cx))
-            .key_context("Genko")
+            .key_context(self.vim_key_context())
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
             .on_action(cx.listener(Self::up))
@@ -628,6 +816,11 @@ impl Render for GenkoApp {
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::enter))
             .on_action(cx.listener(Self::show_character_palette))
+            .on_action(cx.listener(Self::vim_enter_insert_mode))
+            .on_action(cx.listener(Self::vim_append))
+            .on_action(cx.listener(Self::vim_normal_mode))
+            .on_action(cx.listener(Self::vim_visual_mode))
+            .on_action(cx.listener(Self::vim_delete_char))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .cursor(CursorStyle::IBeam)
@@ -649,6 +842,12 @@ fn visible_columns_for_window_width(width: Pixels) -> usize {
         .max(1)
 }
 
+fn rows_per_column_for_window_height(height: Pixels) -> usize {
+    ((height / px(CELL_SIZE)).floor() as usize)
+        .saturating_sub(AUTOMATIC_ROWS_RESERVED_CELLS)
+        .clamp(1, MAX_ROWS_PER_COLUMN)
+}
+
 impl Focusable for GenkoApp {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -657,7 +856,7 @@ impl Focusable for GenkoApp {
 
 fn open_settings_window(app: Entity<GenkoApp>, cx: &mut App) {
     let settings = app.read(cx).settings.clone();
-    let bounds = Bounds::centered(None, size(px(520.0), px(390.0)), cx);
+    let bounds = Bounds::centered(None, size(px(520.0), px(460.0)), cx);
 
     let settings_window = cx
         .open_window(
@@ -703,6 +902,22 @@ fn main() {
             KeyBinding::new("home", Home, None),
             KeyBinding::new("end", End, None),
             KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
+            KeyBinding::new("i", VimEnterInsertMode, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("a", VimAppend, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == insert")),
+            KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("v", VimVisualMode, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("v", VimNormalMode, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("h", Left, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("j", Down, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("k", Up, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("l", Right, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("h", Left, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("j", Down, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("k", Up, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("l", Right, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == visual")),
             KeyBinding::new("cmd-q", Quit, None),
         ]);
         cx.on_action(|_: &Quit, cx| cx.quit());
