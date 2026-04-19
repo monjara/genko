@@ -4,15 +4,15 @@ use gpui::{
     App, Application, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
     ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId,
     IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
-    SharedString, Style, Styled, TextRun, UTF16Selection, Window, WindowBounds, WindowOptions,
-    actions, div, fill, point, prelude::*, px, rgb, rgba, size,
+    ScrollWheelEvent, SharedString, Style, Styled, TextRun, UTF16Selection, Window, WindowBounds,
+    WindowOptions, actions, div, fill, point, prelude::*, px, rgb, rgba, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
 const ROWS: usize = 20;
 const COLUMNS: usize = 20;
 const CELL_SIZE: f32 = 28.0;
-const CELL_CAPACITY: usize = ROWS * COLUMNS;
+const VISIBLE_CELL_CAPACITY: usize = ROWS * COLUMNS;
 const ROPE_LEAF_BYTES: usize = 1024;
 
 actions!(
@@ -47,6 +47,8 @@ struct GenkoApp {
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
     last_board_bounds: Option<Bounds<Pixels>>,
+    scroll_column: usize,
+    scroll_remainder_columns: f32,
 }
 
 impl GenkoApp {
@@ -59,6 +61,8 @@ impl GenkoApp {
             selection_reversed: false,
             marked_range: None,
             last_board_bounds: None,
+            scroll_column: 0,
+            scroll_remainder_columns: 0.0,
         }
     }
 
@@ -74,6 +78,7 @@ impl GenkoApp {
         let offset = offset.min(self.draft.len_bytes());
         self.selected_range = offset..offset;
         self.selection_reversed = false;
+        self.ensure_cursor_visible();
         cx.notify();
     }
 
@@ -88,57 +93,88 @@ impl GenkoApp {
             self.selection_reversed = !self.selection_reversed;
             self.selected_range = self.selected_range.end..self.selected_range.start;
         }
+        self.ensure_cursor_visible();
         cx.notify();
     }
 
     fn previous_boundary(&self, offset: usize) -> usize {
-        self.draft
-            .to_string()
-            .grapheme_indices(true)
-            .rev()
-            .find_map(|(index, _)| (index < offset).then_some(index))
-            .unwrap_or(0)
+        let grapheme_index = self.draft.grapheme_index_for_byte(offset);
+        if grapheme_index == 0 {
+            0
+        } else {
+            self.draft
+                .byte_offset_for_grapheme_index(grapheme_index - 1)
+        }
     }
 
     fn next_boundary(&self, offset: usize) -> usize {
         self.draft
-            .to_string()
-            .grapheme_indices(true)
-            .find_map(|(index, _)| (index > offset).then_some(index))
-            .unwrap_or(self.draft.len_bytes())
+            .byte_offset_for_grapheme_index(self.draft.grapheme_index_for_byte(offset) + 1)
     }
 
     fn byte_offset_for_grapheme_index(&self, target_index: usize) -> usize {
-        self.draft
-            .to_string()
-            .grapheme_indices(true)
-            .nth(target_index)
-            .map(|(offset, _)| offset)
-            .unwrap_or(self.draft.len_bytes())
+        self.draft.byte_offset_for_grapheme_index(target_index)
     }
 
     fn grapheme_index_for_byte(&self, byte_offset: usize) -> usize {
-        self.draft
-            .to_string()
-            .grapheme_indices(true)
-            .take_while(|(offset, _)| *offset < byte_offset)
-            .count()
+        self.draft.grapheme_index_for_byte(byte_offset)
     }
 
     fn visible_text(&self) -> Vec<CellText> {
+        let first_visible_index = self.first_visible_cell_index();
         self.draft
-            .to_string()
-            .grapheme_indices(true)
-            .take(CELL_CAPACITY)
-            .map(|(start, grapheme)| CellText {
-                text: grapheme.to_string(),
-                range: start..start + grapheme.len(),
-            })
-            .collect()
+            .visible_graphemes(first_visible_index, VISIBLE_CELL_CAPACITY)
     }
 
     fn used_cells(&self) -> usize {
-        self.draft.to_string().graphemes(true).count()
+        self.draft.len_graphemes()
+    }
+
+    fn first_visible_cell_index(&self) -> usize {
+        self.scroll_column * ROWS
+    }
+
+    fn cursor_column(&self) -> usize {
+        self.grapheme_index_for_byte(self.cursor_offset()) / ROWS
+    }
+
+    fn total_columns(&self) -> usize {
+        let document_columns = self.used_cells().div_ceil(ROWS).max(1);
+        document_columns.max(self.cursor_column() + 1)
+    }
+
+    fn max_scroll_column(&self) -> usize {
+        self.total_columns().saturating_sub(COLUMNS)
+    }
+
+    fn clamp_scroll_column(&mut self) {
+        self.scroll_column = self.scroll_column.min(self.max_scroll_column());
+    }
+
+    fn ensure_cursor_visible(&mut self) {
+        let cursor_column = self.cursor_column();
+        if cursor_column < self.scroll_column {
+            self.scroll_column = cursor_column;
+        } else if cursor_column >= self.scroll_column + COLUMNS {
+            self.scroll_column = cursor_column + 1 - COLUMNS;
+        }
+        self.clamp_scroll_column();
+    }
+
+    fn scroll_columns_by(&mut self, delta_columns: isize, cx: &mut Context<Self>) {
+        if delta_columns == 0 {
+            return;
+        }
+
+        let previous_column = self.scroll_column;
+        self.scroll_column = self
+            .scroll_column
+            .saturating_add_signed(delta_columns)
+            .min(self.max_scroll_column());
+
+        if self.scroll_column != previous_column {
+            cx.notify();
+        }
     }
 
     fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
@@ -160,6 +196,7 @@ impl GenkoApp {
         self.selected_range = cursor..cursor;
         self.selection_reversed = false;
         self.marked_range = None;
+        self.ensure_cursor_visible();
         cx.notify();
     }
 
@@ -293,9 +330,30 @@ impl GenkoApp {
         }
     }
 
+    fn on_scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let delta = event.delta.pixel_delta(px(CELL_SIZE));
+        let column_delta = if delta.x == Pixels::ZERO {
+            -(delta.y / px(CELL_SIZE))
+        } else {
+            -(delta.x / px(CELL_SIZE))
+        };
+
+        self.scroll_remainder_columns += column_delta;
+        let whole_columns = self.scroll_remainder_columns.trunc() as isize;
+        if whole_columns != 0 {
+            self.scroll_remainder_columns -= whole_columns as f32;
+            self.scroll_columns_by(whole_columns, cx);
+        }
+    }
+
     fn byte_offset_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
         let bounds = self.last_board_bounds?;
-        let index = logical_index_for_point(bounds, position)?;
+        let index = logical_index_for_point(bounds, position, self.scroll_column)?;
         Some(self.byte_offset_for_grapheme_index(index.min(self.used_cells())))
     }
 
@@ -303,9 +361,9 @@ impl GenkoApp {
         &self,
         range: Range<usize>,
         board_bounds: Bounds<Pixels>,
-    ) -> Bounds<Pixels> {
+    ) -> Option<Bounds<Pixels>> {
         let logical_index = self.grapheme_index_for_byte(range.start);
-        cell_bounds_for_logical_index(board_bounds, logical_index.min(CELL_CAPACITY - 1))
+        cell_bounds_for_logical_index(board_bounds, logical_index, self.scroll_column)
     }
 
     fn render_header(&self) -> impl IntoElement {
@@ -322,9 +380,11 @@ impl GenkoApp {
                     .child(self.title.clone()),
             )
             .child(div().text_sm().text_color(rgb(0x705a4a)).child(format!(
-                "vertical / {} of {} cells",
+                "vertical / {} cells / columns {}-{} of {}",
                 self.used_cells(),
-                CELL_CAPACITY
+                self.scroll_column + 1,
+                (self.scroll_column + COLUMNS).min(self.total_columns()),
+                self.total_columns()
             )))
     }
 }
@@ -402,6 +462,7 @@ impl EntityInputHandler for GenkoApp {
             })
             .unwrap_or(marked_end..marked_end);
         self.selection_reversed = false;
+        self.ensure_cursor_visible();
         cx.notify();
     }
 
@@ -413,7 +474,7 @@ impl EntityInputHandler for GenkoApp {
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let range = self.range_from_utf16(&range_utf16);
-        Some(self.bounds_for_byte_range(range, board_bounds))
+        self.bounds_for_byte_range(range, board_bounds)
     }
 
     fn character_index_for_point(
@@ -455,6 +516,7 @@ impl Render for GenkoApp {
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::show_character_palette))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
+            .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .cursor(CursorStyle::IBeam)
             .child(
                 div()
@@ -475,6 +537,7 @@ impl Focusable for GenkoApp {
 }
 
 struct CellText {
+    logical_index: usize,
     text: String,
     range: Range<usize>,
 }
@@ -549,13 +612,14 @@ impl Element for BoardElement {
 
         self.paint_paper(bounds, window);
 
-        let (visible_text, selected_range, marked_range, cursor_index) = {
+        let (visible_text, selected_range, marked_range, cursor_index, scroll_column) = {
             let app = self.app.read(cx);
             (
                 app.visible_text(),
                 app.selected_range.clone(),
                 app.marked_range.clone(),
                 app.grapheme_index_for_byte(app.cursor_offset()),
+                app.scroll_column,
             )
         };
 
@@ -564,12 +628,13 @@ impl Element for BoardElement {
             &selected_range,
             marked_range.as_ref(),
             bounds,
+            scroll_column,
             window,
         );
         self.paint_grid(bounds, window);
-        self.paint_text(&visible_text, bounds, window, cx);
+        self.paint_text(&visible_text, bounds, scroll_column, window, cx);
         if focus_handle.is_focused(window) {
-            self.paint_cursor(cursor_index, bounds, window);
+            self.paint_cursor(cursor_index, bounds, scroll_column, window);
         }
     }
 }
@@ -603,14 +668,23 @@ impl BoardElement {
         selected_range: &Range<usize>,
         marked_range: Option<&Range<usize>>,
         bounds: Bounds<Pixels>,
+        scroll_column: usize,
         window: &mut Window,
     ) {
-        for (logical_index, cell_text) in visible_text.iter().enumerate() {
+        for cell_text in visible_text {
             if ranges_overlap(&cell_text.range, selected_range) {
-                let cell_bounds = cell_bounds_for_logical_index(bounds, logical_index);
+                let Some(cell_bounds) =
+                    cell_bounds_for_logical_index(bounds, cell_text.logical_index, scroll_column)
+                else {
+                    continue;
+                };
                 window.paint_quad(fill(cell_bounds, rgba(0x2f6fff30)));
             } else if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
-                let cell_bounds = cell_bounds_for_logical_index(bounds, logical_index);
+                let Some(cell_bounds) =
+                    cell_bounds_for_logical_index(bounds, cell_text.logical_index, scroll_column)
+                else {
+                    continue;
+                };
                 let underline_y = cell_bounds.bottom() - px(4.0);
                 window.paint_quad(fill(
                     Bounds::new(
@@ -627,6 +701,7 @@ impl BoardElement {
         &self,
         visible_text: &[CellText],
         bounds: Bounds<Pixels>,
+        scroll_column: usize,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -634,7 +709,7 @@ impl BoardElement {
         let font_size = px(21.0);
         let line_height = px(24.0);
 
-        for (logical_index, cell_text) in visible_text.iter().enumerate() {
+        for cell_text in visible_text {
             let run = TextRun {
                 len: cell_text.text.len(),
                 font: style.font(),
@@ -649,7 +724,11 @@ impl BoardElement {
                 &[run],
                 None,
             );
-            let cell_bounds = cell_bounds_for_logical_index(bounds, logical_index);
+            let Some(cell_bounds) =
+                cell_bounds_for_logical_index(bounds, cell_text.logical_index, scroll_column)
+            else {
+                continue;
+            };
             let text_origin = point(
                 cell_bounds.left() + (px(CELL_SIZE) - line.width) / 2.0,
                 cell_bounds.top() + (px(CELL_SIZE) - line_height) / 2.0,
@@ -658,9 +737,17 @@ impl BoardElement {
         }
     }
 
-    fn paint_cursor(&self, cursor_index: usize, bounds: Bounds<Pixels>, window: &mut Window) {
-        let logical_index = cursor_index.min(CELL_CAPACITY - 1);
-        let cell_bounds = cell_bounds_for_logical_index(bounds, logical_index);
+    fn paint_cursor(
+        &self,
+        cursor_index: usize,
+        bounds: Bounds<Pixels>,
+        scroll_column: usize,
+        window: &mut Window,
+    ) {
+        let Some(cell_bounds) = cell_bounds_for_logical_index(bounds, cursor_index, scroll_column)
+        else {
+            return;
+        };
         window.paint_quad(fill(
             Bounds::new(
                 point(cell_bounds.left() + px(4.0), cell_bounds.top() + px(3.0)),
@@ -685,6 +772,10 @@ impl TextRope {
         self.root.as_ref().map_or(0, |node| node.bytes())
     }
 
+    fn len_graphemes(&self) -> usize {
+        self.root.as_ref().map_or(0, |node| node.graphemes())
+    }
+
     fn from_str(text: &str) -> Self {
         Self {
             root: RopeNode::from_str(text),
@@ -705,6 +796,19 @@ impl TextRope {
             root.push_range(range, 0, &mut output);
         }
         output
+    }
+
+    fn visible_graphemes(&self, start_index: usize, max_count: usize) -> Vec<CellText> {
+        let mut cells = Vec::with_capacity(max_count.min(self.len_graphemes()));
+        if let Some(root) = self.root.as_ref() {
+            root.push_graphemes(
+                start_index..start_index.saturating_add(max_count),
+                0,
+                0,
+                &mut cells,
+            );
+        }
+        cells
     }
 
     fn replace_range(&mut self, range: Range<usize>, text: &str) {
@@ -728,6 +832,18 @@ impl TextRope {
             .as_ref()
             .map_or(0, |node| node.utf16_to_byte(utf16_offset))
     }
+
+    fn byte_offset_for_grapheme_index(&self, grapheme_index: usize) -> usize {
+        self.root
+            .as_ref()
+            .map_or(0, |node| node.grapheme_to_byte(grapheme_index))
+    }
+
+    fn grapheme_index_for_byte(&self, byte_offset: usize) -> usize {
+        self.root
+            .as_ref()
+            .map_or(0, |node| node.byte_to_grapheme(byte_offset))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -736,6 +852,7 @@ enum RopeNode {
         text: String,
         bytes: usize,
         utf16: usize,
+        graphemes: usize,
         height: usize,
     },
     Branch {
@@ -743,6 +860,7 @@ enum RopeNode {
         right: Box<RopeNode>,
         bytes: usize,
         utf16: usize,
+        graphemes: usize,
         height: usize,
     },
 }
@@ -760,10 +878,12 @@ impl RopeNode {
     fn leaf(text: String) -> Box<Self> {
         let bytes = text.len();
         let utf16 = text.encode_utf16().count();
+        let graphemes = text.graphemes(true).count();
         Box::new(Self::Leaf {
             text,
             bytes,
             utf16,
+            graphemes,
             height: 1,
         })
     }
@@ -777,6 +897,12 @@ impl RopeNode {
     fn utf16(&self) -> usize {
         match self {
             Self::Leaf { utf16, .. } | Self::Branch { utf16, .. } => *utf16,
+        }
+    }
+
+    fn graphemes(&self) -> usize {
+        match self {
+            Self::Leaf { graphemes, .. } | Self::Branch { graphemes, .. } => *graphemes,
         }
     }
 
@@ -825,6 +951,52 @@ impl RopeNode {
         }
     }
 
+    fn push_graphemes(
+        &self,
+        target_range: Range<usize>,
+        node_byte_start: usize,
+        node_grapheme_start: usize,
+        output: &mut Vec<CellText>,
+    ) {
+        let node_grapheme_end = node_grapheme_start + self.graphemes();
+        if target_range.end <= node_grapheme_start || target_range.start >= node_grapheme_end {
+            return;
+        }
+
+        match self {
+            Self::Leaf { text, .. } => {
+                for (local_index, (local_byte_start, grapheme)) in
+                    text.grapheme_indices(true).enumerate()
+                {
+                    let logical_index = node_grapheme_start + local_index;
+                    if !target_range.contains(&logical_index) {
+                        continue;
+                    }
+                    let byte_start = node_byte_start + local_byte_start;
+                    output.push(CellText {
+                        logical_index,
+                        text: grapheme.to_string(),
+                        range: byte_start..byte_start + grapheme.len(),
+                    });
+                }
+            }
+            Self::Branch { left, right, .. } => {
+                left.push_graphemes(
+                    target_range.clone(),
+                    node_byte_start,
+                    node_grapheme_start,
+                    output,
+                );
+                right.push_graphemes(
+                    target_range,
+                    node_byte_start + left.bytes(),
+                    node_grapheme_start + left.graphemes(),
+                    output,
+                );
+            }
+        }
+    }
+
     fn byte_to_utf16(&self, byte_offset: usize) -> usize {
         match self {
             Self::Leaf { text, bytes, .. } => byte_to_utf16_in_str(text, byte_offset.min(*bytes)),
@@ -846,6 +1018,49 @@ impl RopeNode {
                     left.utf16_to_byte(utf16_offset)
                 } else {
                     left.bytes() + right.utf16_to_byte(utf16_offset - left.utf16())
+                }
+            }
+        }
+    }
+
+    fn grapheme_to_byte(&self, grapheme_index: usize) -> usize {
+        match self {
+            Self::Leaf {
+                text,
+                bytes,
+                graphemes,
+                ..
+            } => {
+                if grapheme_index >= *graphemes {
+                    *bytes
+                } else {
+                    text.grapheme_indices(true)
+                        .nth(grapheme_index)
+                        .map(|(offset, _)| offset)
+                        .unwrap_or(*bytes)
+                }
+            }
+            Self::Branch { left, right, .. } => {
+                if grapheme_index <= left.graphemes() {
+                    left.grapheme_to_byte(grapheme_index)
+                } else {
+                    left.bytes() + right.grapheme_to_byte(grapheme_index - left.graphemes())
+                }
+            }
+        }
+    }
+
+    fn byte_to_grapheme(&self, byte_offset: usize) -> usize {
+        match self {
+            Self::Leaf { text, bytes, .. } => text
+                .grapheme_indices(true)
+                .take_while(|(offset, _)| *offset < byte_offset.min(*bytes))
+                .count(),
+            Self::Branch { left, right, .. } => {
+                if byte_offset <= left.bytes() {
+                    left.byte_to_grapheme(byte_offset)
+                } else {
+                    left.graphemes() + right.byte_to_grapheme(byte_offset - left.bytes())
                 }
             }
         }
@@ -913,12 +1128,14 @@ fn concat_nodes(
 
             let bytes = left.bytes() + right.bytes();
             let utf16 = left.utf16() + right.utf16();
+            let graphemes = left.graphemes() + right.graphemes();
             let height = left.height().max(right.height()) + 1;
             Some(Box::new(RopeNode::Branch {
                 left,
                 right,
                 bytes,
                 utf16,
+                graphemes,
                 height,
             }))
         }
@@ -947,22 +1164,19 @@ fn build_balanced_slice(leaves: &mut [String]) -> Option<Box<RopeNode>> {
 
 fn chunk_string(text: &str) -> Vec<String> {
     let mut chunks = Vec::new();
-    let mut start = 0;
-    while start < text.len() {
-        let mut end = (start + ROPE_LEAF_BYTES).min(text.len());
-        while end > start && !text.is_char_boundary(end) {
-            end -= 1;
+    let mut current = String::new();
+
+    for grapheme in text.graphemes(true) {
+        if !current.is_empty() && current.len() + grapheme.len() > ROPE_LEAF_BYTES {
+            chunks.push(std::mem::take(&mut current));
         }
-        if end == start {
-            end = text[start..]
-                .char_indices()
-                .nth(1)
-                .map(|(offset, _)| start + offset)
-                .unwrap_or(text.len());
-        }
-        chunks.push(text[start..end].to_string());
-        start = end;
+        current.push_str(grapheme);
     }
+
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+
     chunks
 }
 
@@ -1000,12 +1214,20 @@ fn ranges_overlap(left: &Range<usize>, right: &Range<usize>) -> bool {
     left.start < right.end && right.start < left.end
 }
 
-fn row_column_for_logical_index(logical_index: usize) -> Option<(usize, usize)> {
-    if logical_index >= CELL_CAPACITY {
+fn row_column_for_logical_index(
+    logical_index: usize,
+    first_visible_column: usize,
+) -> Option<(usize, usize)> {
+    let logical_column = logical_index / ROWS;
+    if logical_column < first_visible_column {
         return None;
     }
 
-    let column_from_right = logical_index / ROWS;
+    let column_from_right = logical_column - first_visible_column;
+    if column_from_right >= COLUMNS {
+        return None;
+    }
+
     let row = logical_index % ROWS;
     let column = COLUMNS - 1 - column_from_right;
     Some((row, column))
@@ -1014,20 +1236,22 @@ fn row_column_for_logical_index(logical_index: usize) -> Option<(usize, usize)> 
 fn cell_bounds_for_logical_index(
     board_bounds: Bounds<Pixels>,
     logical_index: usize,
-) -> Bounds<Pixels> {
-    let (row, column) = row_column_for_logical_index(logical_index).unwrap_or((ROWS - 1, 0));
-    Bounds::new(
+    first_visible_column: usize,
+) -> Option<Bounds<Pixels>> {
+    let (row, column) = row_column_for_logical_index(logical_index, first_visible_column)?;
+    Some(Bounds::new(
         point(
             board_bounds.left() + px(column as f32 * CELL_SIZE),
             board_bounds.top() + px(row as f32 * CELL_SIZE),
         ),
         size(px(CELL_SIZE), px(CELL_SIZE)),
-    )
+    ))
 }
 
 fn logical_index_for_point(
     board_bounds: Bounds<Pixels>,
     position: gpui::Point<Pixels>,
+    first_visible_column: usize,
 ) -> Option<usize> {
     if !board_bounds.contains(&position) {
         return None;
@@ -1040,7 +1264,7 @@ fn logical_index_for_point(
         .floor()
         .clamp(0.0, (ROWS - 1) as f32) as usize;
     let column_from_right = COLUMNS - 1 - column;
-    Some(column_from_right * ROWS + row)
+    Some((first_visible_column + column_from_right) * ROWS + row)
 }
 
 fn main() {
@@ -1099,9 +1323,26 @@ mod tests {
 
     #[test]
     fn vertical_flow_starts_at_top_right() {
-        assert_eq!(row_column_for_logical_index(0), Some((0, COLUMNS - 1)));
-        assert_eq!(row_column_for_logical_index(1), Some((1, COLUMNS - 1)));
-        assert_eq!(row_column_for_logical_index(ROWS), Some((0, COLUMNS - 2)));
+        assert_eq!(row_column_for_logical_index(0, 0), Some((0, COLUMNS - 1)));
+        assert_eq!(row_column_for_logical_index(1, 0), Some((1, COLUMNS - 1)));
+        assert_eq!(
+            row_column_for_logical_index(ROWS, 0),
+            Some((0, COLUMNS - 2))
+        );
+    }
+
+    #[test]
+    fn virtual_scroll_offsets_visible_columns() {
+        assert_eq!(row_column_for_logical_index(0, 1), None);
+        assert_eq!(
+            row_column_for_logical_index(ROWS, 1),
+            Some((0, COLUMNS - 1))
+        );
+        assert_eq!(
+            row_column_for_logical_index(ROWS * COLUMNS, 1),
+            Some((0, 0))
+        );
+        assert_eq!(row_column_for_logical_index(ROWS * (COLUMNS + 1), 1), None);
     }
 
     #[test]
@@ -1120,5 +1361,16 @@ mod tests {
         assert_eq!(rope.utf16_to_byte(1), 1);
         assert_eq!(rope.utf16_to_byte(3), "a😀".len());
         assert_eq!(rope.byte_to_utf16("a😀".len()), 3);
+    }
+
+    #[test]
+    fn rope_returns_only_visible_graphemes() {
+        let rope = TextRope::from_str("一二三四五");
+        let visible = rope.visible_graphemes(2, 2);
+        assert_eq!(visible.len(), 2);
+        assert_eq!(visible[0].logical_index, 2);
+        assert_eq!(visible[0].text, "三");
+        assert_eq!(visible[1].logical_index, 3);
+        assert_eq!(visible[1].text, "四");
     }
 }
