@@ -1,8 +1,13 @@
+[workspace]
+members = [".", "crates/genko_rope"]
+default-members = [".", "crates/genko_rope"]
+resolver = "3"
+
 [package]
 name = "genko"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+genko_rope = { path = "crates/genko_rope" }
 gpui = "0.2.2"
-unicode-segmentation = "1.13.2"

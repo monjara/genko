@@ -1881,7 +1881,14 @@ dependencies = [
 name = "genko"
 version = "0.1.0"
 dependencies = [
+ "genko_rope",
  "gpui",
+]
+
+[[package]]
+name = "genko_rope"
+version = "0.1.0"
+dependencies = [
  "unicode-segmentation",
 ]
 
