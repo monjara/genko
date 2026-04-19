@@ -9,6 +9,7 @@
     utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
+        lib = pkgs.lib;
         naersk-lib = pkgs.callPackage naersk { };
         nativeBuildInputs = with pkgs; [
           cmake
@@ -16,26 +17,36 @@
           pkg-config
           rustPlatform.bindgenHook
         ];
-        buildInputs = with pkgs; [
+        commonBuildInputs = with pkgs; [
+          openssl
+          sqlite
+          zstd
+        ];
+        linuxBuildInputs = with pkgs; [
           alsa-lib
           fontconfig
           glib
           libGL
           libva
           libxkbcommon
-          openssl
-          pipewire
-          sqlite
-          vulkan-loader
-          wayland
-          xdg-desktop-portal
           libx11
+          libxcb
           libxcursor
           libxi
           libxrandr
-          libxcb
-          zstd
+          pipewire
+          vulkan-loader
+          wayland
+          xdg-desktop-portal
         ];
+        darwinBuildInputs = with pkgs; [
+          apple-sdk
+          libiconv
+        ];
+        buildInputs =
+          commonBuildInputs
+          ++ lib.optionals pkgs.stdenv.isLinux linuxBuildInputs
+          ++ lib.optionals pkgs.stdenv.isDarwin darwinBuildInputs;
         devTools = with pkgs; [
           cargo
           nixpkgs-fmt
@@ -44,21 +55,23 @@
           rustc
           rustfmt
           rustPackages.clippy
+        ] ++ lib.optionals pkgs.stdenv.isLinux (with pkgs; [
           vulkan-tools
-        ];
+        ]);
         runtimeLibraryPath = pkgs.lib.makeLibraryPath buildInputs;
         package = naersk-lib.buildPackage {
           src = ./.;
           inherit nativeBuildInputs buildInputs;
         };
-        devShell = pkgs.mkShell {
+        devShell = pkgs.mkShell ({
           packages = devTools;
           inherit nativeBuildInputs buildInputs;
 
-          LD_LIBRARY_PATH = runtimeLibraryPath;
           LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
-        };
+        } // lib.optionalAttrs pkgs.stdenv.isLinux {
+          LD_LIBRARY_PATH = runtimeLibraryPath;
+        });
       in
       {
         packages.default = package;
