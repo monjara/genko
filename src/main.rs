@@ -2,16 +2,18 @@ use std::ops::Range;
 
 mod board;
 mod settings;
+mod settings_window;
 
 use board::{BoardElement, cell_bounds_for_logical_index, logical_index_for_point};
 use genko_rope::{CellText, ROWS, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
+use settings_window::SettingsWindow;
 
 use gpui::{
-    App, Application, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle,
-    Focusable, KeyBinding, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
-    ScrollWheelEvent, SharedString, Styled, UTF16Selection, Window, WindowBounds, WindowOptions,
-    actions, div, prelude::*, px, rgb, size,
+    App, Application, Bounds, ClipboardItem, Context, CursorStyle, Entity, EntityInputHandler,
+    FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, ParentElement,
+    Pixels, Render, ScrollWheelEvent, SharedString, Styled, UTF16Selection, Window, WindowBounds,
+    WindowOptions, actions, div, prelude::*, px, rgb, size,
 };
 
 const COLUMNS: usize = 20;
@@ -39,6 +41,7 @@ actions!(
         Copy,
         Enter,
         ShowCharacterPalette,
+        OpenSettings,
         Quit,
     ]
 );
@@ -597,6 +600,29 @@ impl Focusable for GenkoApp {
     }
 }
 
+fn open_settings_window(app: Entity<GenkoApp>, cx: &mut App) {
+    let settings = app.read(cx).settings.clone();
+    let bounds = Bounds::centered(None, size(px(460.0), px(280.0)), cx);
+
+    let settings_window = cx
+        .open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                app_id: Some("dev.genko.settings".into()),
+                ..Default::default()
+            },
+            move |_, cx| cx.new(move |_| SettingsWindow::new(app, settings)),
+        )
+        .unwrap();
+
+    settings_window
+        .update(cx, |_, window, cx| {
+            window.activate_window();
+            cx.activate(true);
+        })
+        .unwrap();
+}
+
 fn main() {
     Application::new().run(|cx: &mut App| {
         cx.bind_keys([
@@ -638,6 +664,21 @@ fn main() {
                 |_, cx| cx.new(GenkoApp::new),
             )
             .unwrap();
+
+        let app_entity = window.entity(cx).unwrap().downgrade();
+        cx.on_action(move |_: &OpenSettings, cx| {
+            if let Some(app_entity) = app_entity.upgrade() {
+                open_settings_window(app_entity, cx);
+            }
+        });
+        cx.set_menus(vec![Menu {
+            name: "Genko".into(),
+            items: vec![
+                MenuItem::action("設定", OpenSettings),
+                MenuItem::separator(),
+                MenuItem::action("終了", Quit),
+            ],
+        }]);
 
         window
             .update(cx, |view, window, cx| {
