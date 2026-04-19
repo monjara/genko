@@ -14,6 +14,7 @@ const COLUMNS: usize = 20;
 const CELL_SIZE: f32 = 28.0;
 const VISIBLE_CELL_CAPACITY: usize = ROWS * COLUMNS;
 const ROPE_LEAF_BYTES: usize = 1024;
+const BLANK_CELL: char = '\u{3000}';
 
 actions!(
     genko,
@@ -46,6 +47,7 @@ struct GenkoApp {
     focus_handle: FocusHandle,
     selected_range: Range<usize>,
     selection_reversed: bool,
+    cursor_cell: usize,
     marked_range: Option<Range<usize>>,
     last_board_bounds: Option<Bounds<Pixels>>,
     scroll_column: usize,
@@ -60,6 +62,7 @@ impl GenkoApp {
             focus_handle: cx.focus_handle(),
             selected_range: 0..0,
             selection_reversed: false,
+            cursor_cell: 0,
             marked_range: None,
             last_board_bounds: None,
             scroll_column: 0,
@@ -75,16 +78,17 @@ impl GenkoApp {
         }
     }
 
-    fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let offset = offset.min(self.draft.len_bytes());
+    fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
+        let offset = self.draft.byte_offset_for_display_cell(cell_index);
         self.selected_range = offset..offset;
         self.selection_reversed = false;
+        self.cursor_cell = cell_index;
         self.ensure_cursor_visible();
         cx.notify();
     }
 
-    fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
-        let offset = offset.min(self.draft.len_bytes());
+    fn select_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
+        let offset = self.draft.byte_offset_for_display_cell(cell_index);
         if self.selection_reversed {
             self.selected_range.start = offset;
         } else {
@@ -94,6 +98,7 @@ impl GenkoApp {
             self.selection_reversed = !self.selection_reversed;
             self.selected_range = self.selected_range.end..self.selected_range.start;
         }
+        self.cursor_cell = cell_index;
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -113,14 +118,6 @@ impl GenkoApp {
             .byte_offset_for_grapheme_index(self.draft.grapheme_index_for_byte(offset) + 1)
     }
 
-    fn byte_offset_for_grapheme_index(&self, target_index: usize) -> usize {
-        self.draft.byte_offset_for_grapheme_index(target_index)
-    }
-
-    fn grapheme_index_for_byte(&self, byte_offset: usize) -> usize {
-        self.draft.grapheme_index_for_byte(byte_offset)
-    }
-
     fn visible_text(&self) -> Vec<CellText> {
         let first_visible_index = self.first_visible_cell_index();
         self.draft
@@ -136,7 +133,7 @@ impl GenkoApp {
     }
 
     fn cursor_column(&self) -> usize {
-        self.display_cell_for_byte(self.cursor_offset()) / ROWS
+        self.cursor_cell / ROWS
     }
 
     fn total_columns(&self) -> usize {
@@ -190,16 +187,31 @@ impl GenkoApp {
         self.draft.display_cell_for_byte(byte_offset)
     }
 
+    fn materialize_cursor_cell_for_insert(&mut self, range: Range<usize>) -> Range<usize> {
+        if !range.is_empty() {
+            return range;
+        }
+
+        let offset = self.draft.materialize_display_cell(self.cursor_cell);
+        offset..offset
+    }
+
     fn replace_text_in_byte_range(
         &mut self,
         range: Range<usize>,
         new_text: &str,
         cx: &mut Context<Self>,
     ) {
+        let range = if new_text.is_empty() {
+            range
+        } else {
+            self.materialize_cursor_cell_for_insert(range)
+        };
         self.draft.replace_range(range.clone(), new_text);
         let cursor = range.start + new_text.len();
         self.selected_range = cursor..cursor;
         self.selection_reversed = false;
+        self.cursor_cell = self.display_cell_for_byte(cursor);
         self.marked_range = None;
         self.ensure_cursor_visible();
         cx.notify();
@@ -211,10 +223,16 @@ impl GenkoApp {
         new_text: String,
         cx: &mut Context<Self>,
     ) {
+        let range = if new_text.is_empty() {
+            range
+        } else {
+            self.materialize_cursor_cell_for_insert(range)
+        };
         let cursor = range.start + new_text.len();
         self.draft.replace_range_owned(range, new_text);
         self.selected_range = cursor..cursor;
         self.selection_reversed = false;
+        self.cursor_cell = self.display_cell_for_byte(cursor);
         self.marked_range = None;
         self.ensure_cursor_visible();
         cx.notify();
@@ -228,16 +246,14 @@ impl GenkoApp {
             .unwrap_or_else(|| self.selected_range.clone())
     }
 
-    fn move_to_grapheme_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let current = self.grapheme_index_for_byte(self.cursor_offset());
-        let target = current.saturating_add_signed(delta);
-        self.move_to(self.byte_offset_for_grapheme_index(target), cx);
+    fn move_to_cell_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let target = self.cursor_cell.saturating_add_signed(delta);
+        self.move_to_display_cell(target, cx);
     }
 
-    fn select_to_grapheme_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let current = self.grapheme_index_for_byte(self.cursor_offset());
-        let target = current.saturating_add_signed(delta);
-        self.select_to(self.byte_offset_for_grapheme_index(target), cx);
+    fn select_to_cell_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let target = self.cursor_cell.saturating_add_signed(delta);
+        self.select_to_display_cell(target, cx);
     }
 
     fn backspace(&mut self, _: &Backspace, _window: &mut Window, cx: &mut Context<Self>) {
@@ -257,49 +273,50 @@ impl GenkoApp {
     }
 
     fn up(&mut self, _: &Up, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.previous_boundary(self.cursor_offset()), cx);
+        self.move_to_cell_delta(-1, cx);
     }
 
     fn down(&mut self, _: &Down, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.next_boundary(self.cursor_offset()), cx);
+        self.move_to_cell_delta(1, cx);
     }
 
     fn left(&mut self, _: &Left, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_grapheme_delta(ROWS as isize, cx);
+        self.move_to_cell_delta(ROWS as isize, cx);
     }
 
     fn right(&mut self, _: &Right, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_grapheme_delta(-(ROWS as isize), cx);
+        self.move_to_cell_delta(-(ROWS as isize), cx);
     }
 
     fn select_up(&mut self, _: &SelectUp, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.previous_boundary(self.cursor_offset()), cx);
+        self.select_to_cell_delta(-1, cx);
     }
 
     fn select_down(&mut self, _: &SelectDown, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to(self.next_boundary(self.cursor_offset()), cx);
+        self.select_to_cell_delta(1, cx);
     }
 
     fn select_left(&mut self, _: &SelectLeft, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to_grapheme_delta(ROWS as isize, cx);
+        self.select_to_cell_delta(ROWS as isize, cx);
     }
 
     fn select_right(&mut self, _: &SelectRight, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to_grapheme_delta(-(ROWS as isize), cx);
+        self.select_to_cell_delta(-(ROWS as isize), cx);
     }
 
     fn select_all(&mut self, _: &SelectAll, _window: &mut Window, cx: &mut Context<Self>) {
         self.selected_range = 0..self.draft.len_bytes();
         self.selection_reversed = false;
+        self.cursor_cell = self.used_cells();
         cx.notify();
     }
 
     fn home(&mut self, _: &Home, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(0, cx);
+        self.move_to_display_cell(0, cx);
     }
 
     fn end(&mut self, _: &End, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(self.draft.len_bytes(), cx);
+        self.move_to_display_cell(self.used_cells(), cx);
     }
 
     fn paste(&mut self, _: &Paste, _window: &mut Window, cx: &mut Context<Self>) {
@@ -345,11 +362,16 @@ impl GenkoApp {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle);
-        if let Some(offset) = self.byte_offset_for_point(event.position) {
+        let Some(bounds) = self.last_board_bounds else {
+            return;
+        };
+        if let Some(cell_index) =
+            logical_index_for_point(bounds, event.position, self.scroll_column)
+        {
             if event.modifiers.shift {
-                self.select_to(offset, cx);
+                self.select_to_display_cell(cell_index, cx);
             } else {
-                self.move_to(offset, cx);
+                self.move_to_display_cell(cell_index, cx);
             }
         }
     }
@@ -386,7 +408,11 @@ impl GenkoApp {
         range: Range<usize>,
         board_bounds: Bounds<Pixels>,
     ) -> Option<Bounds<Pixels>> {
-        let logical_index = self.display_cell_for_byte(range.start);
+        let logical_index = if range.is_empty() && range.start == self.selected_range.start {
+            self.cursor_cell
+        } else {
+            self.display_cell_for_byte(range.start)
+        };
         cell_bounds_for_logical_index(board_bounds, logical_index, self.scroll_column)
     }
 
@@ -473,6 +499,11 @@ impl EntityInputHandler for GenkoApp {
         cx: &mut Context<Self>,
     ) {
         let range = self.editing_range(range_utf16);
+        let range = if new_text.is_empty() {
+            range
+        } else {
+            self.materialize_cursor_cell_for_insert(range)
+        };
         self.draft.replace_range(range.clone(), new_text);
 
         let marked_end = range.start + new_text.len();
@@ -486,6 +517,7 @@ impl EntityInputHandler for GenkoApp {
             })
             .unwrap_or(marked_end..marked_end);
         self.selection_reversed = false;
+        self.cursor_cell = self.display_cell_for_byte(self.cursor_offset());
         self.ensure_cursor_visible();
         cx.notify();
     }
@@ -643,7 +675,7 @@ impl Element for BoardElement {
                 app.visible_text(),
                 app.selected_range.clone(),
                 app.marked_range.clone(),
-                app.display_cell_for_byte(app.cursor_offset()),
+                app.cursor_cell,
                 app.scroll_column,
             )
         };
@@ -960,6 +992,19 @@ impl TextRope {
         self.root.as_ref().map_or(0, |node| {
             node.display_cell_to_byte(display_cell_index, 0, 0)
         })
+    }
+
+    fn materialize_display_cell(&mut self, display_cell_index: usize) -> usize {
+        let offset = self.byte_offset_for_display_cell(display_cell_index);
+        let current_cell = self.display_cell_for_byte(offset);
+        if display_cell_index <= current_cell {
+            return offset;
+        }
+
+        let filler = filler_text_between_cells(current_cell, display_cell_index);
+        let filler_len = filler.len();
+        self.replace_range(offset..offset, &filler);
+        offset + filler_len
     }
 }
 
@@ -1599,6 +1644,23 @@ fn next_line_cell_index(cell_index: usize) -> usize {
     ((cell_index / ROWS) + 1) * ROWS
 }
 
+fn filler_text_between_cells(mut current_cell: usize, target_cell: usize) -> String {
+    let mut filler = String::new();
+
+    while current_cell < target_cell {
+        let next_line_cell = next_line_cell_index(current_cell);
+        if next_line_cell <= target_cell {
+            filler.push('\n');
+            current_cell = next_line_cell;
+        } else {
+            filler.push(BLANK_CELL);
+            current_cell += 1;
+        }
+    }
+
+    filler
+}
+
 fn cell_advances_for_text(text: &str, graphemes: usize) -> [usize; ROWS] {
     if !text.as_bytes().contains(&b'\n') {
         return [graphemes; ROWS];
@@ -1920,6 +1982,35 @@ mod tests {
         assert_eq!(rope.byte_offset_for_display_cell(1), newline_start);
         assert_eq!(rope.byte_offset_for_display_cell(ROWS - 1), newline_start);
         assert_eq!(rope.byte_offset_for_display_cell(ROWS), after_newline);
+    }
+
+    #[test]
+    fn rope_materializes_empty_cells_before_insert() {
+        let mut rope = TextRope::new();
+        let insert_at = rope.materialize_display_cell(5);
+        rope.replace_range(insert_at..insert_at, "文");
+
+        assert_eq!(rope.len_display_cells(), 6);
+        let visible = rope.visible_cells(0, 6);
+        assert_eq!(visible.len(), 6);
+        assert_eq!(visible[0].text, BLANK_CELL.to_string());
+        assert_eq!(visible[4].text, BLANK_CELL.to_string());
+        assert_eq!(visible[5].logical_index, 5);
+        assert_eq!(visible[5].text, "文");
+    }
+
+    #[test]
+    fn rope_materializes_newline_gap_before_insert() {
+        let mut rope = TextRope::from_str("あ\nい");
+        let insert_at = rope.materialize_display_cell(5);
+        rope.replace_range(insert_at..insert_at, "文");
+
+        let visible = rope.visible_cells(0, ROWS + 1);
+        let inserted = visible.iter().find(|cell| cell.text == "文").unwrap();
+        let after_newline = visible.iter().find(|cell| cell.text == "い").unwrap();
+
+        assert_eq!(inserted.logical_index, 5);
+        assert_eq!(after_newline.logical_index, ROWS);
     }
 
     #[test]
