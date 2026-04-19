@@ -5,16 +5,22 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+pub(crate) const DEFAULT_ROWS_PER_COLUMN: usize = genko_rope::DEFAULT_ROWS_PER_COLUMN;
+pub(crate) const MIN_ROWS_PER_COLUMN: usize = 1;
+pub(crate) const MAX_ROWS_PER_COLUMN: usize = 60;
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub(crate) struct AppSettings {
     pub(crate) show_grid_lines: bool,
+    pub(crate) rows_per_column: usize,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             show_grid_lines: true,
+            rows_per_column: DEFAULT_ROWS_PER_COLUMN,
         }
     }
 }
@@ -28,11 +34,21 @@ impl AppSettings {
     }
 
     pub(crate) fn save(&self) -> Result<(), String> {
+        let settings = self.normalized();
         let xdg_dirs = xdg::BaseDirectories::with_prefix("genko");
         let settings_path = xdg_dirs
             .place_config_file(Self::SETTINGS_FILE)
             .map_err(|error| format!("設定ファイルの保存先を作成できません: {error}"))?;
-        self.save_to_file(&settings_path)
+        settings.save_to_file(&settings_path)
+    }
+
+    pub(crate) fn normalized(&self) -> Self {
+        Self {
+            show_grid_lines: self.show_grid_lines,
+            rows_per_column: self
+                .rows_per_column
+                .clamp(MIN_ROWS_PER_COLUMN, MAX_ROWS_PER_COLUMN),
+        }
     }
 
     fn load_from_base_dirs(xdg_dirs: &xdg::BaseDirectories) -> Self {
@@ -48,7 +64,9 @@ impl AppSettings {
             return Self::default();
         };
 
-        serde_json::from_str(&settings_json).unwrap_or_default()
+        serde_json::from_str::<Self>(&settings_json)
+            .map(|settings| settings.normalized())
+            .unwrap_or_default()
     }
 
     fn save_to_file(&self, settings_path: &Path) -> Result<(), String> {
@@ -89,11 +107,44 @@ mod tests {
     #[test]
     fn loads_show_grid_lines_from_settings_file() {
         let dir = test_settings_dir("loads");
-        fs::write(dir.join("settings.json"), r#"{"show_grid_lines": false}"#).unwrap();
+        fs::write(
+            dir.join("settings.json"),
+            r#"{"show_grid_lines": false, "rows_per_column": 24}"#,
+        )
+        .unwrap();
 
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
         assert!(!settings.show_grid_lines);
+        assert_eq!(settings.rows_per_column, 24);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn defaults_rows_per_column_when_missing() {
+        let dir = test_settings_dir("rows_missing");
+        fs::write(dir.join("settings.json"), r#"{"show_grid_lines": false}"#).unwrap();
+
+        let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
+
+        assert_eq!(settings.rows_per_column, DEFAULT_ROWS_PER_COLUMN);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clamps_rows_per_column_from_settings_file() {
+        let dir = test_settings_dir("rows_clamp");
+        fs::write(
+            dir.join("settings.json"),
+            format!(r#"{{"rows_per_column": {}}}"#, MAX_ROWS_PER_COLUMN + 1),
+        )
+        .unwrap();
+
+        let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
+
+        assert_eq!(settings.rows_per_column, MAX_ROWS_PER_COLUMN);
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -104,12 +155,14 @@ mod tests {
         let settings_path = dir.join("settings.json");
         let settings = AppSettings {
             show_grid_lines: false,
+            rows_per_column: 24,
         };
 
         settings.save_to_file(&settings_path).unwrap();
 
         let reloaded = AppSettings::load_from_config_file(Some(settings_path));
         assert!(!reloaded.show_grid_lines);
+        assert_eq!(reloaded.rows_per_column, 24);
 
         let _ = fs::remove_dir_all(dir);
     }

@@ -2,7 +2,8 @@ use std::{ops::Range, sync::Arc};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-pub const ROWS: usize = 20;
+pub const DEFAULT_ROWS_PER_COLUMN: usize = 20;
+pub const ROWS: usize = DEFAULT_ROWS_PER_COLUMN;
 pub const BLANK_CELL: char = '\u{3000}';
 const ROPE_LEAF_BYTES: usize = 1024;
 
@@ -13,14 +14,44 @@ pub struct CellText {
     pub range: Range<usize>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct TextRope {
     root: Option<Box<RopeNode>>,
+    rows_per_column: usize,
+}
+
+impl Default for TextRope {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TextRope {
     pub fn new() -> Self {
-        Self::default()
+        Self::new_with_rows(DEFAULT_ROWS_PER_COLUMN)
+    }
+
+    pub fn new_with_rows(rows_per_column: usize) -> Self {
+        Self {
+            root: None,
+            rows_per_column: rows_per_column.max(1),
+        }
+    }
+
+    pub fn rows_per_column(&self) -> usize {
+        self.rows_per_column
+    }
+
+    pub fn set_rows_per_column(&mut self, rows_per_column: usize) {
+        let rows_per_column = rows_per_column.max(1);
+        if self.rows_per_column == rows_per_column {
+            return;
+        }
+
+        self.rows_per_column = rows_per_column;
+        if let Some(root) = self.root.as_mut() {
+            root.refresh_cell_advances(rows_per_column);
+        }
     }
 
     pub fn len_bytes(&self) -> usize {
@@ -43,7 +74,7 @@ impl TextRope {
     #[cfg(test)]
     fn assert_balanced(&self) {
         if let Some(root) = self.root.as_ref() {
-            root.assert_balanced();
+            root.assert_balanced(self.rows_per_column);
         }
     }
 
@@ -55,15 +86,28 @@ impl TextRope {
     }
 
     pub fn from_str(text: &str) -> Self {
+        Self::from_str_with_rows(text, DEFAULT_ROWS_PER_COLUMN)
+    }
+
+    pub fn from_str_with_rows(text: &str, rows_per_column: usize) -> Self {
+        let rows_per_column = rows_per_column.max(1);
         Self {
-            root: RopeNode::from_str(text),
+            root: RopeNode::from_str(text, rows_per_column),
+            rows_per_column,
         }
     }
 
     #[cfg(test)]
     fn from_string(text: String) -> Self {
+        Self::from_string_with_rows(text, DEFAULT_ROWS_PER_COLUMN)
+    }
+
+    #[cfg(test)]
+    fn from_string_with_rows(text: String, rows_per_column: usize) -> Self {
+        let rows_per_column = rows_per_column.max(1);
         Self {
-            root: RopeNode::from_string(text),
+            root: RopeNode::from_string(text, rows_per_column),
+            rows_per_column,
         }
     }
 
@@ -90,6 +134,7 @@ impl TextRope {
                 start_index..start_index.saturating_add(max_count),
                 0,
                 0,
+                self.rows_per_column,
                 &mut cells,
             );
         }
@@ -113,9 +158,17 @@ impl TextRope {
         }
 
         let root = self.root.take();
-        let (left, rest) = split_node(root, range.start);
-        let (_, right) = split_node(rest, range.end - range.start);
-        self.root = concat_nodes(concat_nodes(left, RopeNode::from_str(text)), right);
+        let (left, rest) = split_node(root, range.start, self.rows_per_column);
+        let (_, right) = split_node(rest, range.end - range.start, self.rows_per_column);
+        self.root = concat_nodes(
+            concat_nodes(
+                left,
+                RopeNode::from_str(text, self.rows_per_column),
+                self.rows_per_column,
+            ),
+            right,
+            self.rows_per_column,
+        );
     }
 
     pub fn replace_range_owned(&mut self, range: Range<usize>, text: String) {
@@ -130,11 +183,15 @@ impl TextRope {
             return;
         }
 
-        let inserted = RopeNode::from_string(text);
+        let inserted = RopeNode::from_string(text, self.rows_per_column);
         let root = self.root.take();
-        let (left, rest) = split_node(root, range.start);
-        let (_, right) = split_node(rest, range.end - range.start);
-        self.root = concat_nodes(concat_nodes(left, inserted), right);
+        let (left, rest) = split_node(root, range.start, self.rows_per_column);
+        let (_, right) = split_node(rest, range.end - range.start, self.rows_per_column);
+        self.root = concat_nodes(
+            concat_nodes(left, inserted, self.rows_per_column),
+            right,
+            self.rows_per_column,
+        );
     }
 
     fn try_append_to_last_leaf(&mut self, text: &str) -> bool {
@@ -143,7 +200,7 @@ impl TextRope {
         }
 
         if self.root.is_none() {
-            self.root = RopeNode::from_str(text);
+            self.root = RopeNode::from_str(text, self.rows_per_column);
             return true;
         }
 
@@ -153,7 +210,7 @@ impl TextRope {
 
         self.root
             .as_mut()
-            .is_some_and(|root| root.try_append_to_last_leaf(text))
+            .is_some_and(|root| root.try_append_to_last_leaf(text, self.rows_per_column))
     }
 
     pub fn byte_to_utf16(&self, byte_offset: usize) -> usize {
@@ -181,14 +238,14 @@ impl TextRope {
     }
 
     pub fn display_cell_for_byte(&self, byte_offset: usize) -> usize {
-        self.root
-            .as_ref()
-            .map_or(0, |node| node.byte_to_display_cell(byte_offset, 0))
+        self.root.as_ref().map_or(0, |node| {
+            node.byte_to_display_cell(byte_offset, 0, self.rows_per_column)
+        })
     }
 
     pub fn byte_offset_for_display_cell(&self, display_cell_index: usize) -> usize {
         self.root.as_ref().map_or(0, |node| {
-            node.display_cell_to_byte(display_cell_index, 0, 0)
+            node.display_cell_to_byte(display_cell_index, 0, 0, self.rows_per_column)
         })
     }
 
@@ -199,7 +256,8 @@ impl TextRope {
             return offset;
         }
 
-        let filler = filler_text_between_cells(current_cell, display_cell_index);
+        let filler =
+            filler_text_between_cells(current_cell, display_cell_index, self.rows_per_column);
         let filler_len = filler.len();
         self.replace_range(offset..offset, &filler);
         offset + filler_len
@@ -213,7 +271,7 @@ enum RopeNode {
         bytes: usize,
         utf16: usize,
         graphemes: usize,
-        cell_advances: [usize; ROWS],
+        cell_advances: Vec<usize>,
         height: usize,
     },
     Branch {
@@ -222,7 +280,7 @@ enum RopeNode {
         bytes: usize,
         utf16: usize,
         graphemes: usize,
-        cell_advances: [usize; ROWS],
+        cell_advances: Vec<usize>,
         height: usize,
     },
 }
@@ -244,17 +302,28 @@ impl RopeLeafText {
         }
     }
 
-    fn split_at(self, byte_offset: usize) -> (Option<Box<RopeNode>>, Option<Box<RopeNode>>) {
+    fn split_at(
+        self,
+        byte_offset: usize,
+        rows_per_column: usize,
+    ) -> (Option<Box<RopeNode>>, Option<Box<RopeNode>>) {
         match self {
             Self::Owned(mut text) => {
                 let right = text.split_off(byte_offset);
-                (RopeNode::from_string(text), RopeNode::from_string(right))
+                (
+                    RopeNode::from_string(text, rows_per_column),
+                    RopeNode::from_string(right, rows_per_column),
+                )
             }
             Self::Shared { source, range } => {
                 let split_offset = range.start + byte_offset;
                 (
-                    RopeNode::shared_leaf(source.clone(), range.start..split_offset),
-                    RopeNode::shared_leaf(source, split_offset..range.end),
+                    RopeNode::shared_leaf(
+                        source.clone(),
+                        range.start..split_offset,
+                        rows_per_column,
+                    ),
+                    RopeNode::shared_leaf(source, split_offset..range.end, rows_per_column),
                 )
             }
         }
@@ -262,40 +331,50 @@ impl RopeLeafText {
 }
 
 impl RopeNode {
-    pub fn from_str(text: &str) -> Option<Box<Self>> {
+    pub fn from_str(text: &str, rows_per_column: usize) -> Option<Box<Self>> {
         if text.is_empty() {
             return None;
         }
 
         let chunks = chunk_string(text);
-        build_balanced(chunks)
+        build_balanced(chunks, rows_per_column)
     }
 
-    fn from_string(text: String) -> Option<Box<Self>> {
+    fn from_string(text: String, rows_per_column: usize) -> Option<Box<Self>> {
         if text.is_empty() {
             return None;
         }
 
         if text.len() <= ROPE_LEAF_BYTES {
-            return Some(Self::leaf(text));
+            return Some(Self::leaf(text, rows_per_column));
         }
 
-        build_balanced_nodes(chunk_shared_string(Arc::new(text)))
+        build_balanced_nodes(
+            chunk_shared_string(Arc::new(text), rows_per_column),
+            rows_per_column,
+        )
     }
 
-    fn leaf(text: String) -> Box<Self> {
-        Self::leaf_text(RopeLeafText::Owned(text))
+    fn leaf(text: String, rows_per_column: usize) -> Box<Self> {
+        Self::leaf_text(RopeLeafText::Owned(text), rows_per_column)
     }
 
-    fn shared_leaf(source: Arc<String>, range: Range<usize>) -> Option<Box<Self>> {
+    fn shared_leaf(
+        source: Arc<String>,
+        range: Range<usize>,
+        rows_per_column: usize,
+    ) -> Option<Box<Self>> {
         if range.is_empty() {
             None
         } else {
-            Some(Self::leaf_text(RopeLeafText::Shared { source, range }))
+            Some(Self::leaf_text(
+                RopeLeafText::Shared { source, range },
+                rows_per_column,
+            ))
         }
     }
 
-    fn leaf_text(text: RopeLeafText) -> Box<Self> {
+    fn leaf_text(text: RopeLeafText, rows_per_column: usize) -> Box<Self> {
         let (bytes, utf16, graphemes) = {
             let text = text.as_str();
             (
@@ -304,7 +383,7 @@ impl RopeNode {
                 text.graphemes(true).count(),
             )
         };
-        let cell_advances = cell_advances_for_text(text.as_str(), graphemes);
+        let cell_advances = cell_advances_for_text(text.as_str(), graphemes, rows_per_column);
         Box::new(Self::Leaf {
             text,
             bytes,
@@ -347,7 +426,7 @@ impl RopeNode {
         }
     }
 
-    fn try_append_to_last_leaf(&mut self, appended_text: &str) -> bool {
+    fn try_append_to_last_leaf(&mut self, appended_text: &str, rows_per_column: usize) -> bool {
         match self {
             Self::Leaf {
                 text: RopeLeafText::Owned(text),
@@ -365,7 +444,7 @@ impl RopeNode {
                 *bytes = text.len();
                 *utf16 = text.encode_utf16().count();
                 *graphemes = text.graphemes(true).count();
-                *cell_advances = cell_advances_for_text(text, *graphemes);
+                *cell_advances = cell_advances_for_text(text, *graphemes, rows_per_column);
                 true
             }
             Self::Leaf { .. } => false,
@@ -378,16 +457,39 @@ impl RopeNode {
                 cell_advances,
                 height,
             } => {
-                if !right.try_append_to_last_leaf(appended_text) {
+                if !right.try_append_to_last_leaf(appended_text, rows_per_column) {
                     return false;
                 }
 
                 *bytes = left.bytes() + right.bytes();
                 *utf16 = left.utf16() + right.utf16();
                 *graphemes = left.graphemes() + right.graphemes();
-                *cell_advances = compose_cell_advances(&left, &right);
+                *cell_advances = compose_cell_advances(&left, &right, rows_per_column);
                 *height = left.height().max(right.height()) + 1;
                 true
+            }
+        }
+    }
+
+    fn refresh_cell_advances(&mut self, rows_per_column: usize) {
+        match self {
+            Self::Leaf {
+                text,
+                graphemes,
+                cell_advances,
+                ..
+            } => {
+                *cell_advances = cell_advances_for_text(text.as_str(), *graphemes, rows_per_column);
+            }
+            Self::Branch {
+                left,
+                right,
+                cell_advances,
+                ..
+            } => {
+                left.refresh_cell_advances(rows_per_column);
+                right.refresh_cell_advances(rows_per_column);
+                *cell_advances = compose_cell_advances(left, right, rows_per_column);
             }
         }
     }
@@ -426,9 +528,10 @@ impl RopeNode {
         target_range: Range<usize>,
         node_byte_start: usize,
         node_cell_start: usize,
+        rows_per_column: usize,
         output: &mut Vec<CellText>,
     ) {
-        let node_cell_end = node_cell_start + self.cell_advance(node_cell_start % ROWS);
+        let node_cell_end = node_cell_start + self.cell_advance(node_cell_start % rows_per_column);
         if target_range.end <= node_cell_start || target_range.start >= node_cell_end {
             return;
         }
@@ -439,7 +542,7 @@ impl RopeNode {
                 let mut cell_index = node_cell_start;
                 for (local_byte_start, grapheme) in text.grapheme_indices(true) {
                     if grapheme == "\n" {
-                        cell_index = next_line_cell_index(cell_index);
+                        cell_index = next_line_cell_index(cell_index, rows_per_column);
                         continue;
                     }
 
@@ -460,13 +563,16 @@ impl RopeNode {
                     target_range.clone(),
                     node_byte_start,
                     node_cell_start,
+                    rows_per_column,
                     output,
                 );
-                let right_cell_start = node_cell_start + left.cell_advance(node_cell_start % ROWS);
+                let right_cell_start =
+                    node_cell_start + left.cell_advance(node_cell_start % rows_per_column);
                 right.push_visible_cells(
                     target_range,
                     node_byte_start + left.bytes(),
                     right_cell_start,
+                    rows_per_column,
                     output,
                 );
             }
@@ -548,7 +654,12 @@ impl RopeNode {
         }
     }
 
-    fn byte_to_display_cell(&self, byte_offset: usize, node_cell_start: usize) -> usize {
+    fn byte_to_display_cell(
+        &self,
+        byte_offset: usize,
+        node_cell_start: usize,
+        rows_per_column: usize,
+    ) -> usize {
         match self {
             Self::Leaf { text, bytes, .. } => {
                 let mut cell_index = node_cell_start;
@@ -558,7 +669,7 @@ impl RopeNode {
                     }
 
                     if grapheme == "\n" {
-                        cell_index = next_line_cell_index(cell_index);
+                        cell_index = next_line_cell_index(cell_index, rows_per_column);
                     } else {
                         cell_index += 1;
                     }
@@ -567,11 +678,15 @@ impl RopeNode {
             }
             Self::Branch { left, right, .. } => {
                 if byte_offset <= left.bytes() {
-                    left.byte_to_display_cell(byte_offset, node_cell_start)
+                    left.byte_to_display_cell(byte_offset, node_cell_start, rows_per_column)
                 } else {
                     let right_cell_start =
-                        node_cell_start + left.cell_advance(node_cell_start % ROWS);
-                    right.byte_to_display_cell(byte_offset - left.bytes(), right_cell_start)
+                        node_cell_start + left.cell_advance(node_cell_start % rows_per_column);
+                    right.byte_to_display_cell(
+                        byte_offset - left.bytes(),
+                        right_cell_start,
+                        rows_per_column,
+                    )
                 }
             }
         }
@@ -582,6 +697,7 @@ impl RopeNode {
         target_cell_index: usize,
         node_byte_start: usize,
         node_cell_start: usize,
+        rows_per_column: usize,
     ) -> usize {
         match self {
             Self::Leaf { text, bytes, .. } => {
@@ -592,7 +708,7 @@ impl RopeNode {
                     }
 
                     if grapheme == "\n" {
-                        let next_cell_index = next_line_cell_index(cell_index);
+                        let next_cell_index = next_line_cell_index(cell_index, rows_per_column);
                         if target_cell_index < next_cell_index {
                             return node_byte_start + local_byte_start;
                         }
@@ -605,14 +721,21 @@ impl RopeNode {
                 node_byte_start + bytes
             }
             Self::Branch { left, right, .. } => {
-                let right_cell_start = node_cell_start + left.cell_advance(node_cell_start % ROWS);
+                let right_cell_start =
+                    node_cell_start + left.cell_advance(node_cell_start % rows_per_column);
                 if target_cell_index < right_cell_start {
-                    left.display_cell_to_byte(target_cell_index, node_byte_start, node_cell_start)
+                    left.display_cell_to_byte(
+                        target_cell_index,
+                        node_byte_start,
+                        node_cell_start,
+                        rows_per_column,
+                    )
                 } else {
                     right.display_cell_to_byte(
                         target_cell_index,
                         node_byte_start + left.bytes(),
                         right_cell_start,
+                        rows_per_column,
                     )
                 }
             }
@@ -620,7 +743,7 @@ impl RopeNode {
     }
 
     #[cfg(test)]
-    fn assert_balanced(&self) -> usize {
+    fn assert_balanced(&self, rows_per_column: usize) -> usize {
         match self {
             Self::Leaf {
                 text,
@@ -634,7 +757,10 @@ impl RopeNode {
                 assert_eq!(*bytes, text.len());
                 assert_eq!(*utf16, text.encode_utf16().count());
                 assert_eq!(*graphemes, text.graphemes(true).count());
-                assert_eq!(*cell_advances, cell_advances_for_text(text, *graphemes));
+                assert_eq!(
+                    *cell_advances,
+                    cell_advances_for_text(text, *graphemes, rows_per_column)
+                );
                 assert_eq!(*height, 1);
                 1
             }
@@ -647,8 +773,8 @@ impl RopeNode {
                 cell_advances,
                 height,
             } => {
-                let left_height = left.assert_balanced();
-                let right_height = right.assert_balanced();
+                let left_height = left.assert_balanced(rows_per_column);
+                let right_height = right.assert_balanced(rows_per_column);
                 assert!(
                     left_height.abs_diff(right_height) <= 1,
                     "rope branch is unbalanced: left height {left_height}, right height {right_height}"
@@ -656,7 +782,10 @@ impl RopeNode {
                 assert_eq!(*bytes, left.bytes() + right.bytes());
                 assert_eq!(*utf16, left.utf16() + right.utf16());
                 assert_eq!(*graphemes, left.graphemes() + right.graphemes());
-                assert_eq!(*cell_advances, compose_cell_advances(left, right));
+                assert_eq!(
+                    *cell_advances,
+                    compose_cell_advances(left, right, rows_per_column)
+                );
                 assert_eq!(*height, left_height.max(right_height) + 1);
                 *height
             }
@@ -681,6 +810,7 @@ impl RopeNode {
 fn split_node(
     node: Option<Box<RopeNode>>,
     byte_offset: usize,
+    rows_per_column: usize,
 ) -> (Option<Box<RopeNode>>, Option<Box<RopeNode>>) {
     let Some(node) = node else {
         return (None, None);
@@ -697,18 +827,25 @@ fn split_node(
     match *node {
         RopeNode::Leaf { text, .. } => {
             debug_assert!(text.as_str().is_char_boundary(byte_offset));
-            text.split_at(byte_offset)
+            text.split_at(byte_offset, rows_per_column)
         }
         RopeNode::Branch { left, right, .. } => {
             let left_len = left.bytes();
             if byte_offset < left_len {
-                let (left_left, left_right) = split_node(Some(left), byte_offset);
-                (left_left, concat_nodes(left_right, Some(right)))
+                let (left_left, left_right) = split_node(Some(left), byte_offset, rows_per_column);
+                (
+                    left_left,
+                    concat_nodes(left_right, Some(right), rows_per_column),
+                )
             } else if byte_offset == left_len {
                 (Some(left), Some(right))
             } else {
-                let (right_left, right_right) = split_node(Some(right), byte_offset - left_len);
-                (concat_nodes(Some(left), right_left), right_right)
+                let (right_left, right_right) =
+                    split_node(Some(right), byte_offset - left_len, rows_per_column);
+                (
+                    concat_nodes(Some(left), right_left, rows_per_column),
+                    right_right,
+                )
             }
         }
     }
@@ -717,20 +854,25 @@ fn split_node(
 fn concat_nodes(
     left: Option<Box<RopeNode>>,
     right: Option<Box<RopeNode>>,
+    rows_per_column: usize,
 ) -> Option<Box<RopeNode>> {
     match (left, right) {
         (None, right) => right,
         (left, None) => left,
-        (Some(left), Some(right)) => Some(concat_non_empty(left, right)),
+        (Some(left), Some(right)) => Some(concat_non_empty(left, right, rows_per_column)),
     }
 }
 
-fn concat_non_empty(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
+fn concat_non_empty(
+    left: Box<RopeNode>,
+    right: Box<RopeNode>,
+    rows_per_column: usize,
+) -> Box<RopeNode> {
     if left.bytes() + right.bytes() <= ROPE_LEAF_BYTES {
         let mut text = String::with_capacity(left.bytes() + right.bytes());
         left.push_to_string(&mut text);
         right.push_to_string(&mut text);
-        return RopeNode::leaf(text);
+        return RopeNode::leaf(text, rows_per_column);
     }
 
     if left.height() > right.height() + 1 {
@@ -740,9 +882,13 @@ fn concat_non_empty(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> 
                 right: left_right,
                 ..
             } => {
-                return balance_branch(left_left, concat_non_empty(left_right, right));
+                return balance_branch(
+                    left_left,
+                    concat_non_empty(left_right, right, rows_per_column),
+                    rows_per_column,
+                );
             }
-            leaf => return branch_node(Box::new(leaf), right),
+            leaf => return branch_node(Box::new(leaf), right, rows_per_column),
         }
     }
 
@@ -753,16 +899,24 @@ fn concat_non_empty(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> 
                 right: right_right,
                 ..
             } => {
-                return balance_branch(concat_non_empty(left, right_left), right_right);
+                return balance_branch(
+                    concat_non_empty(left, right_left, rows_per_column),
+                    right_right,
+                    rows_per_column,
+                );
             }
-            leaf => return branch_node(left, Box::new(leaf)),
+            leaf => return branch_node(left, Box::new(leaf), rows_per_column),
         }
     }
 
-    branch_node(left, right)
+    branch_node(left, right, rows_per_column)
 }
 
-fn balance_branch(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
+fn balance_branch(
+    left: Box<RopeNode>,
+    right: Box<RopeNode>,
+    rows_per_column: usize,
+) -> Box<RopeNode> {
     if left.height() > right.height() + 1 {
         return match *left {
             RopeNode::Branch {
@@ -771,7 +925,11 @@ fn balance_branch(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
                 ..
             } => {
                 if left_left.height() >= left_right.height() {
-                    branch_node(left_left, branch_node(left_right, right))
+                    branch_node(
+                        left_left,
+                        branch_node(left_right, right, rows_per_column),
+                        rows_per_column,
+                    )
                 } else {
                     match *left_right {
                         RopeNode::Branch {
@@ -779,14 +937,19 @@ fn balance_branch(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
                             right: left_right_right,
                             ..
                         } => branch_node(
-                            branch_node(left_left, left_right_left),
-                            branch_node(left_right_right, right),
+                            branch_node(left_left, left_right_left, rows_per_column),
+                            branch_node(left_right_right, right, rows_per_column),
+                            rows_per_column,
                         ),
-                        leaf => branch_node(left_left, branch_node(Box::new(leaf), right)),
+                        leaf => branch_node(
+                            left_left,
+                            branch_node(Box::new(leaf), right, rows_per_column),
+                            rows_per_column,
+                        ),
                     }
                 }
             }
-            leaf => branch_node(Box::new(leaf), right),
+            leaf => branch_node(Box::new(leaf), right, rows_per_column),
         };
     }
 
@@ -798,7 +961,11 @@ fn balance_branch(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
                 ..
             } => {
                 if right_right.height() >= right_left.height() {
-                    branch_node(branch_node(left, right_left), right_right)
+                    branch_node(
+                        branch_node(left, right_left, rows_per_column),
+                        right_right,
+                        rows_per_column,
+                    )
                 } else {
                     match *right_left {
                         RopeNode::Branch {
@@ -806,25 +973,30 @@ fn balance_branch(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
                             right: right_left_right,
                             ..
                         } => branch_node(
-                            branch_node(left, right_left_left),
-                            branch_node(right_left_right, right_right),
+                            branch_node(left, right_left_left, rows_per_column),
+                            branch_node(right_left_right, right_right, rows_per_column),
+                            rows_per_column,
                         ),
-                        leaf => branch_node(branch_node(left, Box::new(leaf)), right_right),
+                        leaf => branch_node(
+                            branch_node(left, Box::new(leaf), rows_per_column),
+                            right_right,
+                            rows_per_column,
+                        ),
                     }
                 }
             }
-            leaf => branch_node(left, Box::new(leaf)),
+            leaf => branch_node(left, Box::new(leaf), rows_per_column),
         };
     }
 
-    branch_node(left, right)
+    branch_node(left, right, rows_per_column)
 }
 
-fn branch_node(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
+fn branch_node(left: Box<RopeNode>, right: Box<RopeNode>, rows_per_column: usize) -> Box<RopeNode> {
     let bytes = left.bytes() + right.bytes();
     let utf16 = left.utf16() + right.utf16();
     let graphemes = left.graphemes() + right.graphemes();
-    let cell_advances = compose_cell_advances(&left, &right);
+    let cell_advances = compose_cell_advances(&left, &right, rows_per_column);
     let height = left.height().max(right.height()) + 1;
 
     Box::new(RopeNode::Branch {
@@ -838,15 +1010,19 @@ fn branch_node(left: Box<RopeNode>, right: Box<RopeNode>) -> Box<RopeNode> {
     })
 }
 
-fn next_line_cell_index(cell_index: usize) -> usize {
-    ((cell_index / ROWS) + 1) * ROWS
+fn next_line_cell_index(cell_index: usize, rows_per_column: usize) -> usize {
+    ((cell_index / rows_per_column) + 1) * rows_per_column
 }
 
-fn filler_text_between_cells(mut current_cell: usize, target_cell: usize) -> String {
+fn filler_text_between_cells(
+    mut current_cell: usize,
+    target_cell: usize,
+    rows_per_column: usize,
+) -> String {
     let mut filler = String::new();
 
     while current_cell < target_cell {
-        let next_line_cell = next_line_cell_index(current_cell);
+        let next_line_cell = next_line_cell_index(current_cell, rows_per_column);
         if next_line_cell <= target_cell {
             filler.push('\n');
             current_cell = next_line_cell;
@@ -859,18 +1035,18 @@ fn filler_text_between_cells(mut current_cell: usize, target_cell: usize) -> Str
     filler
 }
 
-fn cell_advances_for_text(text: &str, graphemes: usize) -> [usize; ROWS] {
+fn cell_advances_for_text(text: &str, graphemes: usize, rows_per_column: usize) -> Vec<usize> {
     if !text.as_bytes().contains(&b'\n') {
-        return [graphemes; ROWS];
+        return vec![graphemes; rows_per_column];
     }
 
-    let mut advances = [0; ROWS];
+    let mut advances = vec![0; rows_per_column];
 
-    for start_row in 0..ROWS {
+    for start_row in 0..rows_per_column {
         let mut cell_index = start_row;
         for grapheme in text.graphemes(true) {
             if grapheme == "\n" {
-                cell_index = next_line_cell_index(cell_index);
+                cell_index = next_line_cell_index(cell_index, rows_per_column);
             } else {
                 cell_index += 1;
             }
@@ -881,30 +1057,39 @@ fn cell_advances_for_text(text: &str, graphemes: usize) -> [usize; ROWS] {
     advances
 }
 
-fn compose_cell_advances(left: &RopeNode, right: &RopeNode) -> [usize; ROWS] {
-    let mut advances = [0; ROWS];
+fn compose_cell_advances(left: &RopeNode, right: &RopeNode, rows_per_column: usize) -> Vec<usize> {
+    let mut advances = vec![0; rows_per_column];
 
-    for start_row in 0..ROWS {
+    for start_row in 0..rows_per_column {
         let left_advance = left.cell_advance(start_row);
-        let right_advance = right.cell_advance((start_row + left_advance) % ROWS);
+        let right_advance = right.cell_advance((start_row + left_advance) % rows_per_column);
         advances[start_row] = left_advance + right_advance;
     }
 
     advances
 }
 
-fn build_balanced(leaves: Vec<String>) -> Option<Box<RopeNode>> {
-    build_balanced_nodes(leaves.into_iter().map(RopeNode::leaf).collect())
+fn build_balanced(leaves: Vec<String>, rows_per_column: usize) -> Option<Box<RopeNode>> {
+    build_balanced_nodes(
+        leaves
+            .into_iter()
+            .map(|leaf| RopeNode::leaf(leaf, rows_per_column))
+            .collect(),
+        rows_per_column,
+    )
 }
 
-fn build_balanced_nodes(mut nodes: Vec<Box<RopeNode>>) -> Option<Box<RopeNode>> {
+fn build_balanced_nodes(
+    mut nodes: Vec<Box<RopeNode>>,
+    rows_per_column: usize,
+) -> Option<Box<RopeNode>> {
     while nodes.len() > 1 {
         let mut next_nodes = Vec::with_capacity(nodes.len().div_ceil(2));
         let mut iter = nodes.into_iter();
 
         while let Some(left) = iter.next() {
             if let Some(right) = iter.next() {
-                next_nodes.push(concat_non_empty(left, right));
+                next_nodes.push(concat_non_empty(left, right, rows_per_column));
             } else {
                 next_nodes.push(left);
             }
@@ -934,14 +1119,16 @@ fn chunk_string(text: &str) -> Vec<String> {
     chunks
 }
 
-fn chunk_shared_string(source: Arc<String>) -> Vec<Box<RopeNode>> {
+fn chunk_shared_string(source: Arc<String>, rows_per_column: usize) -> Vec<Box<RopeNode>> {
     let mut chunks = Vec::new();
     let mut chunk_start = 0;
     let mut chunk_bytes = 0;
 
     for (byte_offset, grapheme) in source.grapheme_indices(true) {
         if chunk_bytes > 0 && chunk_bytes + grapheme.len() > ROPE_LEAF_BYTES {
-            if let Some(chunk) = RopeNode::shared_leaf(source.clone(), chunk_start..byte_offset) {
+            if let Some(chunk) =
+                RopeNode::shared_leaf(source.clone(), chunk_start..byte_offset, rows_per_column)
+            {
                 chunks.push(chunk);
             }
             chunk_start = byte_offset;
@@ -952,7 +1139,9 @@ fn chunk_shared_string(source: Arc<String>) -> Vec<Box<RopeNode>> {
     }
 
     if chunk_start < source.len() {
-        if let Some(chunk) = RopeNode::shared_leaf(source.clone(), chunk_start..source.len()) {
+        if let Some(chunk) =
+            RopeNode::shared_leaf(source.clone(), chunk_start..source.len(), rows_per_column)
+        {
             chunks.push(chunk);
         }
     }
@@ -1052,6 +1241,19 @@ mod tests {
         assert_eq!(rope.byte_offset_for_display_cell(1), newline_start);
         assert_eq!(rope.byte_offset_for_display_cell(ROWS - 1), newline_start);
         assert_eq!(rope.byte_offset_for_display_cell(ROWS), after_newline);
+    }
+
+    #[test]
+    fn rope_recomputes_display_cells_when_rows_change() {
+        let mut rope = TextRope::from_str("あ\nい");
+        let rows = 24;
+
+        rope.set_rows_per_column(rows);
+
+        assert_eq!(rope.rows_per_column(), rows);
+        assert_eq!(rope.len_display_cells(), rows + 1);
+        assert_eq!(rope.display_cell_for_byte("あ\n".len()), rows);
+        assert_eq!(rope.byte_offset_for_display_cell(rows), "あ\n".len());
     }
 
     #[test]

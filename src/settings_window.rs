@@ -3,7 +3,10 @@ use gpui::{
     Styled, Window, div, prelude::*, px, rgb,
 };
 
-use crate::{GenkoApp, settings::AppSettings};
+use crate::{
+    GenkoApp,
+    settings::{AppSettings, MAX_ROWS_PER_COLUMN, MIN_ROWS_PER_COLUMN},
+};
 
 pub(crate) struct SettingsWindow {
     app: Entity<GenkoApp>,
@@ -26,14 +29,39 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn decrement_rows_per_column(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.draft.rows_per_column = self
+            .draft
+            .rows_per_column
+            .saturating_sub(1)
+            .max(MIN_ROWS_PER_COLUMN);
+        self.status = "".into();
+        cx.notify();
+    }
+
+    fn increment_rows_per_column(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.draft.rows_per_column = (self.draft.rows_per_column + 1).min(MAX_ROWS_PER_COLUMN);
+        self.status = "".into();
+        cx.notify();
+    }
+
     fn apply(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
         match self.draft.save() {
             Ok(()) => {
                 let settings = AppSettings::load();
                 self.draft = settings.clone();
                 self.app.update(cx, |app, cx| {
-                    app.settings = settings;
-                    cx.notify();
+                    app.apply_settings(settings, cx);
                 });
                 self.status = "保存しました".into();
             }
@@ -42,6 +70,78 @@ impl SettingsWindow {
             }
         }
         cx.notify();
+    }
+
+    fn render_rows_per_column(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .p_3()
+            .border_1()
+            .border_color(rgb(0xd9cbb8))
+            .rounded_sm()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("1列の文字数"))
+                    .child(div().text_sm().text_color(rgb(0x705a4a)).child(format!(
+                        "{}から{}の範囲で設定できます",
+                        MIN_ROWS_PER_COLUMN, MAX_ROWS_PER_COLUMN
+                    ))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("settings-rows-decrement")
+                            .w(px(32.0))
+                            .h(px(32.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(rgb(0xd9cbb8))
+                            .cursor_pointer()
+                            .active(|this| this.opacity(0.85))
+                            .child("-")
+                            .on_click(cx.listener(Self::decrement_rows_per_column)),
+                    )
+                    .child(
+                        div()
+                            .w(px(52.0))
+                            .h(px(32.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_sm()
+                            .bg(rgb(0xe7ded0))
+                            .child(self.draft.rows_per_column.to_string()),
+                    )
+                    .child(
+                        div()
+                            .id("settings-rows-increment")
+                            .w(px(32.0))
+                            .h(px(32.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(rgb(0xd9cbb8))
+                            .cursor_pointer()
+                            .active(|this| this.opacity(0.85))
+                            .child("+")
+                            .on_click(cx.listener(Self::increment_rows_per_column)),
+                    ),
+            )
     }
 
     fn render_grid_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -134,6 +234,7 @@ impl Render for SettingsWindow {
                     ),
             )
             .child(self.render_grid_toggle(cx))
+            .child(self.render_rows_per_column(cx))
             .child(
                 div()
                     .flex()

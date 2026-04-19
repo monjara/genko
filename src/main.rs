@@ -5,7 +5,7 @@ mod settings;
 mod settings_window;
 
 use board::{BoardElement, cell_bounds_for_logical_index, logical_index_for_point};
-use genko_rope::{CellText, ROWS, TextRope, utf16_to_byte_in_text};
+use genko_rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 use settings_window::SettingsWindow;
 
@@ -18,7 +18,6 @@ use gpui::{
 
 const COLUMNS: usize = 20;
 const CELL_SIZE: f32 = 28.0;
-const VISIBLE_CELL_CAPACITY: usize = ROWS * COLUMNS;
 
 actions!(
     genko,
@@ -62,10 +61,12 @@ pub(crate) struct GenkoApp {
 
 impl GenkoApp {
     fn new(cx: &mut Context<Self>) -> Self {
+        let settings = AppSettings::load();
+        let draft = TextRope::new_with_rows(settings.rows_per_column);
         Self {
             title: "Genko".into(),
-            draft: TextRope::new(),
-            settings: AppSettings::load(),
+            draft,
+            settings,
             focus_handle: cx.focus_handle(),
             selected_range: 0..0,
             selection_reversed: false,
@@ -75,6 +76,15 @@ impl GenkoApp {
             scroll_column: 0,
             scroll_remainder_columns: 0.0,
         }
+    }
+
+    pub(crate) fn apply_settings(&mut self, settings: AppSettings, cx: &mut Context<Self>) {
+        self.settings = settings.normalized();
+        self.draft
+            .set_rows_per_column(self.settings.rows_per_column);
+        self.cursor_cell = self.display_cell_for_byte(self.cursor_offset());
+        self.ensure_cursor_visible();
+        cx.notify();
     }
 
     fn cursor_offset(&self) -> usize {
@@ -128,23 +138,31 @@ impl GenkoApp {
     pub(crate) fn visible_text(&self) -> Vec<CellText> {
         let first_visible_index = self.first_visible_cell_index();
         self.draft
-            .visible_cells(first_visible_index, VISIBLE_CELL_CAPACITY)
+            .visible_cells(first_visible_index, self.visible_cell_capacity())
     }
 
     fn used_cells(&self) -> usize {
         self.draft.len_display_cells()
     }
 
+    pub(crate) fn rows_per_column(&self) -> usize {
+        self.settings.rows_per_column
+    }
+
+    fn visible_cell_capacity(&self) -> usize {
+        self.rows_per_column() * COLUMNS
+    }
+
     fn first_visible_cell_index(&self) -> usize {
-        self.scroll_column * ROWS
+        self.scroll_column * self.rows_per_column()
     }
 
     fn cursor_column(&self) -> usize {
-        self.cursor_cell / ROWS
+        self.cursor_cell / self.rows_per_column()
     }
 
     fn total_columns(&self) -> usize {
-        let document_columns = self.used_cells().div_ceil(ROWS).max(1);
+        let document_columns = self.used_cells().div_ceil(self.rows_per_column()).max(1);
         document_columns.max(self.cursor_column() + 1)
     }
 
@@ -288,11 +306,11 @@ impl GenkoApp {
     }
 
     fn left(&mut self, _: &Left, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_cell_delta(ROWS as isize, cx);
+        self.move_to_cell_delta(self.rows_per_column() as isize, cx);
     }
 
     fn right(&mut self, _: &Right, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_cell_delta(-(ROWS as isize), cx);
+        self.move_to_cell_delta(-(self.rows_per_column() as isize), cx);
     }
 
     fn select_up(&mut self, _: &SelectUp, _window: &mut Window, cx: &mut Context<Self>) {
@@ -304,11 +322,11 @@ impl GenkoApp {
     }
 
     fn select_left(&mut self, _: &SelectLeft, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to_cell_delta(ROWS as isize, cx);
+        self.select_to_cell_delta(self.rows_per_column() as isize, cx);
     }
 
     fn select_right(&mut self, _: &SelectRight, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to_cell_delta(-(ROWS as isize), cx);
+        self.select_to_cell_delta(-(self.rows_per_column() as isize), cx);
     }
 
     fn select_all(&mut self, _: &SelectAll, _window: &mut Window, cx: &mut Context<Self>) {
@@ -372,9 +390,12 @@ impl GenkoApp {
         let Some(bounds) = self.last_board_bounds else {
             return;
         };
-        if let Some(cell_index) =
-            logical_index_for_point(bounds, event.position, self.scroll_column)
-        {
+        if let Some(cell_index) = logical_index_for_point(
+            bounds,
+            event.position,
+            self.scroll_column,
+            self.rows_per_column(),
+        ) {
             if event.modifiers.shift {
                 self.select_to_display_cell(cell_index, cx);
             } else {
@@ -406,7 +427,8 @@ impl GenkoApp {
 
     fn byte_offset_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
         let bounds = self.last_board_bounds?;
-        let index = logical_index_for_point(bounds, position, self.scroll_column)?;
+        let index =
+            logical_index_for_point(bounds, position, self.scroll_column, self.rows_per_column())?;
         Some(self.draft.byte_offset_for_display_cell(index))
     }
 
@@ -420,7 +442,12 @@ impl GenkoApp {
         } else {
             self.display_cell_for_byte(range.start)
         };
-        cell_bounds_for_logical_index(board_bounds, logical_index, self.scroll_column)
+        cell_bounds_for_logical_index(
+            board_bounds,
+            logical_index,
+            self.scroll_column,
+            self.rows_per_column(),
+        )
     }
 
     fn render_header(&self) -> impl IntoElement {
@@ -602,7 +629,7 @@ impl Focusable for GenkoApp {
 
 fn open_settings_window(app: Entity<GenkoApp>, cx: &mut App) {
     let settings = app.read(cx).settings.clone();
-    let bounds = Bounds::centered(None, size(px(460.0), px(280.0)), cx);
+    let bounds = Bounds::centered(None, size(px(520.0), px(390.0)), cx);
 
     let settings_window = cx
         .open_window(
