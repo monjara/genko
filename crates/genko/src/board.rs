@@ -2,20 +2,45 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, IntoElement, LayoutId,
-    MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Style, Styled,
-    TextRun, UTF16Selection, Window, div, fill, point, prelude::*, px, rgb, rgba, size,
+    Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, IntoElement, KeyBinding,
+    LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Style,
+    Styled, TextRun, UTF16Selection, Window, actions, div, fill, point, prelude::*, px, rgb, rgba,
+    size,
 };
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 use vim::{VimMode, VimState};
 
-use crate::{
-    AUTOMATIC_ROWS_RESERVED_CELLS, Backspace, CELL_SIZE, Copy, Cut, DEFAULT_VISIBLE_COLUMNS,
-    Delete, Down, End, Enter, Home, Left, Paste, Right, SelectAll, SelectDown, SelectLeft,
-    SelectRight, SelectUp, ShowCharacterPalette, Up, VimAppend, VimDeleteChar, VimEnterInsertMode,
-    VimNormalMode, VimVisualMode,
-};
+use crate::{AUTOMATIC_ROWS_RESERVED_CELLS, CELL_SIZE, DEFAULT_VISIBLE_COLUMNS};
+
+actions!(
+    genko,
+    [
+        Backspace,
+        Delete,
+        Up,
+        Down,
+        Left,
+        Right,
+        SelectUp,
+        SelectDown,
+        SelectLeft,
+        SelectRight,
+        SelectAll,
+        Home,
+        End,
+        Paste,
+        Cut,
+        Copy,
+        Enter,
+        ShowCharacterPalette,
+        VimEnterInsertMode,
+        VimAppend,
+        VimNormalMode,
+        VimVisualMode,
+        VimDeleteChar,
+    ]
+);
 
 pub(crate) struct BoardElement {
     draft: TextRope,
@@ -37,6 +62,49 @@ struct BoardCanvas {
 }
 
 impl BoardElement {
+    pub(crate) fn bind_keys(cx: &mut App) {
+        cx.bind_keys([
+            KeyBinding::new("backspace", Backspace, None),
+            KeyBinding::new("delete", Delete, None),
+            KeyBinding::new("up", Up, None),
+            KeyBinding::new("down", Down, None),
+            KeyBinding::new("left", Left, None),
+            KeyBinding::new("right", Right, None),
+            KeyBinding::new("shift-up", SelectUp, None),
+            KeyBinding::new("shift-down", SelectDown, None),
+            KeyBinding::new("shift-left", SelectLeft, None),
+            KeyBinding::new("shift-right", SelectRight, None),
+            KeyBinding::new("cmd-a", SelectAll, None),
+            KeyBinding::new("ctrl-a", SelectAll, None),
+            KeyBinding::new("cmd-v", Paste, None),
+            KeyBinding::new("ctrl-v", Paste, None),
+            KeyBinding::new("cmd-c", Copy, None),
+            KeyBinding::new("ctrl-c", Copy, None),
+            KeyBinding::new("cmd-x", Cut, None),
+            KeyBinding::new("ctrl-x", Cut, None),
+            KeyBinding::new("enter", Enter, None),
+            KeyBinding::new("home", Home, None),
+            KeyBinding::new("end", End, None),
+            KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
+            KeyBinding::new("i", VimEnterInsertMode, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("a", VimAppend, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == insert")),
+            KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("v", VimVisualMode, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("v", VimNormalMode, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("h", Left, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("j", Down, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("k", Up, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("l", Right, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("h", Left, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("j", Down, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("k", Up, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("l", Right, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == visual")),
+        ]);
+    }
+
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
         let rows_per_column = AppSettings::global(cx)
             .rows_per_column

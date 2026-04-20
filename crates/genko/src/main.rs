@@ -15,36 +15,7 @@ const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
 const CELL_SIZE: f32 = 28.0;
 
-actions!(
-    genko,
-    [
-        Backspace,
-        Delete,
-        Up,
-        Down,
-        Left,
-        Right,
-        SelectUp,
-        SelectDown,
-        SelectLeft,
-        SelectRight,
-        SelectAll,
-        Home,
-        End,
-        Paste,
-        Cut,
-        Copy,
-        Enter,
-        ShowCharacterPalette,
-        OpenSettings,
-        VimEnterInsertMode,
-        VimAppend,
-        VimNormalMode,
-        VimVisualMode,
-        VimDeleteChar,
-        Quit,
-    ]
-);
+actions!(genko, [OpenSettings, Quit]);
 
 pub(crate) struct GenkoApp {
     title: SharedString,
@@ -149,47 +120,8 @@ fn open_settings_window(cx: &mut App) {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        cx.bind_keys([
-            KeyBinding::new("backspace", Backspace, None),
-            KeyBinding::new("delete", Delete, None),
-            KeyBinding::new("up", Up, None),
-            KeyBinding::new("down", Down, None),
-            KeyBinding::new("left", Left, None),
-            KeyBinding::new("right", Right, None),
-            KeyBinding::new("shift-up", SelectUp, None),
-            KeyBinding::new("shift-down", SelectDown, None),
-            KeyBinding::new("shift-left", SelectLeft, None),
-            KeyBinding::new("shift-right", SelectRight, None),
-            KeyBinding::new("cmd-a", SelectAll, None),
-            KeyBinding::new("ctrl-a", SelectAll, None),
-            KeyBinding::new("cmd-v", Paste, None),
-            KeyBinding::new("ctrl-v", Paste, None),
-            KeyBinding::new("cmd-c", Copy, None),
-            KeyBinding::new("ctrl-c", Copy, None),
-            KeyBinding::new("cmd-x", Cut, None),
-            KeyBinding::new("ctrl-x", Cut, None),
-            KeyBinding::new("enter", Enter, None),
-            KeyBinding::new("home", Home, None),
-            KeyBinding::new("end", End, None),
-            KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
-            KeyBinding::new("i", VimEnterInsertMode, Some("Genko && vim_mode == normal")),
-            KeyBinding::new("a", VimAppend, Some("Genko && vim_mode == normal")),
-            KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == insert")),
-            KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == visual")),
-            KeyBinding::new("v", VimVisualMode, Some("Genko && vim_mode == normal")),
-            KeyBinding::new("v", VimNormalMode, Some("Genko && vim_mode == visual")),
-            KeyBinding::new("h", Left, Some("Genko && vim_mode == normal")),
-            KeyBinding::new("j", Down, Some("Genko && vim_mode == normal")),
-            KeyBinding::new("k", Up, Some("Genko && vim_mode == normal")),
-            KeyBinding::new("l", Right, Some("Genko && vim_mode == normal")),
-            KeyBinding::new("h", Left, Some("Genko && vim_mode == visual")),
-            KeyBinding::new("j", Down, Some("Genko && vim_mode == visual")),
-            KeyBinding::new("k", Up, Some("Genko && vim_mode == visual")),
-            KeyBinding::new("l", Right, Some("Genko && vim_mode == visual")),
-            KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == normal")),
-            KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == visual")),
-            KeyBinding::new("cmd-q", Quit, None),
-        ]);
+        BoardElement::bind_keys(cx);
+        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
 
         let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
