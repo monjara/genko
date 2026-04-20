@@ -1,21 +1,18 @@
 [workspace]
-members = [".", "crates/genko_rope"]
-default-members = [".", "crates/genko_rope"]
 resolver = "3"
+members = [".", "crates/genko", "crates/rope", "crates/settings", "crates/vim"]
+default-members = ["crates/genko"]
 
-[package]
-name = "genko"
-version = "0.1.0"
+[workspace.package]
 edition = "2024"
+publish = false
 
-[dependencies]
-genko_rope = { path = "crates/genko_rope" }
+[workspace.dependencies]
+rope = { path = "crates/rope" }
+settings = { path = "crates/settings" }
+vim = { path = "crates/vim" }
+
+gpui = "0.2.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 xdg = "3.0.0"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-gpui = { version = "0.2.2", features = ["runtime_shaders"] }
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-gpui = "0.2.2"

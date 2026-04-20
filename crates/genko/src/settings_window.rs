@@ -1,45 +1,38 @@
 use gpui::{
-    ClickEvent, Context, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString,
-    Styled, Window, div, prelude::*, px, rgb,
+    ClickEvent, Context, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled,
+    Window, div, prelude::*, px, rgb,
 };
 
-use crate::{
-    GenkoApp,
-    settings::{AppSettings, MAX_ROWS_PER_COLUMN, MIN_ROWS_PER_COLUMN},
-};
+use settings::AppSettings;
 
 pub(crate) struct SettingsWindow {
-    app: Entity<GenkoApp>,
-    draft: AppSettings,
     status: SharedString,
 }
 
 impl SettingsWindow {
-    pub(crate) fn new(app: Entity<GenkoApp>, settings: AppSettings) -> Self {
-        Self {
-            app,
-            draft: settings,
-            status: "".into(),
-        }
+    pub(crate) fn new() -> Self {
+        Self { status: "".into() }
     }
 
     fn toggle_grid_lines(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        self.draft.show_grid_lines = !self.draft.show_grid_lines;
+        // TODO AppSettings内で関数を作成
+        AppSettings::global_mut(cx).show_grid_lines = !AppSettings::global(cx).show_grid_lines;
         self.status = "".into();
         cx.notify();
     }
 
     fn toggle_vim_mode(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        self.draft.vim_mode = !self.draft.vim_mode;
+        // TODO AppSettings内で関数を作成
+        AppSettings::global_mut(cx).vim_mode = !AppSettings::global(cx).vim_mode;
         self.status = "".into();
         cx.notify();
     }
 
     fn toggle_rows_auto(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        self.draft.rows_per_column = self.draft.rows_per_column.map_or_else(
-            || Some(AppSettings::default_fixed_rows_per_column()),
-            |_| None,
-        );
+        // TODO AppSettings内で関数を作成
+        AppSettings::global_mut(cx).rows_per_column = AppSettings::global(cx)
+            .rows_per_column
+            .map_or_else(|| Some(AppSettings::default_rows_per_column()), |_| None);
         self.status = "".into();
         cx.notify();
     }
@@ -50,11 +43,15 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let rows = self
-            .draft
+        let rows = AppSettings::global(cx)
             .rows_per_column
-            .unwrap_or_else(AppSettings::default_fixed_rows_per_column);
-        self.draft.rows_per_column = Some(rows.saturating_sub(1).max(MIN_ROWS_PER_COLUMN));
+            .unwrap_or_else(AppSettings::default_rows_per_column);
+
+        AppSettings::global_mut(cx).rows_per_column = Some(
+            rows.saturating_sub(1)
+                .max(AppSettings::min_rows_per_column()),
+        );
+
         self.status = "".into();
         cx.notify();
     }
@@ -65,23 +62,21 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let rows = self
-            .draft
+        let rows = AppSettings::global(cx)
             .rows_per_column
-            .unwrap_or_else(AppSettings::default_fixed_rows_per_column);
-        self.draft.rows_per_column = Some((rows + 1).min(MAX_ROWS_PER_COLUMN));
+            .unwrap_or_else(AppSettings::default_rows_per_column);
+
+        AppSettings::global_mut(cx).rows_per_column =
+            Some((rows + 1).min(AppSettings::max_rows_per_column()));
         self.status = "".into();
         cx.notify();
     }
 
     fn apply(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.draft.save() {
+        match AppSettings::global(cx).save() {
             Ok(()) => {
                 let settings = AppSettings::load();
-                self.draft = settings.clone();
-                self.app.update(cx, |app, cx| {
-                    app.apply_settings(settings, cx);
-                });
+                self.apply_settings(settings, cx);
                 self.status = "保存しました".into();
             }
             Err(error) => {
@@ -91,12 +86,26 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn apply_settings(&mut self, settings: AppSettings, cx: &mut Context<Self>) {
+        let row_settings = AppSettings::global_mut(cx);
+        // let was_vim_mode = self.settings.vim_mode;
+        // old_settings = settings.normalized();
+        // if self.settings.vim_mode != was_vim_mode {
+        // self.vim.reset_for_enabled(self.settings.vim_mode);
+        // }
+        if let Some(rows_per_column) = settings.rows_per_column {
+            row_settings.rows_per_column = Some(rows_per_column);
+        }
+        // self.ensure_cursor_visible();
+        cx.notify();
+    }
+
     fn render_rows_per_column(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows_label = self
-            .draft
+        let rows_label = AppSettings::global(cx)
             .rows_per_column
             .map_or_else(|| "自動".to_string(), |rows| rows.to_string());
-        let mode_label = if self.draft.rows_per_column.is_some() {
+
+        let mode_label = if AppSettings::global(cx).rows_per_column.is_some() {
             "固定"
         } else {
             "自動"
@@ -119,7 +128,8 @@ impl SettingsWindow {
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("1列の文字数"))
                     .child(div().text_sm().text_color(rgb(0x705a4a)).child(format!(
                         "未指定ならウィンドウの高さに合わせます。固定は{}から{}の範囲です",
-                        MIN_ROWS_PER_COLUMN, MAX_ROWS_PER_COLUMN
+                        AppSettings::min_rows_per_column(),
+                        AppSettings::max_rows_per_column()
                     ))),
             )
             .child(
@@ -190,7 +200,7 @@ impl SettingsWindow {
     }
 
     fn render_grid_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let value_label = if self.draft.show_grid_lines {
+        let value_label = if AppSettings::global(cx).show_grid_lines {
             "表示する"
         } else {
             "表示しない"
@@ -226,12 +236,12 @@ impl SettingsWindow {
                     .px_3()
                     .py_1()
                     .rounded_sm()
-                    .bg(if self.draft.show_grid_lines {
+                    .bg(if AppSettings::global(cx).show_grid_lines {
                         rgb(0x2f6fff)
                     } else {
                         rgb(0xe7ded0)
                     })
-                    .text_color(if self.draft.show_grid_lines {
+                    .text_color(if AppSettings::global(cx).show_grid_lines {
                         rgb(0xffffff)
                     } else {
                         rgb(0x2f241d)
@@ -241,7 +251,7 @@ impl SettingsWindow {
     }
 
     fn render_vim_mode_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let value_label = if self.draft.vim_mode {
+        let value_label = if AppSettings::global(cx).vim_mode {
             "有効"
         } else {
             "無効"
@@ -277,12 +287,12 @@ impl SettingsWindow {
                     .px_3()
                     .py_1()
                     .rounded_sm()
-                    .bg(if self.draft.vim_mode {
+                    .bg(if AppSettings::global(cx).vim_mode {
                         rgb(0x2f6fff)
                     } else {
                         rgb(0xe7ded0)
                     })
-                    .text_color(if self.draft.vim_mode {
+                    .text_color(if AppSettings::global(cx).vim_mode {
                         rgb(0xffffff)
                     } else {
                         rgb(0x2f241d)

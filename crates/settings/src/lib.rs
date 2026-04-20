@@ -3,20 +3,24 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use gpui::{App, Global};
 use serde::{Deserialize, Serialize};
 
-pub(crate) const DEFAULT_ROWS_PER_COLUMN: usize = genko_rope::DEFAULT_ROWS_PER_COLUMN;
-pub(crate) const MIN_ROWS_PER_COLUMN: usize = 1;
-pub(crate) const MAX_ROWS_PER_COLUMN: usize = 60;
+const DEFAULT_ROWS_PER_COLUMN: usize = 20;
+const MIN_ROWS_PER_COLUMN: usize = 1;
+const MAX_ROWS_PER_COLUMN: usize = 60;
+const SETTINGS_FILE: &str = "settings.json";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
-pub(crate) struct AppSettings {
-    pub(crate) show_grid_lines: bool,
-    pub(crate) rows_per_column: Option<usize>,
+pub struct AppSettings {
+    pub show_grid_lines: bool,
+    pub rows_per_column: Option<usize>,
     #[serde(rename = "vimMode")]
-    pub(crate) vim_mode: bool,
+    pub vim_mode: bool,
 }
+
+impl Global for AppSettings {}
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -29,27 +33,46 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
-    const SETTINGS_FILE: &'static str = "settings.json";
+    pub fn init(cx: &mut App) {
+        let state = Self::load();
+        cx.set_global::<AppSettings>(state);
+    }
 
-    pub(crate) fn default_fixed_rows_per_column() -> usize {
+    pub fn global(cx: &App) -> &Self {
+        cx.global::<Self>()
+    }
+
+    pub fn global_mut(cx: &mut App) -> &mut Self {
+        cx.global_mut::<Self>()
+    }
+
+    pub fn default_rows_per_column() -> usize {
         DEFAULT_ROWS_PER_COLUMN
     }
 
-    pub(crate) fn load() -> Self {
+    pub fn min_rows_per_column() -> usize {
+        MIN_ROWS_PER_COLUMN
+    }
+
+    pub fn max_rows_per_column() -> usize {
+        MAX_ROWS_PER_COLUMN
+    }
+
+    pub fn load() -> Self {
         let xdg_dirs = xdg::BaseDirectories::with_prefix("genko");
         Self::load_from_base_dirs(&xdg_dirs)
     }
 
-    pub(crate) fn save(&self) -> Result<(), String> {
+    pub fn save(&self) -> Result<(), String> {
         let settings = self.normalized();
         let xdg_dirs = xdg::BaseDirectories::with_prefix("genko");
         let settings_path = xdg_dirs
-            .place_config_file(Self::SETTINGS_FILE)
+            .place_config_file(SETTINGS_FILE)
             .map_err(|error| format!("設定ファイルの保存先を作成できません: {error}"))?;
         settings.save_to_file(&settings_path)
     }
 
-    pub(crate) fn normalized(&self) -> Self {
+    pub fn normalized(&self) -> Self {
         Self {
             show_grid_lines: self.show_grid_lines,
             rows_per_column: self
@@ -60,7 +83,7 @@ impl AppSettings {
     }
 
     fn load_from_base_dirs(xdg_dirs: &xdg::BaseDirectories) -> Self {
-        Self::load_from_config_file(xdg_dirs.find_config_file(Self::SETTINGS_FILE))
+        Self::load_from_config_file(xdg_dirs.find_config_file(SETTINGS_FILE))
     }
 
     fn load_from_config_file(settings_path: Option<PathBuf>) -> Self {

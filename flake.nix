@@ -49,12 +49,14 @@
           ++ lib.optionals pkgs.stdenv.isDarwin darwinBuildInputs;
         devTools = with pkgs; [
           cargo
+          cargo-make
+          cargo-watch
           nixpkgs-fmt
           pre-commit
           rust-analyzer
+          rustPackages.clippy
           rustc
           rustfmt
-          rustPackages.clippy
         ] ++ lib.optionals pkgs.stdenv.isLinux (with pkgs; [
           vulkan-tools
         ]);

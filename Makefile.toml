@@ -1,0 +1,23 @@
+[config]
+default_to_workspace = false
+
+[tasks.dev]
+command = "cargo"
+args = ["run"]
+
+[tasks.dev-watch]
+command = "cargo"
+args = ["watch", "-x", "run"]
+
+[tasks.test]
+command = "cargo"
+args = ["test", "--offline", "--all"]
+
+[tasks.test-target]
+command = "cargo"
+args = ["test", "--offline", "--target", "${@}"]
+
+
+[tasks.new]
+command = "cargo"
+args = ["new", "--lib", "./crates/${@}"]

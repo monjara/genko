@@ -1,0 +1,17 @@
+[package]
+name = "genko"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "genko"
+path = "src/main.rs"
+
+[dependencies]
+gpui = { workspace = true }
+rope = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+settings = { workspace = true }
+vim = { workspace = true }
+xdg = { workspace = true }
