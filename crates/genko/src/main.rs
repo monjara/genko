@@ -6,7 +6,7 @@ use settings::AppSettings;
 use settings_window::SettingsWindow;
 
 use gpui::{
-    App, Application, Bounds, Context, Entity, FocusHandle, Focusable, KeyBinding, Menu, MenuItem,
+    App, Bounds, Context, Entity, FocusHandle, Focusable, KeyBinding, Menu, MenuItem,
     ParentElement, Render, SharedString, Styled, Window, WindowBounds, WindowOptions, actions, div,
     prelude::*, px, rgb, size,
 };
@@ -119,7 +119,7 @@ fn open_settings_window(cx: &mut App) {
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    gpui_platform::application().run(|cx: &mut App| {
         BoardElement::bind_keys(cx);
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
@@ -139,6 +139,7 @@ fn main() {
 
         cx.on_action(move |_: &OpenSettings, cx| open_settings_window(cx));
         cx.set_menus(vec![Menu {
+            disabled: false,
             name: "Genko".into(),
             items: vec![
                 MenuItem::action("設定", OpenSettings),
@@ -149,7 +150,7 @@ fn main() {
 
         window
             .update(cx, |view, window, cx| {
-                window.focus(&view.focus_handle(cx));
+                window.focus(&view.focus_handle(cx), cx);
                 cx.activate(true);
             })
             .unwrap();
