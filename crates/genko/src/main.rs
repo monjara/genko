@@ -5,10 +5,10 @@ mod settings;
 mod settings_window;
 
 use board::{BoardElement, cell_bounds_for_logical_index, logical_index_for_point};
-use genko_rope::{CellText, TextRope, utf16_to_byte_in_text};
-use genko_vim::{VimMode, VimState};
+use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::{AppSettings, MAX_ROWS_PER_COLUMN};
 use settings_window::SettingsWindow;
+use vim::{VimMode, VimState};
 
 use gpui::{
     App, Application, Bounds, ClipboardItem, Context, CursorStyle, Entity, EntityInputHandler,

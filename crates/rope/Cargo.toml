@@ -1,7 +1,11 @@
 [package]
-name = "genko_rope"
+name = "rope"
 version = "0.1.0"
 edition = "2024"
+
+[lib]
+name = "rope"
+path = "src/lib.rs"
 
 [dependencies]
 unicode-segmentation = "1.13.2"

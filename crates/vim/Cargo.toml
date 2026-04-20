@@ -1,6 +1,10 @@
 [package]
-name = "genko_vim"
+name = "vim"
 version = "0.1.0"
 edition = "2024"
+
+[lib]
+name = "vim"
+path = "src/lib.rs"
 
 [dependencies]

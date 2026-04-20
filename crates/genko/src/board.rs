@@ -1,10 +1,10 @@
 use std::ops::Range;
 
-use genko_rope::CellText;
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, IntoElement,
     LayoutId, Pixels, Style, TextRun, Window, fill, point, px, rgb, rgba, size,
 };
+use rope::CellText;
 
 use crate::{CELL_SIZE, GenkoApp};
 
@@ -402,7 +402,7 @@ pub(crate) fn logical_index_for_point(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use genko_rope::DEFAULT_ROWS_PER_COLUMN;
+    use rope::DEFAULT_ROWS_PER_COLUMN;
 
     const VISIBLE_COLUMNS: usize = 20;
 

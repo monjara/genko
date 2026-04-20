@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-pub(crate) const DEFAULT_ROWS_PER_COLUMN: usize = genko_rope::DEFAULT_ROWS_PER_COLUMN;
+pub(crate) const DEFAULT_ROWS_PER_COLUMN: usize = rope::DEFAULT_ROWS_PER_COLUMN;
 pub(crate) const MIN_ROWS_PER_COLUMN: usize = 1;
 pub(crate) const MAX_ROWS_PER_COLUMN: usize = 60;
 

@@ -71,3 +71,7 @@ impl VimState {
         }
     }
 }
+
+pub struct Vim { }
+// impl Re
+
