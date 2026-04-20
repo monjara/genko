@@ -4,8 +4,8 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
     Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, IntoElement, KeyBinding,
     LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Style,
-    Styled, TextRun, UTF16Selection, Window, actions, div, fill, point, prelude::*, px, rgb, rgba,
-    size,
+    Styled, TextAlign, TextRun, UTF16Selection, Window, actions, div, fill, point, prelude::*, px,
+    rgb, rgba, size,
 };
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
@@ -573,7 +573,7 @@ impl BoardElement {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         let Some(bounds) = self.last_board_bounds else {
             return;
         };
@@ -770,7 +770,15 @@ impl BoardElement {
             cell_bounds.left() + (px(CELL_SIZE) - line.width) / 2.0,
             cell_bounds.top() + (px(CELL_SIZE) - line_height) / 2.0,
         );
-        line.paint(text_origin, line_height, window, cx).ok();
+        line.paint(
+            text_origin,
+            line_height,
+            gpui::TextAlign::Center,
+            None,
+            window,
+            cx,
+        )
+        .ok();
     }
 
     fn paint_attached_punctuation(
@@ -798,7 +806,15 @@ impl BoardElement {
             cell_bounds.right() - line.width - px(3.0),
             cell_bounds.bottom() - line_height - px(1.0),
         );
-        line.paint(text_origin, line_height, window, cx).ok();
+        line.paint(
+            text_origin,
+            line_height,
+            TextAlign::Center,
+            None,
+            window,
+            cx,
+        )
+        .ok();
     }
 
     fn paint_cursor(
