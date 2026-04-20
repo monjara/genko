@@ -1,3 +1,5 @@
+use gpui::Render;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VimMode {
     Normal,
@@ -72,6 +74,14 @@ impl VimState {
     }
 }
 
-pub struct Vim { }
-// impl Re
+pub struct Vim {}
 
+impl Render for Vim {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        _cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        gpui::Empty
+    }
+}

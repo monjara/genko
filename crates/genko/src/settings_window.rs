@@ -3,10 +3,9 @@ use gpui::{
     Styled, Window, div, prelude::*, px, rgb,
 };
 
-use crate::{
-    GenkoApp,
-    settings::{AppSettings, MAX_ROWS_PER_COLUMN, MIN_ROWS_PER_COLUMN},
-};
+use crate::GenkoApp;
+
+use settings::{AppSettings, MAX_ROWS_PER_COLUMN, MIN_ROWS_PER_COLUMN};
 
 pub(crate) struct SettingsWindow {
     app: Entity<GenkoApp>,

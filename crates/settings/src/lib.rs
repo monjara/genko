@@ -5,17 +5,17 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-pub(crate) const DEFAULT_ROWS_PER_COLUMN: usize = rope::DEFAULT_ROWS_PER_COLUMN;
-pub(crate) const MIN_ROWS_PER_COLUMN: usize = 1;
-pub(crate) const MAX_ROWS_PER_COLUMN: usize = 60;
+const DEFAULT_ROWS_PER_COLUMN: usize = 20;
+pub const MIN_ROWS_PER_COLUMN: usize = 1;
+pub const MAX_ROWS_PER_COLUMN: usize = 60;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
-pub(crate) struct AppSettings {
-    pub(crate) show_grid_lines: bool,
-    pub(crate) rows_per_column: Option<usize>,
+pub struct AppSettings {
+    pub show_grid_lines: bool,
+    pub rows_per_column: Option<usize>,
     #[serde(rename = "vimMode")]
-    pub(crate) vim_mode: bool,
+    pub vim_mode: bool,
 }
 
 impl Default for AppSettings {
@@ -31,16 +31,16 @@ impl Default for AppSettings {
 impl AppSettings {
     const SETTINGS_FILE: &'static str = "settings.json";
 
-    pub(crate) fn default_fixed_rows_per_column() -> usize {
+    pub fn default_fixed_rows_per_column() -> usize {
         DEFAULT_ROWS_PER_COLUMN
     }
 
-    pub(crate) fn load() -> Self {
+    pub fn load() -> Self {
         let xdg_dirs = xdg::BaseDirectories::with_prefix("genko");
         Self::load_from_base_dirs(&xdg_dirs)
     }
 
-    pub(crate) fn save(&self) -> Result<(), String> {
+    pub fn save(&self) -> Result<(), String> {
         let settings = self.normalized();
         let xdg_dirs = xdg::BaseDirectories::with_prefix("genko");
         let settings_path = xdg_dirs
@@ -49,7 +49,7 @@ impl AppSettings {
         settings.save_to_file(&settings_path)
     }
 
-    pub(crate) fn normalized(&self) -> Self {
+    pub fn normalized(&self) -> Self {
         Self {
             show_grid_lines: self.show_grid_lines,
             rows_per_column: self

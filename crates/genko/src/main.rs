@@ -1,7 +1,6 @@
 use std::ops::Range;
 
 mod board;
-mod settings;
 mod settings_window;
 
 use board::{BoardElement, cell_bounds_for_logical_index, logical_index_for_point};

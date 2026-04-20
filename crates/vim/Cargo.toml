@@ -8,3 +8,4 @@ name = "vim"
 path = "src/lib.rs"
 
 [dependencies]
+gpui = { workspace = true }

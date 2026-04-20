@@ -402,8 +402,8 @@ pub(crate) fn logical_index_for_point(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rope::DEFAULT_ROWS_PER_COLUMN;
 
+    const DEFAULT_ROWS_PER_COLUMN: usize = 16;
     const VISIBLE_COLUMNS: usize = 20;
 
     #[test]

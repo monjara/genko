@@ -8,4 +8,5 @@ name = "rope"
 path = "src/lib.rs"
 
 [dependencies]
+settings = { workspace = true }
 unicode-segmentation = "1.13.2"

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/genko", "crates/rope", "crates/vim"]
+members = [".", "crates/genko", "crates/rope", "crates/settings", "crates/vim"]
 default-members = ["crates/genko"]
 
 [workspace.package]
@@ -9,6 +9,7 @@ publish = false
 
 [workspace.dependencies]
 rope = { path = "crates/rope" }
+settings = { path = "crates/settings" }
 vim = { path = "crates/vim" }
 
 gpui = "0.2.2"

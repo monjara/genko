@@ -12,5 +12,6 @@ gpui = { workspace = true }
 rope = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+settings = { workspace = true }
 vim = { workspace = true }
 xdg = { workspace = true }

@@ -1,9 +1,7 @@
+use settings::AppSettings;
 use std::{ops::Range, sync::Arc};
-
 use unicode_segmentation::UnicodeSegmentation;
 
-pub const DEFAULT_ROWS_PER_COLUMN: usize = 20;
-pub const ROWS: usize = DEFAULT_ROWS_PER_COLUMN;
 pub const BLANK_CELL: char = '\u{3000}';
 const ROPE_LEAF_BYTES: usize = 1024;
 
@@ -29,7 +27,7 @@ impl Default for TextRope {
 
 impl TextRope {
     pub fn new() -> Self {
-        Self::new_with_rows(DEFAULT_ROWS_PER_COLUMN)
+        Self::new_with_rows(AppSettings::default_fixed_rows_per_column())
     }
 
     pub fn new_with_rows(rows_per_column: usize) -> Self {
@@ -89,7 +87,7 @@ impl TextRope {
     }
 
     pub fn from_str(text: &str) -> Self {
-        Self::from_str_with_rows(text, DEFAULT_ROWS_PER_COLUMN)
+        Self::from_str_with_rows(text, AppSettings::default_fixed_rows_per_column())
     }
 
     pub fn from_str_with_rows(text: &str, rows_per_column: usize) -> Self {
@@ -102,7 +100,7 @@ impl TextRope {
 
     #[cfg(test)]
     fn from_string(text: String) -> Self {
-        Self::from_string_with_rows(text, DEFAULT_ROWS_PER_COLUMN)
+        Self::from_string_with_rows(text, AppSettings::default_fixed_rows_per_column())
     }
 
     #[cfg(test)]
@@ -1229,12 +1227,11 @@ fn chunk_shared_string(source: Arc<String>, rows_per_column: usize) -> Vec<Box<R
         chunk_bytes += grapheme.len();
     }
 
-    if chunk_start < source.len() {
-        if let Some(chunk) =
+    if chunk_start < source.len()
+        && let Some(chunk) =
             RopeNode::shared_leaf(source.clone(), chunk_start..source.len(), rows_per_column)
-        {
-            chunks.push(chunk);
-        }
+    {
+        chunks.push(chunk);
     }
 
     chunks
@@ -1277,6 +1274,7 @@ pub fn utf16_to_byte_in_text(text: &str, utf16_offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const ROWS: usize = 20;
 
     #[test]
     fn rope_replaces_japanese_text_on_char_boundaries() {
