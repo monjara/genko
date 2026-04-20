@@ -18,9 +18,7 @@
           rustPlatform.bindgenHook
         ];
         commonBuildInputs = with pkgs; [
-          openssl
-          sqlite
-          zstd
+          # add build inputs
         ];
         linuxBuildInputs = with pkgs; [
           alsa-lib
@@ -40,8 +38,7 @@
           xdg-desktop-portal
         ];
         darwinBuildInputs = with pkgs; [
-          apple-sdk
-          libiconv
+          # add build inputs
         ];
         buildInputs =
           commonBuildInputs
