@@ -27,7 +27,7 @@ impl Default for TextRope {
 
 impl TextRope {
     pub fn new() -> Self {
-        Self::new_with_rows(AppSettings::default_fixed_rows_per_column())
+        Self::new_with_rows(AppSettings::default_rows_per_column())
     }
 
     pub fn new_with_rows(rows_per_column: usize) -> Self {
@@ -87,7 +87,7 @@ impl TextRope {
     }
 
     pub fn from_str(text: &str) -> Self {
-        Self::from_str_with_rows(text, AppSettings::default_fixed_rows_per_column())
+        Self::from_str_with_rows(text, AppSettings::default_rows_per_column())
     }
 
     pub fn from_str_with_rows(text: &str, rows_per_column: usize) -> Self {
@@ -100,7 +100,7 @@ impl TextRope {
 
     #[cfg(test)]
     fn from_string(text: String) -> Self {
-        Self::from_string_with_rows(text, AppSettings::default_fixed_rows_per_column())
+        Self::from_string_with_rows(text, AppSettings::default_rows_per_column())
     }
 
     #[cfg(test)]

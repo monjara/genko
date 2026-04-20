@@ -5,7 +5,7 @@ use gpui::{
 
 use crate::GenkoApp;
 
-use settings::{AppSettings, MAX_ROWS_PER_COLUMN, MIN_ROWS_PER_COLUMN};
+use settings::AppSettings;
 
 pub(crate) struct SettingsWindow {
     app: Entity<GenkoApp>,
@@ -35,10 +35,10 @@ impl SettingsWindow {
     }
 
     fn toggle_rows_auto(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        self.draft.rows_per_column = self.draft.rows_per_column.map_or_else(
-            || Some(AppSettings::default_fixed_rows_per_column()),
-            |_| None,
-        );
+        self.draft.rows_per_column = self
+            .draft
+            .rows_per_column
+            .map_or_else(|| Some(AppSettings::default_rows_per_column()), |_| None);
         self.status = "".into();
         cx.notify();
     }
@@ -52,8 +52,11 @@ impl SettingsWindow {
         let rows = self
             .draft
             .rows_per_column
-            .unwrap_or_else(AppSettings::default_fixed_rows_per_column);
-        self.draft.rows_per_column = Some(rows.saturating_sub(1).max(MIN_ROWS_PER_COLUMN));
+            .unwrap_or_else(AppSettings::default_rows_per_column);
+        self.draft.rows_per_column = Some(
+            rows.saturating_sub(1)
+                .max(AppSettings::min_rows_per_column()),
+        );
         self.status = "".into();
         cx.notify();
     }
@@ -67,8 +70,8 @@ impl SettingsWindow {
         let rows = self
             .draft
             .rows_per_column
-            .unwrap_or_else(AppSettings::default_fixed_rows_per_column);
-        self.draft.rows_per_column = Some((rows + 1).min(MAX_ROWS_PER_COLUMN));
+            .unwrap_or_else(AppSettings::default_rows_per_column);
+        self.draft.rows_per_column = Some((rows + 1).min(AppSettings::max_rows_per_column()));
         self.status = "".into();
         cx.notify();
     }
@@ -118,7 +121,8 @@ impl SettingsWindow {
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("1列の文字数"))
                     .child(div().text_sm().text_color(rgb(0x705a4a)).child(format!(
                         "未指定ならウィンドウの高さに合わせます。固定は{}から{}の範囲です",
-                        MIN_ROWS_PER_COLUMN, MAX_ROWS_PER_COLUMN
+                        AppSettings::min_rows_per_column(),
+                        AppSettings::max_rows_per_column()
                     ))),
             )
             .child(

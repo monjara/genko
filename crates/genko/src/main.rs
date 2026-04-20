@@ -5,7 +5,7 @@ mod settings_window;
 
 use board::{BoardElement, cell_bounds_for_logical_index, logical_index_for_point};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
-use settings::{AppSettings, MAX_ROWS_PER_COLUMN};
+use settings::AppSettings;
 use settings_window::SettingsWindow;
 use vim::{VimMode, VimState};
 
@@ -73,7 +73,7 @@ impl GenkoApp {
         let settings = AppSettings::load();
         let rows_per_column = settings
             .rows_per_column
-            .unwrap_or_else(AppSettings::default_fixed_rows_per_column);
+            .unwrap_or_else(AppSettings::default_rows_per_column);
         let draft = TextRope::new_with_rows(rows_per_column);
         let vim = VimState::new(settings.vim_mode);
         Self {
@@ -210,7 +210,7 @@ impl GenkoApp {
     }
 
     fn update_rows_per_column(&mut self, rows_per_column: usize) {
-        let rows_per_column = rows_per_column.clamp(1, MAX_ROWS_PER_COLUMN);
+        let rows_per_column = rows_per_column.clamp(1, AppSettings::max_rows_per_column());
         if self.rows_per_column == rows_per_column {
             return;
         }
@@ -811,7 +811,7 @@ fn visible_columns_for_window_width(width: Pixels) -> usize {
 fn rows_per_column_for_window_height(height: Pixels) -> usize {
     ((height / px(CELL_SIZE)).floor() as usize)
         .saturating_sub(AUTOMATIC_ROWS_RESERVED_CELLS)
-        .clamp(1, MAX_ROWS_PER_COLUMN)
+        .clamp(1, AppSettings::max_rows_per_column())
 }
 
 impl Focusable for GenkoApp {
