@@ -10,9 +10,9 @@ use settings_window::SettingsWindow;
 use vim::{VimMode, VimState};
 
 use gpui::{
-    App, Application, Bounds, ClipboardItem, Context, CursorStyle, Entity, EntityInputHandler,
-    FocusHandle, Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, ParentElement,
-    Pixels, Render, ScrollWheelEvent, SharedString, Styled, UTF16Selection, Window, WindowBounds,
+    App, Application, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle,
+    Focusable, KeyBinding, Menu, MenuItem, MouseButton, MouseDownEvent, ParentElement, Pixels,
+    Render, ScrollWheelEvent, SharedString, Styled, UTF16Selection, Window, WindowBounds,
     WindowOptions, actions, div, prelude::*, px, rgb, size,
 };
 
@@ -55,7 +55,6 @@ pub(crate) struct GenkoApp {
     title: SharedString,
     draft: TextRope,
     rows_per_column: usize,
-    pub(crate) settings: AppSettings,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) selected_range: Range<usize>,
     selection_reversed: bool,
@@ -70,17 +69,17 @@ pub(crate) struct GenkoApp {
 
 impl GenkoApp {
     fn new(cx: &mut Context<Self>) -> Self {
-        let settings = AppSettings::load();
-        let rows_per_column = settings
+        AppSettings::init(cx);
+
+        let rows_per_column = AppSettings::global(cx)
             .rows_per_column
             .unwrap_or_else(AppSettings::default_rows_per_column);
         let draft = TextRope::new_with_rows(rows_per_column);
-        let vim = VimState::new(settings.vim_mode);
+        let vim = VimState::new(AppSettings::global(cx).vim_mode);
         Self {
             title: "Genko".into(),
             draft,
             rows_per_column,
-            settings,
             focus_handle: cx.focus_handle(),
             selected_range: 0..0,
             selection_reversed: false,
@@ -94,19 +93,6 @@ impl GenkoApp {
         }
     }
 
-    pub(crate) fn apply_settings(&mut self, settings: AppSettings, cx: &mut Context<Self>) {
-        let was_vim_mode = self.settings.vim_mode;
-        self.settings = settings.normalized();
-        if self.settings.vim_mode != was_vim_mode {
-            self.vim.reset_for_enabled(self.settings.vim_mode);
-        }
-        if let Some(rows_per_column) = self.settings.rows_per_column {
-            self.update_rows_per_column(rows_per_column);
-        }
-        self.ensure_cursor_visible();
-        cx.notify();
-    }
-
     fn cursor_offset(&self) -> usize {
         if self.selection_reversed {
             self.selected_range.start
@@ -115,12 +101,12 @@ impl GenkoApp {
         }
     }
 
-    fn vim_key_context(&self) -> &'static str {
-        self.vim.key_context(self.settings.vim_mode)
+    fn vim_key_context(&self, cx: &mut Context<Self>) -> &'static str {
+        self.vim.key_context(AppSettings::global(cx).vim_mode)
     }
 
-    fn is_vim_command_mode(&self) -> bool {
-        self.vim.is_command_mode(self.settings.vim_mode)
+    fn is_vim_command_mode(&self, cx: &mut Context<Self>) -> bool {
+        self.vim.is_command_mode(AppSettings::global(cx).vim_mode)
     }
 
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
@@ -501,7 +487,7 @@ impl GenkoApp {
     }
 
     fn vim_normal_mode(&mut self, _: &VimNormalMode, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.settings.vim_mode {
+        if AppSettings::global(cx).vim_mode {
             let cursor_offset = if self.vim.mode() == VimMode::Visual {
                 self.draft.byte_offset_for_display_cell(self.cursor_cell)
             } else {
@@ -527,7 +513,7 @@ impl GenkoApp {
 
     fn vim_delete_char(&mut self, _: &VimDeleteChar, _window: &mut Window, cx: &mut Context<Self>) {
         self.delete_forward(cx);
-        if self.settings.vim_mode {
+        if AppSettings::global(cx).vim_mode {
             self.vim.set_mode(VimMode::Normal);
         }
     }
@@ -609,8 +595,8 @@ impl GenkoApp {
         )
     }
 
-    fn render_header(&self) -> impl IntoElement {
-        let mode_label = self.vim.status_label(self.settings.vim_mode);
+    fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let mode_label = self.vim.status_label(AppSettings::global(cx).vim_mode);
 
         div()
             .w_full()
@@ -682,7 +668,7 @@ impl EntityInputHandler for GenkoApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_vim_command_mode() {
+        if self.is_vim_command_mode(cx) {
             return;
         }
 
@@ -698,7 +684,7 @@ impl EntityInputHandler for GenkoApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_vim_command_mode() {
+        if self.is_vim_command_mode(cx) {
             return;
         }
 
@@ -752,7 +738,7 @@ impl Render for GenkoApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let viewport_size = window.viewport_size();
         self.update_visible_columns(visible_columns_for_window_width(viewport_size.width));
-        if self.settings.rows_per_column.is_none() {
+        if AppSettings::global(cx).rows_per_column.is_none() {
             self.update_rows_per_column(rows_per_column_for_window_height(viewport_size.height));
         }
 
@@ -763,7 +749,7 @@ impl Render for GenkoApp {
             .items_center()
             .justify_center()
             .track_focus(&self.focus_handle(cx))
-            .key_context(self.vim_key_context())
+            .key_context(self.vim_key_context(cx))
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
             .on_action(cx.listener(Self::up))
@@ -796,7 +782,7 @@ impl Render for GenkoApp {
                     .flex_col()
                     .gap_4()
                     .items_center()
-                    .child(self.render_header())
+                    .child(self.render_header(cx))
                     .child(BoardElement { app: cx.entity() }),
             )
     }
@@ -820,8 +806,7 @@ impl Focusable for GenkoApp {
     }
 }
 
-fn open_settings_window(app: Entity<GenkoApp>, cx: &mut App) {
-    let settings = app.read(cx).settings.clone();
+fn open_settings_window(cx: &mut App) {
     let bounds = Bounds::centered(None, size(px(520.0), px(460.0)), cx);
 
     let settings_window = cx
@@ -831,7 +816,7 @@ fn open_settings_window(app: Entity<GenkoApp>, cx: &mut App) {
                 app_id: Some("dev.genko.settings".into()),
                 ..Default::default()
             },
-            move |_, cx| cx.new(move |_| SettingsWindow::new(app, settings)),
+            move |_, cx| cx.new(move |_| SettingsWindow::new()),
         )
         .unwrap();
 
@@ -901,12 +886,7 @@ fn main() {
             )
             .unwrap();
 
-        let app_entity = window.entity(cx).unwrap().downgrade();
-        cx.on_action(move |_: &OpenSettings, cx| {
-            if let Some(app_entity) = app_entity.upgrade() {
-                open_settings_window(app_entity, cx);
-            }
-        });
+        cx.on_action(move |_: &OpenSettings, cx| open_settings_window(cx));
         cx.set_menus(vec![Menu {
             name: "Genko".into(),
             items: vec![

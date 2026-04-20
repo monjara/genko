@@ -5,6 +5,7 @@ use gpui::{
     LayoutId, Pixels, Style, TextRun, Window, fill, point, px, rgb, rgba, size,
 };
 use rope::CellText;
+use settings::AppSettings;
 
 use crate::{CELL_SIZE, GenkoApp};
 
@@ -80,6 +81,7 @@ impl Element for BoardElement {
         });
 
         self.paint_paper(bounds, window);
+        let show_grid = AppSettings::global(cx).show_grid_lines;
 
         let (
             visible_text,
@@ -89,7 +91,6 @@ impl Element for BoardElement {
             scroll_column,
             rows_per_column,
             visible_columns,
-            show_grid,
         ) = {
             let app = self.app.read(cx);
             (
@@ -100,7 +101,6 @@ impl Element for BoardElement {
                 app.scroll_column,
                 app.rows_per_column(),
                 app.visible_columns(),
-                app.settings.show_grid_lines,
             )
         };
 

@@ -3,7 +3,7 @@ default_to_workspace = false
 
 [tasks.dev]
 command = "cargo"
-args = ["dev"]
+args = ["run"]
 
 [tasks.dev-watch]
 command = "cargo"
