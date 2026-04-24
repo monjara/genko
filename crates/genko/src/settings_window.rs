@@ -131,11 +131,16 @@ impl SettingsWindow {
                     .flex_col()
                     .gap_1()
                     .child(div().font_weight(FontWeight::SEMIBOLD).child("1列の文字数"))
-                    .child(div().text_sm().text_color(rgb(TEXT_SECONDARY)).child(format!(
-                        "未指定ならウィンドウの高さに合わせます。固定は{}から{}の範囲です",
-                        AppSettings::min_rows_per_column(),
-                        AppSettings::max_rows_per_column()
-                    ))),
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(TEXT_SECONDARY))
+                            .child(format!(
+                                "未指定ならウィンドウの高さに合わせます。固定は{}から{}の範囲です",
+                                AppSettings::min_rows_per_column(),
+                                AppSettings::max_rows_per_column()
+                            )),
+                    ),
             )
             .child(
                 div()

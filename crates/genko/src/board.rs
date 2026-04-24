@@ -661,6 +661,7 @@ impl BoardElement {
         for column in 0..visible_columns {
             let column_left = board_x_for_visible_column(bounds.left(), column);
             let column_right = column_left + px(CELL_SIZE);
+            let has_ruby_gutter = column + 1 < visible_columns;
 
             window.paint_quad(fill(
                 Bounds::new(
@@ -681,6 +682,23 @@ impl BoardElement {
                 let y = bounds.top() + px(row as f32 * CELL_SIZE);
                 window.paint_quad(fill(
                     Bounds::new(point(column_left, y), size(px(CELL_SIZE), px(1.0))),
+                    rgb(GRID_LINE),
+                ));
+            }
+
+            if has_ruby_gutter {
+                window.paint_quad(fill(
+                    Bounds::new(
+                        point(column_right, bounds.top()),
+                        size(px(RUBY_GUTTER_SIZE), px(1.0)),
+                    ),
+                    rgb(GRID_LINE),
+                ));
+                window.paint_quad(fill(
+                    Bounds::new(
+                        point(column_right, bounds.bottom() - px(1.0)),
+                        size(px(RUBY_GUTTER_SIZE), px(1.0)),
+                    ),
                     rgb(GRID_LINE),
                 ));
             }
