@@ -1,13 +1,13 @@
 use std::ops::Range;
 
 use gpui::{
-    actions, div, fill, point, prelude::*, px, rgb, rgba, size, App, Bounds, ClipboardItem,
-    Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler,
-    FocusHandle, Focusable, GlobalElementId, IntoElement, KeyBinding, LayoutId, MouseButton,
-    MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Style, Styled, TextAlign,
-    TextRun, UTF16Selection, Window,
+    App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
+    Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, IntoElement, KeyBinding,
+    LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Style,
+    Styled, TextAlign, TextRun, UTF16Selection, Window, actions, div, fill, point, prelude::*, px,
+    rgb, rgba, size,
 };
-use rope::{utf16_to_byte_in_text, CellText, TextRope};
+use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 use theme::{GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
 use vim::{VimMode, VimState};
@@ -131,32 +131,24 @@ impl EditorElement {
         }
     }
 
-    pub(crate) fn used_cells(&self) -> usize {
-        self.draft.len_display_cells()
-    }
-
-    pub(crate) fn scroll_column(&self) -> usize {
-        self.scroll_column
-    }
-
-    pub(crate) fn visible_columns(&self) -> usize {
-        self.visible_columns
-    }
-
-    pub(crate) fn total_columns(&self) -> usize {
-        let document_columns = self.used_cells().div_ceil(self.rows_per_column()).max(1);
-        document_columns.max(self.cursor_column() + 1)
-    }
-
-    pub(crate) fn vim_status_label(&self, cx: &App) -> &'static str {
-        self.vim.status_label(AppSettings::global(cx).vim_mode)
-    }
-
     pub fn update_viewport_size(&mut self, size: gpui::Size<Pixels>, cx: &App) {
         self.update_visible_columns(visible_columns_for_window_width(size.width));
         if AppSettings::global(cx).rows_per_column.is_none() {
             self.update_rows_per_column(rows_per_column_for_window_height(size.height));
         }
+    }
+
+    fn used_cells(&self) -> usize {
+        self.draft.len_display_cells()
+    }
+
+    fn visible_columns(&self) -> usize {
+        self.visible_columns
+    }
+
+    fn total_columns(&self) -> usize {
+        let document_columns = self.used_cells().div_ceil(self.rows_per_column()).max(1);
+        document_columns.max(self.cursor_column() + 1)
     }
 
     fn cursor_offset(&self) -> usize {
@@ -1162,7 +1154,7 @@ fn ranges_overlap(left: &Range<usize>, right: &Range<usize>) -> bool {
     left.start < right.end && right.start < left.end
 }
 
-pub(crate) fn row_column_for_logical_index(
+fn row_column_for_logical_index(
     logical_index: usize,
     first_visible_column: usize,
     rows_per_column: usize,
@@ -1185,7 +1177,7 @@ pub(crate) fn row_column_for_logical_index(
     Some((row, column))
 }
 
-pub(crate) fn cell_bounds_for_logical_index(
+fn cell_bounds_for_logical_index(
     board_bounds: Bounds<Pixels>,
     logical_index: usize,
     first_visible_column: usize,
@@ -1207,7 +1199,7 @@ pub(crate) fn cell_bounds_for_logical_index(
     ))
 }
 
-pub(crate) fn logical_index_for_point(
+fn logical_index_for_point(
     board_bounds: Bounds<Pixels>,
     position: gpui::Point<Pixels>,
     first_visible_column: usize,
