@@ -7,8 +7,7 @@ use settings::AppSettings;
 use crate::DEFAULT_VISIBLE_COLUMNS;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct EditorSnapshot {
-    pub(crate) text: String,
+pub(crate) struct EditorViewState {
     pub(crate) selected_range: Range<usize>,
     pub(crate) selection_reversed: bool,
     pub(crate) cursor_cell: usize,
@@ -17,16 +16,30 @@ pub(crate) struct EditorSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct HistoryEntry {
-    pub(crate) before: EditorSnapshot,
-    pub(crate) after: EditorSnapshot,
+pub(crate) struct EditOperation {
+    pub(crate) start: usize,
+    pub(crate) removed_text: String,
+    pub(crate) inserted_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EditTransaction {
+    pub(crate) before: EditorViewState,
+    pub(crate) after: EditorViewState,
+    pub(crate) edits: Vec<EditOperation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingTransaction {
+    pub(crate) before: EditorViewState,
+    pub(crate) edits: Vec<EditOperation>,
 }
 
 #[derive(Default)]
 pub(crate) struct EditorHistory {
-    pub(crate) undo_stack: Vec<HistoryEntry>,
-    pub(crate) redo_stack: Vec<HistoryEntry>,
-    pub(crate) active_before: Option<EditorSnapshot>,
+    pub(crate) undo_stack: Vec<EditTransaction>,
+    pub(crate) redo_stack: Vec<EditTransaction>,
+    pub(crate) active_transaction: Option<PendingTransaction>,
 }
 
 pub(crate) struct EditorState {
@@ -215,9 +228,8 @@ impl EditorState {
             .map(|range| self.range_to_utf16(range))
     }
 
-    pub(crate) fn snapshot(&self) -> EditorSnapshot {
-        EditorSnapshot {
-            text: self.draft.slice(0..self.draft.len_bytes()),
+    pub(crate) fn view_state(&self) -> EditorViewState {
+        EditorViewState {
             selected_range: self.selected_range.clone(),
             selection_reversed: self.selection_reversed,
             cursor_cell: self.cursor_cell,
@@ -226,14 +238,12 @@ impl EditorState {
         }
     }
 
-    pub(crate) fn restore_snapshot(&mut self, snapshot: EditorSnapshot) {
-        self.draft = TextRope::new_with_rows(self.rows_per_column);
-        self.draft.replace_range(0..0, &snapshot.text);
-        self.selected_range = snapshot.selected_range;
-        self.selection_reversed = snapshot.selection_reversed;
-        self.cursor_cell = snapshot.cursor_cell;
-        self.marked_range = snapshot.marked_range;
-        self.scroll_column = snapshot.scroll_column.min(self.max_scroll_column());
+    pub(crate) fn restore_view_state(&mut self, state: EditorViewState) {
+        self.selected_range = state.selected_range;
+        self.selection_reversed = state.selection_reversed;
+        self.cursor_cell = state.cursor_cell;
+        self.marked_range = state.marked_range;
+        self.scroll_column = state.scroll_column.min(self.max_scroll_column());
         self.scroll_remainder_columns = 0.0;
         self.ensure_cursor_visible();
     }

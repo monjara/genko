@@ -13,7 +13,7 @@ use crate::{
         EditorCanvas, cell_bounds_for_logical_index, logical_index_for_point,
         rows_per_column_for_window_height, visible_columns_for_window_width,
     },
-    editor_state::{EditorState, HistoryEntry},
+    editor_state::{EditOperation, EditTransaction, EditorState, PendingTransaction},
 };
 
 mod editor_canvas;
@@ -199,57 +199,73 @@ impl Editor {
     }
 
     pub fn begin_transaction(&mut self) {
-        if self.state.history.active_before.is_none() {
-            self.state.history.active_before = Some(self.state.snapshot());
+        if self.state.history.active_transaction.is_none() {
+            self.state.history.active_transaction = Some(PendingTransaction {
+                before: self.state.view_state(),
+                edits: Vec::new(),
+            });
         }
     }
 
     pub fn commit_transaction(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(before) = self.state.history.active_before.take() else {
+        let Some(pending) = self.state.history.active_transaction.take() else {
             return false;
         };
-        let after = self.state.snapshot();
-        if before == after {
+        let after = self.state.view_state();
+        if pending.edits.is_empty() && pending.before == after {
             return false;
         }
 
-        self.state
-            .history
-            .undo_stack
-            .push(HistoryEntry { before, after });
+        self.state.history.undo_stack.push(EditTransaction {
+            before: pending.before,
+            after,
+            edits: pending.edits,
+        });
         self.state.history.redo_stack.clear();
         cx.notify();
         true
     }
 
     pub fn cancel_transaction(&mut self) {
-        self.state.history.active_before = None;
+        self.state.history.active_transaction = None;
     }
 
     pub fn undo(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(entry) = self.state.history.undo_stack.pop() else {
+        let Some(transaction) = self.state.history.undo_stack.pop() else {
             return false;
         };
-        let before = entry.before.clone();
-        self.state.restore_snapshot(before);
-        self.state.history.redo_stack.push(entry);
+        for edit in transaction.edits.iter().rev() {
+            let inserted_end = edit.start + edit.inserted_text.len();
+            self.state.draft.replace_range(
+                inserted_end.saturating_sub(edit.inserted_text.len())..inserted_end,
+                &edit.removed_text,
+            );
+        }
+        self.state.restore_view_state(transaction.before.clone());
+        self.state.history.redo_stack.push(transaction);
         cx.notify();
         true
     }
 
     pub fn redo(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(entry) = self.state.history.redo_stack.pop() else {
+        let Some(transaction) = self.state.history.redo_stack.pop() else {
             return false;
         };
-        let after = entry.after.clone();
-        self.state.restore_snapshot(after);
-        self.state.history.undo_stack.push(entry);
+        for edit in &transaction.edits {
+            let removed_end = edit.start + edit.removed_text.len();
+            self.state.draft.replace_range(
+                removed_end.saturating_sub(edit.removed_text.len())..removed_end,
+                &edit.inserted_text,
+            );
+        }
+        self.state.restore_view_state(transaction.after.clone());
+        self.state.history.undo_stack.push(transaction);
         cx.notify();
         true
     }
 
     pub fn has_active_transaction(&self) -> bool {
-        self.state.history.active_before.is_some()
+        self.state.history.active_transaction.is_some()
     }
 
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
@@ -284,7 +300,7 @@ impl Editor {
         new_text: &str,
         cx: &mut Context<Self>,
     ) {
-        let implicit_transaction = self.state.history.active_before.is_none();
+        let implicit_transaction = self.state.history.active_transaction.is_none();
         if implicit_transaction {
             self.begin_transaction();
         }
@@ -293,6 +309,14 @@ impl Editor {
         } else {
             self.state.materialize_cursor_cell_for_insert(range)
         };
+        let removed_text = self.state.draft.slice(range.clone());
+        if let Some(transaction) = self.state.history.active_transaction.as_mut() {
+            transaction.edits.push(EditOperation {
+                start: range.start,
+                removed_text,
+                inserted_text: new_text.to_string(),
+            });
+        }
         self.state.draft.replace_range(range.clone(), new_text);
         let cursor = range.start + new_text.len();
         self.state.set_cursor_from_offset(cursor);
@@ -308,7 +332,7 @@ impl Editor {
         new_text: String,
         cx: &mut Context<Self>,
     ) {
-        let implicit_transaction = self.state.history.active_before.is_none();
+        let implicit_transaction = self.state.history.active_transaction.is_none();
         if implicit_transaction {
             self.begin_transaction();
         }
@@ -317,6 +341,14 @@ impl Editor {
         } else {
             self.state.materialize_cursor_cell_for_insert(range)
         };
+        let removed_text = self.state.draft.slice(range.clone());
+        if let Some(transaction) = self.state.history.active_transaction.as_mut() {
+            transaction.edits.push(EditOperation {
+                start: range.start,
+                removed_text,
+                inserted_text: new_text.clone(),
+            });
+        }
         let cursor = range.start + new_text.len();
         self.state.draft.replace_range_owned(range, new_text);
         self.state.set_cursor_from_offset(cursor);
@@ -586,7 +618,7 @@ impl EntityInputHandler for Editor {
             return;
         }
 
-        let implicit_transaction = self.state.history.active_before.is_none();
+        let implicit_transaction = self.state.history.active_transaction.is_none();
         if implicit_transaction {
             self.begin_transaction();
         }
@@ -596,6 +628,14 @@ impl EntityInputHandler for Editor {
         } else {
             self.state.materialize_cursor_cell_for_insert(range)
         };
+        let removed_text = self.state.draft.slice(range.clone());
+        if let Some(transaction) = self.state.history.active_transaction.as_mut() {
+            transaction.edits.push(EditOperation {
+                start: range.start,
+                removed_text,
+                inserted_text: new_text.to_string(),
+            });
+        }
         self.state.draft.replace_range(range.clone(), new_text);
 
         let marked_end = range.start + new_text.len();
