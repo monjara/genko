@@ -6,8 +6,8 @@ use gpui::{
 use settings::AppSettings;
 
 use theme::{
-    ACCENT_PRIMARY, BORDER_MUTED, PANEL_BACKGROUND, PAPER_BACKGROUND, TEXT_INVERSE, TEXT_PRIMARY,
-    TEXT_SECONDARY,
+    ACCENT_PRIMARY, APP_FONT_FAMILY, BORDER_MUTED, PANEL_BACKGROUND, PAPER_BACKGROUND,
+    TEXT_INVERSE, TEXT_PRIMARY, TEXT_SECONDARY,
 };
 
 pub(crate) struct SettingsWindow {
@@ -331,6 +331,7 @@ impl Render for SettingsWindow {
         div()
             .size_full()
             .bg(rgb(PAPER_BACKGROUND))
+            .font_family(APP_FONT_FAMILY)
             .p_6()
             .flex()
             .flex_col()

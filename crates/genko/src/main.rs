@@ -1,11 +1,13 @@
 mod settings_window;
 
+use std::borrow::Cow;
+
 use editor::Editor;
 use settings::AppSettings;
 use settings_window::SettingsWindow;
 use vim::Vim;
 
-use theme::APP_BACKGROUND;
+use theme::{APP_BACKGROUND, APP_FONT_FAMILY};
 
 use gpui::{
     App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding,
@@ -52,6 +54,7 @@ impl Render for GenkoApp {
         div()
             .size_full()
             .bg(rgb(APP_BACKGROUND))
+            .font_family(APP_FONT_FAMILY)
             .flex()
             .items_center()
             .justify_center()
@@ -104,6 +107,14 @@ fn open_settings_window(cx: &mut App) {
 
 fn main() {
     gpui_platform::application().run(|cx: &mut App| {
+        let fonts = [include_bytes!(
+            "../../../assets/fonts/ZenOldMincho-Regular.ttf"
+        )]
+        .iter()
+        .map(|bytes| Cow::Borrowed(&bytes[..]))
+        .collect();
+        let _ = cx.text_system().add_fonts(fonts);
+
         settings::init(cx);
         editor::init(cx);
         vim::init(cx);

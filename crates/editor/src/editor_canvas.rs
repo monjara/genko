@@ -6,7 +6,7 @@ use gpui::{
 };
 use rope::CellText;
 use settings::AppSettings;
-use theme::{GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
+use theme::{APP_FONT_FAMILY, GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
 
 use crate::{AUTOMATIC_ROWS_RESERVED_CELLS, CELL_SIZE, Editor, RUBY_GUTTER_SIZE};
 
@@ -311,7 +311,11 @@ fn paint_cell_text(
     let line_height = px(24.0);
     let run = TextRun {
         len: cell_text.text.len(),
-        font: style.font(),
+        font: {
+            let mut font = style.font();
+            font.family = APP_FONT_FAMILY.into();
+            font
+        },
         color: rgb(TEXT_PRIMARY).into(),
         background_color: None,
         underline: None,
@@ -352,7 +356,11 @@ fn paint_attached_punctuation(
     let line_height = px(16.0);
     let run = TextRun {
         len: cell_text.text.len(),
-        font: style.font(),
+        font: {
+            let mut font = style.font();
+            font.family = APP_FONT_FAMILY.into();
+            font
+        },
         color: rgb(TEXT_PRIMARY).into(),
         background_color: None,
         underline: None,

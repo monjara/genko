@@ -1,4 +1,5 @@
 pub const ACCENT_PRIMARY: u32 = 0x2f6fff;
+pub const APP_FONT_FAMILY: &str = "Zen Old Mincho";
 pub const APP_BACKGROUND: u32 = 0xebe5d8;
 pub const BORDER_MUTED: u32 = 0xd9cbb8;
 pub const GRID_LINE: u32 = 0xd94b4b;
