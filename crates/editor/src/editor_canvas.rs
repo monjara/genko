@@ -196,6 +196,8 @@ pub(crate) fn paint_grid(
     ruby_gutter_size: f32,
     window: &mut Window,
 ) {
+    let bottom_border_y = bounds.top() + px(visible_rows as f32 * cell_size);
+
     for column in 0..visible_columns {
         let column_left =
             board_x_for_visible_column(bounds.left(), column, cell_size, ruby_gutter_size);
@@ -235,7 +237,7 @@ pub(crate) fn paint_grid(
             ));
             window.paint_quad(fill(
                 Bounds::new(
-                    point(column_right, bounds.bottom() - px(1.0)),
+                    point(column_right, bottom_border_y),
                     size(px(ruby_gutter_size), px(1.0)),
                 ),
                 rgb(GRID_LINE),
