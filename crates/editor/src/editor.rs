@@ -27,6 +27,7 @@ pub(crate) const CELL_SIZE: f32 = 28.0;
 pub(crate) const RUBY_GUTTER_SIZE: f32 = 10.0;
 const IME_ANCHOR_WIDTH: f32 = 2.0;
 const IME_ANCHOR_INSET: f32 = 3.0;
+const IME_CANDIDATE_GAP: f32 = 16.0;
 
 pub fn init(cx: &mut App) {
     if AppSettings::global(cx).vim_mode {
@@ -638,16 +639,10 @@ impl Editor {
 
 fn ime_anchor_bounds_for_cell(
     cell_bounds: Bounds<Pixels>,
-    board_bounds: Bounds<Pixels>,
+    _board_bounds: Bounds<Pixels>,
 ) -> Bounds<Pixels> {
-    // Prefer the left side of the caret, but switch to the right side near the viewport edge.
-    let left_side = cell_bounds.left() - px(IME_ANCHOR_WIDTH + IME_ANCHOR_INSET);
-    let right_side = cell_bounds.right() + px(IME_ANCHOR_INSET);
-    let left = if left_side >= board_bounds.left() {
-        left_side
-    } else {
-        right_side.min(board_bounds.right() - px(IME_ANCHOR_WIDTH))
-    };
+    let horizontal_gap = px(IME_ANCHOR_INSET + IME_CANDIDATE_GAP);
+    let left = cell_bounds.right() + horizontal_gap;
 
     Bounds::new(
         gpui::point(left, cell_bounds.top() + px(IME_ANCHOR_INSET)),
