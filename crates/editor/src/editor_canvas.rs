@@ -1,15 +1,50 @@
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFeatures,
-    GlobalElementId, IntoElement, LayoutId, PathBuilder, Pixels, Style, TextAlign, TextRun, Window,
-    fill, point, px, rgb, rgba, size,
+    GlobalElementId, IntoElement, LayoutId, Path, PathBuilder, Pixels, Style, TextAlign, TextRun,
+    Window, fill, point, px, rgb, rgba, size,
 };
 use rope::CellText;
 use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
 
 use crate::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CellPaintKind {
+    Main,
+    Attached,
+    CornerTop,
+    CornerBottom,
+}
+
+struct PaintState {
+    visible_text: std::sync::Arc<[CellText]>,
+    selected_range: Range<usize>,
+    marked_range: Option<Range<usize>>,
+    block_selection: Option<crate::editor_state::BlockSelection>,
+    cursor_index: usize,
+    scroll_column: usize,
+    scroll_row: usize,
+    rows_per_column: usize,
+    visible_columns: usize,
+    visible_rows: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
+}
+
+#[derive(Clone)]
+pub(crate) struct GridPathCache {
+    bounds: Bounds<Pixels>,
+    visible_columns: usize,
+    visible_rows: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
+    vertical_dashes: Option<Path<Pixels>>,
+    horizontal_dashes: Option<Path<Pixels>>,
+}
 
 pub(crate) struct EditorCanvas {
     pub(crate) editor: Entity<Editor>,
@@ -107,7 +142,21 @@ impl Element for EditorCanvas {
         });
 
         let show_grid = AppSettings::global(cx).show_grid_lines;
-        let (
+        let paint_state = self.editor.update(cx, |editor, _cx| PaintState {
+            visible_text: editor.state.visible_text(),
+            selected_range: editor.state.selected_range.clone(),
+            marked_range: editor.state.marked_range.clone(),
+            block_selection: editor.state.block_selection,
+            cursor_index: editor.state.cursor_cell,
+            scroll_column: editor.state.scroll_column,
+            scroll_row: editor.state.scroll_row,
+            rows_per_column: editor.state.rows_per_column(),
+            visible_columns: editor.state.visible_columns(),
+            visible_rows: editor.state.visible_rows(),
+            cell_size: editor.state.cell_size(),
+            ruby_gutter_size: editor.state.ruby_gutter_size(),
+        });
+        let PaintState {
             visible_text,
             selected_range,
             marked_range,
@@ -120,23 +169,7 @@ impl Element for EditorCanvas {
             visible_rows,
             cell_size,
             ruby_gutter_size,
-        ) = {
-            let editor = self.editor.read(cx);
-            (
-                editor.state.visible_text(),
-                editor.state.selected_range.clone(),
-                editor.state.marked_range.clone(),
-                editor.state.block_selection,
-                editor.state.cursor_cell,
-                editor.state.scroll_column,
-                editor.state.scroll_row,
-                editor.state.rows_per_column(),
-                editor.state.visible_columns(),
-                editor.state.visible_rows(),
-                editor.state.cell_size(),
-                editor.state.ruby_gutter_size(),
-            )
-        };
+        } = paint_state;
 
         paint_paper(bounds, window);
         paint_column_numbers(
@@ -165,6 +198,25 @@ impl Element for EditorCanvas {
             window,
         );
         if show_grid {
+            let grid_cache = self.editor.update(cx, |editor, _cx| {
+                let needs_rebuild = editor.grid_path_cache.as_ref().is_none_or(|cache| {
+                    cache.bounds != content_bounds
+                        || cache.visible_columns != visible_columns
+                        || cache.visible_rows != visible_rows
+                        || cache.cell_size != cell_size
+                        || cache.ruby_gutter_size != ruby_gutter_size
+                });
+                if needs_rebuild {
+                    editor.grid_path_cache = Some(build_grid_path_cache(
+                        content_bounds,
+                        visible_columns,
+                        visible_rows,
+                        cell_size,
+                        ruby_gutter_size,
+                    ));
+                }
+                editor.grid_path_cache.as_ref().unwrap().clone()
+            });
             paint_grid(
                 content_bounds,
                 rows_per_column,
@@ -173,6 +225,7 @@ impl Element for EditorCanvas {
                 visible_rows,
                 cell_size,
                 ruby_gutter_size,
+                &grid_cache,
                 window,
             );
         }
@@ -275,7 +328,7 @@ fn paint_column_numbers(
     }
 }
 
-pub(crate) fn paint_grid(
+fn paint_grid(
     bounds: Bounds<Pixels>,
     _rows_per_column: usize,
     visible_columns: usize,
@@ -283,6 +336,7 @@ pub(crate) fn paint_grid(
     visible_rows: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
+    grid_cache: &GridPathCache,
     window: &mut Window,
 ) {
     let bottom_border_y = bounds.top() + px(visible_rows as f32 * cell_size);
@@ -319,6 +373,45 @@ pub(crate) fn paint_grid(
         rgb(GRID_LINE),
     ));
 
+    for column in 0..visible_columns {
+        let column_left =
+            board_x_for_visible_column(bounds.left(), column, cell_size, ruby_gutter_size);
+        let column_right = column_left + px(cell_size);
+        let has_ruby_gutter = column + 1 < visible_columns;
+
+        if has_ruby_gutter {
+            window.paint_quad(fill(
+                Bounds::new(
+                    point(column_right, bounds.top()),
+                    size(px(ruby_gutter_size), px(1.0)),
+                ),
+                rgb(GRID_LINE),
+            ));
+            window.paint_quad(fill(
+                Bounds::new(
+                    point(column_right, bottom_border_y),
+                    size(px(ruby_gutter_size), px(1.0)),
+                ),
+                rgb(GRID_LINE),
+            ));
+        }
+    }
+
+    if let Some(path) = &grid_cache.vertical_dashes {
+        window.paint_path(path.clone(), rgb(GRID_LINE));
+    }
+    if let Some(path) = &grid_cache.horizontal_dashes {
+        window.paint_path(path.clone(), rgb(GRID_LINE));
+    }
+}
+
+fn build_grid_path_cache(
+    bounds: Bounds<Pixels>,
+    visible_columns: usize,
+    visible_rows: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
+) -> GridPathCache {
     let mut vertical_dashes = PathBuilder::stroke(px(1.0)).dash_array(&[px(2.0), px(2.0)]);
     let mut horizontal_dashes = PathBuilder::stroke(px(1.0)).dash_array(&[px(2.0), px(2.0)]);
 
@@ -344,30 +437,16 @@ pub(crate) fn paint_grid(
             horizontal_dashes.move_to(point(column_left, y + px(0.5)));
             horizontal_dashes.line_to(point(column_left + px(cell_size), y + px(0.5)));
         }
-
-        if has_ruby_gutter {
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(column_right, bounds.top()),
-                    size(px(ruby_gutter_size), px(1.0)),
-                ),
-                rgb(GRID_LINE),
-            ));
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(column_right, bottom_border_y),
-                    size(px(ruby_gutter_size), px(1.0)),
-                ),
-                rgb(GRID_LINE),
-            ));
-        }
     }
 
-    if let Ok(path) = vertical_dashes.build() {
-        window.paint_path(path, rgb(GRID_LINE));
-    }
-    if let Ok(path) = horizontal_dashes.build() {
-        window.paint_path(path, rgb(GRID_LINE));
+    GridPathCache {
+        bounds,
+        visible_columns,
+        visible_rows,
+        cell_size,
+        ruby_gutter_size,
+        vertical_dashes: vertical_dashes.build().ok(),
+        horizontal_dashes: horizontal_dashes.build().ok(),
     }
 }
 
@@ -482,10 +561,17 @@ pub(crate) fn paint_text(
             continue;
         };
 
-        if cell_text.attached_to_previous {
-            paint_attached_punctuation(cell_text, cell_bounds, window, cx);
-        } else {
-            paint_cell_text(cell_text, cell_bounds, cell_size, window, cx);
+        match cell_paint_kind(cell_text) {
+            CellPaintKind::Main => paint_cell_text(cell_text, cell_bounds, cell_size, window, cx),
+            CellPaintKind::Attached => {
+                paint_attached_punctuation(cell_text, cell_bounds, window, cx)
+            }
+            CellPaintKind::CornerTop => {
+                paint_corner_punctuation(cell_text, cell_bounds, window, cx, true)
+            }
+            CellPaintKind::CornerBottom => {
+                paint_corner_punctuation(cell_text, cell_bounds, window, cx, false)
+            }
         }
     }
 }
@@ -497,26 +583,15 @@ fn paint_cell_text(
     window: &mut Window,
     cx: &mut App,
 ) {
-    if is_corner_punctuation(&cell_text.text) {
-        paint_corner_punctuation(cell_text, cell_bounds, window, cx, true);
-        return;
-    }
-
     let style = window.text_style();
     let font_size = px((cell_size * 0.75).round());
     let line_height = px((cell_size * 0.86).round());
-    let run = TextRun {
-        len: cell_text.text.len(),
-        font: vertical_text_font(style.font()),
-        color: rgb(TEXT_PRIMARY).into(),
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
-    let line =
-        window
-            .text_system()
-            .shape_line(cell_text.text.clone().into(), font_size, &[run], None);
+    let line = shape_text(
+        window,
+        &cell_text.text,
+        font_size,
+        text_run(&cell_text.text, vertical_text_font(style.font())),
+    );
     let text_origin = point(
         cell_bounds.left() + (px(cell_size) - line.width) / 2.0,
         cell_bounds.top() + (px(cell_size) - line_height) / 2.0,
@@ -539,26 +614,15 @@ fn paint_attached_punctuation(
     cx: &mut App,
 ) {
     let cell_size = cell_bounds.size.width.as_f32();
-    if is_corner_punctuation(&cell_text.text) {
-        paint_corner_punctuation(cell_text, cell_bounds, window, cx, false);
-        return;
-    }
-
     let style = window.text_style();
     let font_size = px((cell_size * 0.5).round());
     let line_height = px((cell_size * 0.57).round());
-    let run = TextRun {
-        len: cell_text.text.len(),
-        font: vertical_text_font(style.font()),
-        color: rgb(TEXT_PRIMARY).into(),
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
-    let line =
-        window
-            .text_system()
-            .shape_line(cell_text.text.clone().into(), font_size, &[run], None);
+    let line = shape_text(
+        window,
+        &cell_text.text,
+        font_size,
+        text_run(&cell_text.text, vertical_text_font(style.font())),
+    );
     let text_origin = point(
         cell_bounds.right() - line.width - px(3.0),
         cell_bounds.bottom() - line_height - px(1.0),
@@ -589,19 +653,12 @@ fn paint_corner_punctuation(
     let style = window.text_style();
     let font_size = px((cell_size * 0.5).round());
     let line_height = px((cell_size * 0.57).round());
-    let run = TextRun {
-        len: cell_text.text.len(),
-        font: vertical_text_font(style.font()),
-        color: rgb(TEXT_PRIMARY).into(),
-
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
-    let line =
-        window
-            .text_system()
-            .shape_line(cell_text.text.clone().into(), font_size, &[run], None);
+    let line = shape_text(
+        window,
+        &cell_text.text,
+        font_size,
+        text_run(&cell_text.text, vertical_text_font(style.font())),
+    );
     let text_origin = point(
         cell_bounds.left() + (px(cell_size) - line.width) / 2.0,
         if align_top {
@@ -625,6 +682,51 @@ fn vertical_text_font(mut font: Font) -> Font {
     font.family = APP_FONT_FAMILY.into();
     font.features = FontFeatures::vertical_alternates();
     font
+}
+
+fn cell_paint_kind(cell_text: &CellText) -> CellPaintKind {
+    if is_corner_punctuation(&cell_text.text) {
+        if cell_text.attached_to_previous {
+            CellPaintKind::CornerBottom
+        } else {
+            CellPaintKind::CornerTop
+        }
+    } else if cell_text.attached_to_previous {
+        CellPaintKind::Attached
+    } else {
+        CellPaintKind::Main
+    }
+}
+
+fn text_run(text: &str, font: Font) -> TextRun {
+    TextRun {
+        len: text.len(),
+        font,
+        color: rgb(TEXT_PRIMARY).into(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    }
+}
+
+fn shape_text(
+    window: &mut Window,
+    text: &str,
+    font_size: Pixels,
+    run: TextRun,
+) -> gpui::ShapedLine {
+    let text_hash = text_layout_hash(text);
+    window
+        .text_system()
+        .shape_line_by_hash(text_hash, text.len(), font_size, &[run], None, || {
+            text.to_owned().into()
+        })
+}
+
+fn text_layout_hash(text: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }
 
 pub(crate) fn paint_cursor(
@@ -940,5 +1042,45 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn cell_paint_kind_uses_corner_variants_for_kuten_touten() {
+        let plain = CellText {
+            logical_index: 0,
+            text: "文".into(),
+            range: 0..3,
+            attached_to_previous: false,
+        };
+        let corner_top = CellText {
+            logical_index: 1,
+            text: "。".into(),
+            range: 3..6,
+            attached_to_previous: false,
+        };
+        let corner_bottom = CellText {
+            logical_index: 1,
+            text: "、".into(),
+            range: 6..9,
+            attached_to_previous: true,
+        };
+
+        assert_eq!(cell_paint_kind(&plain), CellPaintKind::Main);
+        assert_eq!(cell_paint_kind(&corner_top), CellPaintKind::CornerTop);
+        assert_eq!(cell_paint_kind(&corner_bottom), CellPaintKind::CornerBottom);
+    }
+
+    #[test]
+    fn vertical_text_font_uses_app_font_with_vertical_alternates() {
+        let font = vertical_text_font(Font::default());
+
+        assert_eq!(font.family.as_ref(), APP_FONT_FAMILY);
+        assert_eq!(font.features, FontFeatures::vertical_alternates());
+    }
+
+    #[test]
+    fn text_layout_hash_depends_on_text_content() {
+        assert_eq!(text_layout_hash("文"), text_layout_hash("文"));
+        assert_ne!(text_layout_hash("文"), text_layout_hash("字"));
     }
 }

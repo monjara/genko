@@ -304,7 +304,7 @@ impl Focusable for GenkoApp {
 }
 
 fn open_settings_window(cx: &mut App) {
-    let bounds = Bounds::centered(None, size(px(520.0), px(460.0)), cx);
+    let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
 
     let settings_window = cx
         .open_window(
@@ -339,7 +339,7 @@ fn main() {
         editor::init(cx);
         vim::init(cx);
 
-        let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
+        let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
 
         let window = cx
             .open_window(

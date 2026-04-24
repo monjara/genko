@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use gpui::App;
 use rope::{CellText, TextRope};
@@ -49,8 +50,19 @@ pub(crate) struct EditorHistory {
     pub(crate) active_transaction: Option<PendingTransaction>,
 }
 
+#[derive(Clone)]
+struct VisibleTextCache {
+    draft_revision: u64,
+    scroll_column: usize,
+    scroll_row: usize,
+    visible_columns: usize,
+    visible_rows: usize,
+    cells: Arc<[CellText]>,
+}
+
 pub(crate) struct EditorState {
     pub(crate) draft: TextRope,
+    pub(crate) draft_revision: u64,
     pub(crate) cell_size: f32,
     pub(crate) rows_per_column: usize,
     pub(crate) selected_range: Range<usize>,
@@ -65,6 +77,7 @@ pub(crate) struct EditorState {
     pub(crate) max_visible_rows: usize,
     pub(crate) text_input_enabled: bool,
     pub(crate) history: EditorHistory,
+    visible_text_cache: Option<VisibleTextCache>,
 }
 
 impl EditorState {
@@ -75,6 +88,7 @@ impl EditorState {
 
         Self {
             draft: TextRope::new_with_rows(rows_per_column),
+            draft_revision: 0,
             cell_size: AppSettings::global(cx).cell_size as f32,
             rows_per_column,
             selected_range: 0..0,
@@ -89,6 +103,7 @@ impl EditorState {
             max_visible_rows: rows_per_column,
             text_input_enabled: true,
             history: EditorHistory::default(),
+            visible_text_cache: None,
         }
     }
 
@@ -112,13 +127,32 @@ impl EditorState {
         }
     }
 
-    pub(crate) fn visible_text(&self) -> Vec<CellText> {
+    pub(crate) fn visible_text(&mut self) -> Arc<[CellText]> {
         let visible_rows = self.visible_rows();
+        if let Some(cache) = &self.visible_text_cache
+            && cache.draft_revision == self.draft_revision
+            && cache.scroll_column == self.scroll_column
+            && cache.scroll_row == self.scroll_row
+            && cache.visible_columns == self.visible_columns
+            && cache.visible_rows == visible_rows
+        {
+            return cache.cells.clone();
+        }
+
         let mut cells = Vec::with_capacity(visible_rows * self.visible_columns());
         for column in self.scroll_column..self.scroll_column + self.visible_columns() {
             let start_index = column * self.rows_per_column() + self.scroll_row;
             cells.extend(self.draft.visible_cells(start_index, visible_rows));
         }
+        let cells: Arc<[CellText]> = cells.into();
+        self.visible_text_cache = Some(VisibleTextCache {
+            draft_revision: self.draft_revision,
+            scroll_column: self.scroll_column,
+            scroll_row: self.scroll_row,
+            visible_columns: self.visible_columns,
+            visible_rows,
+            cells: cells.clone(),
+        });
         cells
     }
 
@@ -149,6 +183,7 @@ impl EditorState {
         let cursor_offset = self.cursor_offset();
         self.rows_per_column = rows_per_column;
         self.draft.set_rows_per_column(rows_per_column);
+        self.bump_draft_revision();
         self.cursor_cell = self.display_cell_for_byte(cursor_offset);
         self.ensure_cursor_visible();
     }
@@ -169,6 +204,7 @@ impl EditorState {
 
         let cursor_offset = self.cursor_offset();
         self.draft.set_hanging_punctuation(enabled);
+        self.bump_draft_revision();
         self.cursor_cell = self.display_cell_for_byte(cursor_offset);
         self.ensure_cursor_visible();
     }
@@ -253,6 +289,7 @@ impl EditorState {
         }
 
         let offset = self.draft.materialize_display_cell(self.cursor_cell);
+        self.bump_draft_revision();
         offset..offset
     }
 
@@ -311,5 +348,66 @@ impl EditorState {
         self.scroll_row = state.scroll_row.min(self.max_scroll_row());
         self.scroll_remainder_columns = 0.0;
         self.ensure_cursor_visible();
+    }
+
+    pub(crate) fn bump_draft_revision(&mut self) {
+        self.draft_revision = self.draft_revision.wrapping_add(1);
+        self.visible_text_cache = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_state(text: &str) -> EditorState {
+        let rows_per_column = 4;
+        EditorState {
+            draft: TextRope::from_str_with_rows(text, rows_per_column),
+            draft_revision: 0,
+            cell_size: 28.0,
+            rows_per_column,
+            selected_range: 0..0,
+            selection_reversed: false,
+            cursor_cell: 0,
+            marked_range: None,
+            block_selection: None,
+            scroll_column: 0,
+            scroll_row: 0,
+            scroll_remainder_columns: 0.0,
+            visible_columns: 2,
+            max_visible_rows: rows_per_column,
+            text_input_enabled: true,
+            history: EditorHistory::default(),
+            visible_text_cache: None,
+        }
+    }
+
+    #[test]
+    fn visible_text_cache_hits_when_viewport_is_unchanged() {
+        let mut state = test_state("天地玄黄");
+
+        let first = state.visible_text();
+        state.cursor_cell = 1;
+        let second = state.visible_text();
+
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn visible_text_cache_misses_after_scroll_or_text_change() {
+        let mut state = test_state("天地玄黄");
+
+        let first = state.visible_text();
+        state.scroll_column = 1;
+        let after_scroll = state.visible_text();
+        assert!(!Arc::ptr_eq(&first, &after_scroll));
+
+        state.scroll_column = 0;
+        state.draft.replace_range(0..0, "文");
+        state.bump_draft_revision();
+        let after_edit = state.visible_text();
+
+        assert_eq!(after_edit[0].text, "文");
     }
 }

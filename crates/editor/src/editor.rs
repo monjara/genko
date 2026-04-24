@@ -10,9 +10,9 @@ use settings::AppSettings;
 
 use crate::{
     editor_canvas::{
-        EditorCanvas, cell_bounds_for_logical_index, content_height_for_window_height,
-        logical_index_for_point, rows_per_column_for_window_height,
-        visible_columns_for_window_width,
+        EditorCanvas, GridPathCache, cell_bounds_for_logical_index,
+        content_height_for_window_height, logical_index_for_point,
+        rows_per_column_for_window_height, visible_columns_for_window_width,
     },
     editor_state::{
         BlockSelection, EditOperation, EditTransaction, EditorHistory, EditorState,
@@ -90,6 +90,7 @@ pub struct Editor {
     pub(crate) state: EditorState,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
+    pub(crate) grid_path_cache: Option<GridPathCache>,
 }
 impl Editor {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -97,6 +98,7 @@ impl Editor {
             state: EditorState::new(cx),
             focus_handle: cx.focus_handle(),
             last_board_bounds: None,
+            grid_path_cache: None,
         }
     }
 
@@ -175,6 +177,7 @@ impl Editor {
         draft.set_hanging_punctuation(hanging_punctuation);
 
         self.state.draft = draft;
+        self.state.bump_draft_revision();
         self.state.history = EditorHistory::default();
         self.state.scroll_column = 0;
         self.state.scroll_row = 0;
@@ -340,6 +343,7 @@ impl Editor {
                 &edit.removed_text,
             );
         }
+        self.state.bump_draft_revision();
         self.state.restore_view_state(transaction.before.clone());
         self.state.history.redo_stack.push(transaction);
         cx.notify();
@@ -357,6 +361,7 @@ impl Editor {
                 &edit.inserted_text,
             );
         }
+        self.state.bump_draft_revision();
         self.state.restore_view_state(transaction.after.clone());
         self.state.history.undo_stack.push(transaction);
         cx.notify();
@@ -436,6 +441,7 @@ impl Editor {
             });
         }
         self.state.draft.replace_range(range.clone(), new_text);
+        self.state.bump_draft_revision();
         let cursor = range.start + new_text.len();
         self.state.set_cursor_from_offset(cursor);
         if implicit_transaction {
@@ -469,6 +475,7 @@ impl Editor {
         }
         let cursor = range.start + new_text.len();
         self.state.draft.replace_range_owned(range, new_text);
+        self.state.bump_draft_revision();
         self.state.set_cursor_from_offset(cursor);
         if implicit_transaction {
             let _ = self.commit_transaction(cx);
@@ -808,6 +815,7 @@ impl EntityInputHandler for Editor {
             });
         }
         self.state.draft.replace_range(range.clone(), new_text);
+        self.state.bump_draft_revision();
 
         let marked_end = range.start + new_text.len();
         self.state.marked_range = (!new_text.is_empty()).then_some(range.start..marked_end);
