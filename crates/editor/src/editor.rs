@@ -1,13 +1,13 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, IntoElement, KeyBinding,
-    LayoutId, MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Style,
-    Styled, TextAlign, TextRun, UTF16Selection, Window, actions, div, fill, point, prelude::*, px,
-    rgb, rgba, size,
+    actions, div, fill, point, prelude::*, px, rgb, rgba, size, App, Bounds, ClipboardItem,
+    Context, CursorStyle, Element, ElementId, ElementInputHandler, Entity, EntityInputHandler,
+    FocusHandle, Focusable, GlobalElementId, IntoElement, KeyBinding, LayoutId, MouseButton,
+    MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Style, Styled, TextAlign,
+    TextRun, UTF16Selection, Window,
 };
-use rope::{CellText, TextRope, utf16_to_byte_in_text};
+use rope::{utf16_to_byte_in_text, CellText, TextRope};
 use settings::AppSettings;
 use theme::{GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
 use vim::{VimMode, VimState};

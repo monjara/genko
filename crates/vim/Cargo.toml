@@ -5,7 +5,7 @@ edition = "2024"
 
 [lib]
 name = "vim"
-path = "src/lib.rs"
+path = "src/vim.rs"
 
 [dependencies]
 gpui = { workspace = true }
