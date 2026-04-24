@@ -45,6 +45,7 @@ impl Render for GenkoApp {
         } else {
             self.editor.update(cx, |editor, cx| {
                 editor.update_viewport_size(viewport_size, cx);
+                editor.set_text_input_enabled(true, cx);
             });
         }
 

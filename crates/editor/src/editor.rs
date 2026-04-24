@@ -117,6 +117,14 @@ impl Editor {
         self.state.cursor_cell
     }
 
+    pub fn cursor_byte_offset(&self) -> usize {
+        self.state.cursor_offset()
+    }
+
+    pub fn snapshot_text(&self) -> String {
+        self.state.draft.slice(0..self.state.draft.len_bytes())
+    }
+
     pub fn move_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
         let target = self.state.cursor_cell.saturating_add_signed(delta);
         self.move_to_display_cell(target, cx);
@@ -166,6 +174,15 @@ impl Editor {
 
     pub fn delete_forward_command(&mut self, cx: &mut Context<Self>) {
         self.delete_forward(cx);
+    }
+
+    pub fn replace_byte_range(
+        &mut self,
+        range: Range<usize>,
+        new_text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.replace_text_in_byte_range(range, new_text, cx);
     }
 
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {

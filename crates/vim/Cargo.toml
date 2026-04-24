@@ -10,3 +10,4 @@ path = "src/vim.rs"
 [dependencies]
 gpui = { workspace = true }
 editor = { workspace = true }
+lindera = { version = "2.3.4", features = ["embed-ipadic"] }
