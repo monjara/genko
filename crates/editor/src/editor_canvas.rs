@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFeatures,
-    GlobalElementId, IntoElement, LayoutId, Pixels, Style, TextAlign, TextRun, Window, fill, point,
-    px, rgb, rgba, size,
+    GlobalElementId, IntoElement, LayoutId, PathBuilder, Pixels, Style, TextAlign, TextRun, Window,
+    fill, point, px, rgb, rgba, size,
 };
 use rope::CellText;
 use settings::AppSettings;
@@ -197,6 +197,38 @@ pub(crate) fn paint_grid(
     window: &mut Window,
 ) {
     let bottom_border_y = bounds.top() + px(visible_rows as f32 * cell_size);
+    let right_border_x = bounds.left()
+        + board_width_for_columns(visible_columns, cell_size, ruby_gutter_size)
+        - px(1.0);
+
+    window.paint_quad(fill(
+        Bounds::new(
+            point(bounds.left(), bounds.top()),
+            size(bounds.size.width, px(1.0)),
+        ),
+        rgb(GRID_LINE),
+    ));
+    window.paint_quad(fill(
+        Bounds::new(
+            point(bounds.left(), bottom_border_y),
+            size(bounds.size.width, px(1.0)),
+        ),
+        rgb(GRID_LINE),
+    ));
+    window.paint_quad(fill(
+        Bounds::new(
+            point(bounds.left(), bounds.top()),
+            size(px(1.0), bounds.size.height),
+        ),
+        rgb(GRID_LINE),
+    ));
+    window.paint_quad(fill(
+        Bounds::new(
+            point(right_border_x, bounds.top()),
+            size(px(1.0), bounds.size.height),
+        ),
+        rgb(GRID_LINE),
+    ));
 
     for column in 0..visible_columns {
         let column_left =
@@ -204,27 +236,24 @@ pub(crate) fn paint_grid(
         let column_right = column_left + px(cell_size);
         let has_ruby_gutter = column + 1 < visible_columns;
 
-        window.paint_quad(fill(
-            Bounds::new(
-                point(column_left, bounds.top()),
-                size(px(1.0), bounds.size.height),
-            ),
-            rgb(GRID_LINE),
-        ));
-        window.paint_quad(fill(
-            Bounds::new(
-                point(column_right, bounds.top()),
-                size(px(1.0), bounds.size.height),
-            ),
-            rgb(GRID_LINE),
-        ));
+        if column > 0 {
+            paint_dashed_vertical_line(
+                point(column_left + px(0.5), bounds.top()),
+                bounds.size.height,
+                window,
+            );
+        }
+        if has_ruby_gutter {
+            paint_dashed_vertical_line(
+                point(column_right + px(0.5), bounds.top()),
+                bounds.size.height,
+                window,
+            );
+        }
 
-        for row in 0..=visible_rows {
+        for row in 1..visible_rows {
             let y = bounds.top() + px(row as f32 * cell_size);
-            window.paint_quad(fill(
-                Bounds::new(point(column_left, y), size(px(cell_size), px(1.0))),
-                rgb(GRID_LINE),
-            ));
+            paint_dashed_horizontal_line(point(column_left, y + px(0.5)), px(cell_size), window);
         }
 
         if has_ruby_gutter {
@@ -243,6 +272,24 @@ pub(crate) fn paint_grid(
                 rgb(GRID_LINE),
             ));
         }
+    }
+}
+
+fn paint_dashed_horizontal_line(origin: gpui::Point<Pixels>, width: Pixels, window: &mut Window) {
+    let mut builder = PathBuilder::stroke(px(1.0)).dash_array(&[px(2.0), px(2.0)]);
+    builder.move_to(origin);
+    builder.line_to(point(origin.x + width, origin.y));
+    if let Ok(path) = builder.build() {
+        window.paint_path(path, rgb(GRID_LINE));
+    }
+}
+
+fn paint_dashed_vertical_line(origin: gpui::Point<Pixels>, height: Pixels, window: &mut Window) {
+    let mut builder = PathBuilder::stroke(px(1.0)).dash_array(&[px(2.0), px(2.0)]);
+    builder.move_to(origin);
+    builder.line_to(point(origin.x, origin.y + height));
+    if let Ok(path) = builder.build() {
+        window.paint_path(path, rgb(GRID_LINE));
     }
 }
 

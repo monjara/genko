@@ -173,6 +173,10 @@ impl TextRope {
         debug_assert!(range.start <= range.end);
         debug_assert!(range.end <= self.len_bytes());
 
+        let normalized_start = self.floor_char_boundary(range.start);
+        let normalized_end = self.ceil_char_boundary(range.end);
+        let range = normalized_start..normalized_end;
+
         if range.start == range.end
             && range.end == self.len_bytes()
             && self.try_append_to_last_leaf(text)
@@ -209,6 +213,10 @@ impl TextRope {
     pub fn replace_range_owned(&mut self, range: Range<usize>, text: String) {
         debug_assert!(range.start <= range.end);
         debug_assert!(range.end <= self.len_bytes());
+
+        let normalized_start = self.floor_char_boundary(range.start);
+        let normalized_end = self.ceil_char_boundary(range.end);
+        let range = normalized_start..normalized_end;
 
         if range.start == range.end
             && range.end == self.len_bytes()
@@ -323,6 +331,18 @@ impl TextRope {
         let filler_len = filler.len();
         self.replace_range(offset..offset, &filler);
         offset + filler_len
+    }
+
+    fn floor_char_boundary(&self, byte_offset: usize) -> usize {
+        self.root
+            .as_ref()
+            .map_or(0, |node| node.floor_char_boundary(byte_offset))
+    }
+
+    fn ceil_char_boundary(&self, byte_offset: usize) -> usize {
+        self.root
+            .as_ref()
+            .map_or(0, |node| node.ceil_char_boundary(byte_offset))
     }
 }
 
@@ -863,6 +883,46 @@ impl RopeNode {
                         rows_per_column,
                         hanging_punctuation,
                     )
+                }
+            }
+        }
+    }
+
+    fn floor_char_boundary(&self, byte_offset: usize) -> usize {
+        match self {
+            Self::Leaf { text, bytes, .. } => {
+                let text = text.as_str();
+                let mut boundary = byte_offset.min(*bytes);
+                while boundary > 0 && !text.is_char_boundary(boundary) {
+                    boundary -= 1;
+                }
+                boundary
+            }
+            Self::Branch { left, right, .. } => {
+                if byte_offset <= left.bytes() {
+                    left.floor_char_boundary(byte_offset)
+                } else {
+                    left.bytes() + right.floor_char_boundary(byte_offset - left.bytes())
+                }
+            }
+        }
+    }
+
+    fn ceil_char_boundary(&self, byte_offset: usize) -> usize {
+        match self {
+            Self::Leaf { text, bytes, .. } => {
+                let text = text.as_str();
+                let mut boundary = byte_offset.min(*bytes);
+                while boundary < *bytes && !text.is_char_boundary(boundary) {
+                    boundary += 1;
+                }
+                boundary
+            }
+            Self::Branch { left, right, .. } => {
+                if byte_offset <= left.bytes() {
+                    left.ceil_char_boundary(byte_offset)
+                } else {
+                    left.bytes() + right.ceil_char_boundary(byte_offset - left.bytes())
                 }
             }
         }
@@ -1554,6 +1614,15 @@ mod tests {
         assert_eq!(rope.to_string(), "a日本語c");
         rope.replace_range(1.."日本語".len() + 1, "文");
         assert_eq!(rope.to_string(), "a文c");
+    }
+
+    #[test]
+    fn rope_replaces_mid_char_ranges_on_surrounding_boundaries() {
+        let mut rope = TextRope::from_str("aあb");
+
+        rope.replace_range(2..3, "い");
+
+        assert_eq!(rope.to_string(), "aいb");
     }
 
     #[test]
