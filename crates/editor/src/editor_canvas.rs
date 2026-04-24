@@ -90,6 +90,7 @@ impl Element for EditorCanvas {
             visible_text,
             selected_range,
             marked_range,
+            block_selection,
             cursor_index,
             scroll_column,
             rows_per_column,
@@ -100,6 +101,7 @@ impl Element for EditorCanvas {
                 editor.state.visible_text(),
                 editor.state.selected_range.clone(),
                 editor.state.marked_range.clone(),
+                editor.state.block_selection,
                 editor.state.cursor_cell,
                 editor.state.scroll_column,
                 editor.state.rows_per_column(),
@@ -112,6 +114,7 @@ impl Element for EditorCanvas {
             &visible_text,
             &selected_range,
             marked_range.as_ref(),
+            block_selection,
             bounds,
             scroll_column,
             rows_per_column,
@@ -204,12 +207,32 @@ pub(crate) fn paint_selection(
     visible_text: &[CellText],
     selected_range: &Range<usize>,
     marked_range: Option<&Range<usize>>,
+    block_selection: Option<crate::editor_state::BlockSelection>,
     bounds: Bounds<Pixels>,
     scroll_column: usize,
     rows_per_column: usize,
     visible_columns: usize,
     window: &mut Window,
 ) {
+    if let Some(block_selection) = block_selection {
+        for logical_index in block_selection_indices(
+            block_selection.anchor_cell,
+            block_selection.cursor_cell,
+            rows_per_column,
+        ) {
+            let Some(cell_bounds) = cell_bounds_for_logical_index(
+                bounds,
+                logical_index,
+                scroll_column,
+                rows_per_column,
+                visible_columns,
+            ) else {
+                continue;
+            };
+            window.paint_quad(fill(cell_bounds, rgba(SELECTION_BACKGROUND)));
+        }
+    }
+
     for cell_text in visible_text {
         if ranges_overlap(&cell_text.range, selected_range) {
             let Some(cell_bounds) = cell_bounds_for_logical_index(
@@ -372,6 +395,26 @@ pub(crate) fn paint_cursor(
 
 fn ranges_overlap(left: &Range<usize>, right: &Range<usize>) -> bool {
     left.start < right.end && right.start < left.end
+}
+
+pub(crate) fn block_selection_indices(
+    anchor_cell: usize,
+    cursor_cell: usize,
+    rows_per_column: usize,
+) -> impl Iterator<Item = usize> {
+    let rows_per_column = rows_per_column.max(1);
+    let anchor_row = anchor_cell % rows_per_column;
+    let anchor_column = anchor_cell / rows_per_column;
+    let cursor_row = cursor_cell % rows_per_column;
+    let cursor_column = cursor_cell / rows_per_column;
+    let row_start = anchor_row.min(cursor_row);
+    let row_end = anchor_row.max(cursor_row);
+    let column_start = anchor_column.min(cursor_column);
+    let column_end = anchor_column.max(cursor_column);
+
+    (column_start..=column_end).flat_map(move |column| {
+        (row_start..=row_end).map(move |row| column * rows_per_column + row)
+    })
 }
 
 pub(crate) fn row_column_for_logical_index(

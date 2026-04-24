@@ -18,6 +18,9 @@ actions!(
         VimAppend,
         VimNormalMode,
         VimVisualMode,
+        VimVisualBlockMode,
+        VimBlockInsertBefore,
+        VimBlockAppendAfter,
         VimDeleteChar,
         VimDeleteOperator,
         VimChangeOperator,
@@ -51,6 +54,7 @@ pub enum VimMode {
     Normal,
     Insert,
     Visual,
+    VisualBlock,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +88,12 @@ enum MotionKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BlockInsertKind {
+    Before,
+    After,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum InsertKind {
     Insert,
     Append,
@@ -100,14 +110,28 @@ enum RepeatTarget {
 enum RepeatableCommand {
     DeleteChar,
     Delete(RepeatTarget),
+    BlockDelete {
+        row_count: usize,
+        column_count: usize,
+    },
     Change {
         target: RepeatTarget,
+        inserted_text: String,
+    },
+    BlockChange {
+        row_count: usize,
+        column_count: usize,
         inserted_text: String,
     },
     PasteAfter,
     PasteBefore,
     Insert {
         kind: InsertKind,
+        inserted_text: String,
+    },
+    BlockInsert {
+        kind: BlockInsertKind,
+        row_count: usize,
         inserted_text: String,
     },
 }
@@ -120,10 +144,28 @@ struct PendingInsert {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingBlockInsert {
+    kind: BlockInsertKind,
+    row_count: usize,
+    column_count: usize,
+    delete_selection: bool,
+    target_cells: Vec<usize>,
+    before_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum YankRegister {
     Empty,
     CharWise(String),
     LineWise(String),
+    BlockWise(BlockRegister),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BlockRegister {
+    row_count: usize,
+    column_count: usize,
+    cells: Vec<String>,
 }
 
 static JAPANESE_TOKENIZER: OnceLock<Result<Tokenizer, String>> = OnceLock::new();
@@ -191,6 +233,7 @@ impl VimState {
         ) {
             (VimMode::Insert, _, _) => "Genko vim_mode=insert",
             (VimMode::Visual, _, _) => "Genko vim_mode=visual",
+            (VimMode::VisualBlock, _, _) => "Genko vim_mode=visual_block",
             (VimMode::Normal, None, _) => "Genko vim_mode=normal",
             (VimMode::Normal, Some(VimOperator::Delete), None) => "Genko vim_mode=operator_delete",
             (VimMode::Normal, Some(VimOperator::Change), None) => "Genko vim_mode=operator_change",
@@ -223,6 +266,7 @@ pub struct Vim {
     yank_register: YankRegister,
     last_change: Option<RepeatableCommand>,
     pending_insert: Option<PendingInsert>,
+    pending_block_insert: Option<PendingBlockInsert>,
 }
 
 impl Vim {
@@ -232,6 +276,7 @@ impl Vim {
             KeyBinding::new("a", VimAppend, Some("vim_mode == normal")),
             KeyBinding::new("escape", VimNormalMode, Some("vim_mode == insert")),
             KeyBinding::new("escape", VimNormalMode, Some("vim_mode == visual")),
+            KeyBinding::new("escape", VimNormalMode, Some("vim_mode == visual_block")),
             KeyBinding::new("escape", VimNormalMode, Some("vim_mode == operator_delete")),
             KeyBinding::new("escape", VimNormalMode, Some("vim_mode == operator_change")),
             KeyBinding::new("escape", VimNormalMode, Some("vim_mode == operator_yank")),
@@ -267,9 +312,18 @@ impl Vim {
             ),
             KeyBinding::new("v", VimVisualMode, Some("vim_mode == normal")),
             KeyBinding::new("v", VimNormalMode, Some("vim_mode == visual")),
+            KeyBinding::new("ctrl-v", VimVisualBlockMode, Some("vim_mode == normal")),
+            KeyBinding::new("ctrl-v", VimNormalMode, Some("vim_mode == visual_block")),
+            KeyBinding::new("I", VimBlockInsertBefore, Some("vim_mode == visual_block")),
+            KeyBinding::new("A", VimBlockAppendAfter, Some("vim_mode == visual_block")),
             KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == normal")),
+            KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == visual")),
+            KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == visual_block")),
             KeyBinding::new("c", VimChangeOperator, Some("vim_mode == normal")),
+            KeyBinding::new("c", VimChangeOperator, Some("vim_mode == visual_block")),
             KeyBinding::new("y", VimYankOperator, Some("vim_mode == normal")),
+            KeyBinding::new("y", VimYankOperator, Some("vim_mode == visual")),
+            KeyBinding::new("y", VimYankOperator, Some("vim_mode == visual_block")),
             KeyBinding::new("p", VimPasteAfter, Some("vim_mode == normal")),
             KeyBinding::new("P", VimPasteBefore, Some("vim_mode == normal")),
             KeyBinding::new("u", VimUndo, Some("vim_mode == normal")),
@@ -278,17 +332,17 @@ impl Vim {
             KeyBinding::new(
                 "w",
                 VimMoveWordForward,
-                Some("vim_mode == normal || vim_mode == visual"),
+                Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
             ),
             KeyBinding::new(
                 "W",
                 VimMoveBigWordForward,
-                Some("vim_mode == normal || vim_mode == visual"),
+                Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
             ),
             KeyBinding::new(
                 "e",
                 VimMoveWordEndForward,
-                Some("vim_mode == normal || vim_mode == visual"),
+                Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
             ),
             KeyBinding::new("o", VimOpenNextColumn, Some("vim_mode == normal")),
             KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == operator_delete")),
@@ -524,27 +578,27 @@ impl Vim {
             KeyBinding::new(
                 "h",
                 VimMoveLeft,
-                Some("vim_mode == normal || vim_mode == visual"),
+                Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
             ),
             KeyBinding::new(
                 "j",
                 VimMoveDown,
-                Some("vim_mode == normal || vim_mode == visual"),
+                Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
             ),
             KeyBinding::new(
                 "k",
                 VimMoveUp,
-                Some("vim_mode == normal || vim_mode == visual"),
+                Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
             ),
             KeyBinding::new(
                 "l",
                 VimMoveRight,
-                Some("vim_mode == normal || vim_mode == visual"),
+                Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
             ),
             KeyBinding::new(
                 "x",
                 VimDeleteChar,
-                Some("vim_mode == normal || vim_mode == visual"),
+                Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
             ),
         ]);
     }
@@ -556,6 +610,7 @@ impl Vim {
             yank_register: YankRegister::Empty,
             last_change: None,
             pending_insert: None,
+            pending_block_insert: None,
         }
     }
 
@@ -574,6 +629,7 @@ impl Vim {
         before_text: String,
         cx: &mut Context<Self>,
     ) {
+        self.pending_block_insert = None;
         self.pending_insert = Some(PendingInsert {
             kind,
             change_target,
@@ -586,6 +642,43 @@ impl Vim {
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
         self.editor.update(cx, |editor, cx| {
+            editor.set_text_input_enabled(true, cx);
+            editor.collapse_selection_to_cursor_offset(cx);
+        });
+        cx.notify();
+    }
+
+    fn start_block_insert_session(
+        &mut self,
+        kind: BlockInsertKind,
+        row_count: usize,
+        column_count: usize,
+        delete_selection: bool,
+        target_cells: Vec<usize>,
+        before_text: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_insert = Some(PendingInsert {
+            kind: InsertKind::Insert,
+            change_target: None,
+            before_text: before_text.clone(),
+        });
+        self.pending_block_insert = Some(PendingBlockInsert {
+            kind,
+            row_count,
+            column_count,
+            delete_selection,
+            target_cells,
+            before_text,
+        });
+        self.editor.update(cx, |editor, _| {
+            editor.begin_transaction();
+        });
+        self.state.set_mode(VimMode::Insert);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        self.editor.update(cx, |editor, cx| {
+            editor.clear_block_selection(cx);
             editor.set_text_input_enabled(true, cx);
             editor.collapse_selection_to_cursor_offset(cx);
         });
@@ -611,6 +704,7 @@ impl Vim {
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
         self.editor.update(cx, |editor, cx| {
+            editor.clear_block_selection(cx);
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
         });
@@ -626,10 +720,91 @@ impl Vim {
         self.state.set_visual_anchor_cell(Some(anchor));
         self.state.clear_pending();
         self.editor.update(cx, |editor, cx| {
+            editor.clear_block_selection(cx);
             editor.set_text_input_enabled(false, cx);
             editor.select_visual_range(anchor, anchor, cx);
         });
         cx.notify();
+    }
+
+    fn visual_block_mode(&mut self, cx: &mut Context<Self>) {
+        let anchor = self.editor.read(cx).cursor_cell();
+        self.state.set_mode(VimMode::VisualBlock);
+        self.state.set_visual_anchor_cell(Some(anchor));
+        self.state.clear_pending();
+        self.editor.update(cx, |editor, cx| {
+            editor.set_text_input_enabled(false, cx);
+            editor.set_block_selection(anchor, anchor, cx);
+        });
+        cx.notify();
+    }
+
+    fn block_insert_before(&mut self, cx: &mut Context<Self>) {
+        self.start_block_insert_from_selection(BlockInsertKind::Before, false, cx);
+    }
+
+    fn block_append_after(&mut self, cx: &mut Context<Self>) {
+        self.start_block_insert_from_selection(BlockInsertKind::After, false, cx);
+    }
+
+    fn change_block_selection(&mut self, cx: &mut Context<Self>) {
+        self.start_block_insert_from_selection(BlockInsertKind::Before, true, cx);
+    }
+
+    fn start_block_insert_from_selection(
+        &mut self,
+        kind: BlockInsertKind,
+        delete_selection: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(anchor) = self.state.visual_anchor_cell() else {
+            return;
+        };
+        let (target_cells, before_text, register, delete_ranges, row_count, column_count) = {
+            let editor = self.editor.read(cx);
+            let register = build_block_register(&editor, anchor, editor.cursor_cell());
+            let target_cells =
+                block_insert_target_cells(&editor, anchor, editor.cursor_cell(), kind);
+            let before_text = editor.snapshot_text();
+            let delete_ranges = delete_selection
+                .then(|| block_selection_byte_ranges(&editor, anchor, editor.cursor_cell()))
+                .unwrap_or_default();
+            (
+                target_cells,
+                before_text,
+                register.clone(),
+                delete_ranges,
+                register.row_count,
+                register.column_count,
+            )
+        };
+        if target_cells.is_empty() {
+            return;
+        }
+
+        if delete_selection {
+            self.yank_register = YankRegister::BlockWise(register);
+            self.editor.update(cx, |editor, cx| {
+                editor.begin_transaction();
+                for range in delete_ranges.iter().rev() {
+                    editor.replace_byte_range(range.clone(), "", cx);
+                }
+                editor.move_cursor_to_display_cell(target_cells[0], cx);
+            });
+        } else {
+            self.editor.update(cx, |editor, cx| {
+                editor.move_cursor_to_display_cell(target_cells[0], cx);
+            });
+        }
+        self.start_block_insert_session(
+            kind,
+            row_count,
+            column_count,
+            delete_selection,
+            target_cells,
+            before_text,
+            cx,
+        );
     }
 
     fn begin_operator(&mut self, operator: VimOperator, cx: &mut Context<Self>) {
@@ -651,6 +826,10 @@ impl Vim {
     }
 
     fn delete_char(&mut self, cx: &mut Context<Self>) {
+        if self.state.mode() == VimMode::VisualBlock {
+            self.delete_block_selection(cx);
+            return;
+        }
         let (range, yanked, repeatable) = {
             let editor = self.editor.read(cx);
             if self.state.mode() == VimMode::Visual && !editor.selected_byte_range().is_empty() {
@@ -683,7 +862,66 @@ impl Vim {
         cx.notify();
     }
 
+    fn delete_block_selection(&mut self, cx: &mut Context<Self>) {
+        let Some(anchor) = self.state.visual_anchor_cell() else {
+            return;
+        };
+        let (ranges, block_register) = {
+            let editor = self.editor.read(cx);
+            let ranges = block_selection_byte_ranges(&editor, anchor, editor.cursor_cell());
+            let block_register = build_block_register(&editor, anchor, editor.cursor_cell());
+            (ranges, block_register)
+        };
+        if ranges.is_empty() {
+            return;
+        }
+
+        let row_count = block_register.row_count;
+        let column_count = block_register.column_count;
+        self.yank_register = YankRegister::BlockWise(block_register);
+        self.editor.update(cx, |editor, cx| {
+            for range in ranges.iter().rev() {
+                editor.replace_byte_range(range.clone(), "", cx);
+            }
+            editor.clear_block_selection(cx);
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+        });
+        self.last_change = Some(RepeatableCommand::BlockDelete {
+            row_count,
+            column_count,
+        });
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        cx.notify();
+    }
+
+    fn yank_block_selection(&mut self, cx: &mut Context<Self>) {
+        let Some(anchor) = self.state.visual_anchor_cell() else {
+            return;
+        };
+        let block_register = {
+            let editor = self.editor.read(cx);
+            build_block_register(&editor, anchor, editor.cursor_cell())
+        };
+        self.yank_register = YankRegister::BlockWise(block_register);
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        self.editor.update(cx, |editor, cx| {
+            editor.clear_block_selection(cx);
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+        });
+        cx.notify();
+    }
+
     fn paste_after(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.yank_register, YankRegister::BlockWise(_)) {
+            self.paste_block(PastePosition::After, cx);
+            return;
+        }
         let cursor = {
             let editor = self.editor.read(cx);
             editor.cursor_byte_offset()
@@ -711,6 +949,10 @@ impl Vim {
     }
 
     fn paste_before(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.yank_register, YankRegister::BlockWise(_)) {
+            self.paste_block(PastePosition::Before, cx);
+            return;
+        }
         let cursor = {
             let editor = self.editor.read(cx);
             editor.cursor_byte_offset()
@@ -737,8 +979,52 @@ impl Vim {
         cx.notify();
     }
 
+    fn paste_block(&mut self, position: PastePosition, cx: &mut Context<Self>) {
+        let (base_cell, rows_per_column, register) = {
+            let editor = self.editor.read(cx);
+            let base_cell = match position {
+                PastePosition::Before => editor.cursor_cell(),
+                PastePosition::After => editor.cursor_cell() + editor.rows_per_column(),
+            };
+            let YankRegister::BlockWise(register) = &self.yank_register else {
+                return;
+            };
+            (base_cell, editor.rows_per_column(), register.clone())
+        };
+
+        let mut inserts = block_paste_operations(base_cell, rows_per_column, &register);
+        if inserts.is_empty() {
+            return;
+        }
+        inserts.sort_by(|left, right| right.0.cmp(&left.0));
+
+        self.editor.update(cx, |editor, cx| {
+            editor.begin_transaction();
+            for (cell_index, text) in &inserts {
+                if text.is_empty() {
+                    continue;
+                }
+                editor.move_cursor_to_display_cell(*cell_index, cx);
+                let offset = editor.cursor_byte_offset();
+                editor.replace_byte_range(offset..offset, text, cx);
+            }
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+            let _ = editor.commit_transaction(cx);
+        });
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        self.last_change = Some(match position {
+            PastePosition::Before => RepeatableCommand::PasteBefore,
+            PastePosition::After => RepeatableCommand::PasteAfter,
+        });
+        cx.notify();
+    }
+
     fn undo(&mut self, cx: &mut Context<Self>) {
         self.pending_insert = None;
+        self.pending_block_insert = None;
         self.state.set_mode(VimMode::Normal);
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
@@ -752,6 +1038,7 @@ impl Vim {
 
     fn redo(&mut self, cx: &mut Context<Self>) {
         self.pending_insert = None;
+        self.pending_block_insert = None;
         self.state.set_mode(VimMode::Normal);
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
@@ -790,6 +1077,11 @@ impl Vim {
                 editor.move_cursor_to_byte_offset(target, cx);
             });
             self.sync_visual_selection_for_current_cursor(cx);
+        } else if self.state.mode() == VimMode::VisualBlock {
+            self.editor.update(cx, |editor, cx| {
+                editor.move_cursor_to_byte_offset(target, cx);
+            });
+            self.sync_block_selection_for_current_cursor(cx);
         } else {
             self.editor.update(cx, |editor, cx| {
                 editor.move_cursor_to_byte_offset(target, cx);
@@ -800,13 +1092,19 @@ impl Vim {
 
     fn move_by_cells(&mut self, delta: isize, cx: &mut Context<Self>) {
         let is_visual = self.state.mode() == VimMode::Visual;
+        let is_visual_block = self.state.mode() == VimMode::VisualBlock;
         self.editor.update(cx, |editor, cx| {
             if is_visual {
                 editor.select_cursor_by(delta, cx);
+            } else if is_visual_block {
+                editor.move_cursor_by(delta, cx);
             } else {
                 editor.move_cursor_by(delta, cx);
             }
         });
+        if is_visual_block {
+            self.sync_block_selection_for_current_cursor(cx);
+        }
         cx.notify();
     }
 
@@ -982,7 +1280,21 @@ impl Vim {
         let Some(pending_insert) = self.pending_insert.take() else {
             return;
         };
+        let pending_block_insert = self.pending_block_insert.take();
         let (committed, after_text) = self.editor.update(cx, |editor, cx| {
+            let after_first_text = editor.snapshot_text();
+            if let Some(pending_block_insert) = &pending_block_insert {
+                let inserted_text =
+                    inserted_text_between(&pending_block_insert.before_text, &after_first_text);
+                if !inserted_text.is_empty() {
+                    for &cell_index in pending_block_insert.target_cells.iter().skip(1).rev() {
+                        editor.move_cursor_to_display_cell(cell_index, cx);
+                        let offset = editor.cursor_byte_offset();
+                        editor.replace_byte_range(offset..offset, inserted_text.as_str(), cx);
+                    }
+                }
+                editor.collapse_selection_to_cursor_cell(cx);
+            }
             let committed = editor.commit_transaction(cx);
             (committed, editor.snapshot_text())
         });
@@ -991,16 +1303,34 @@ impl Vim {
         }
 
         let inserted_text = inserted_text_between(&pending_insert.before_text, &after_text);
-        self.last_change = match pending_insert.change_target {
-            Some(target) => Some(RepeatableCommand::Change {
-                target,
-                inserted_text,
-            }),
-            None if inserted_text.is_empty() => None,
-            None => Some(RepeatableCommand::Insert {
-                kind: pending_insert.kind,
-                inserted_text,
-            }),
+        self.last_change = if let Some(pending_block_insert) = pending_block_insert {
+            if inserted_text.is_empty() {
+                None
+            } else if pending_block_insert.delete_selection {
+                Some(RepeatableCommand::BlockChange {
+                    row_count: pending_block_insert.row_count,
+                    column_count: pending_block_insert.column_count,
+                    inserted_text,
+                })
+            } else {
+                Some(RepeatableCommand::BlockInsert {
+                    kind: pending_block_insert.kind,
+                    row_count: pending_block_insert.row_count,
+                    inserted_text,
+                })
+            }
+        } else {
+            match pending_insert.change_target {
+                Some(target) => Some(RepeatableCommand::Change {
+                    target,
+                    inserted_text,
+                }),
+                None if inserted_text.is_empty() => None,
+                None => Some(RepeatableCommand::Insert {
+                    kind: pending_insert.kind,
+                    inserted_text,
+                }),
+            }
         };
     }
 
@@ -1008,17 +1338,162 @@ impl Vim {
         match command {
             RepeatableCommand::DeleteChar => self.delete_char(cx),
             RepeatableCommand::Delete(target) => self.execute_repeat_target(target, None, cx),
+            RepeatableCommand::BlockDelete {
+                row_count,
+                column_count,
+            } => self.execute_block_delete(row_count, column_count, cx),
             RepeatableCommand::Change {
                 target,
                 inserted_text,
             } => self.execute_repeat_target(target, Some(inserted_text), cx),
+            RepeatableCommand::BlockChange {
+                row_count,
+                column_count,
+                inserted_text,
+            } => self.execute_block_change(row_count, column_count, inserted_text, cx),
             RepeatableCommand::PasteAfter => self.paste_after(cx),
             RepeatableCommand::PasteBefore => self.paste_before(cx),
             RepeatableCommand::Insert {
                 kind,
                 inserted_text,
             } => self.execute_repeat_insert(kind, inserted_text, cx),
+            RepeatableCommand::BlockInsert {
+                kind,
+                row_count,
+                inserted_text,
+            } => self.execute_block_insert(kind, row_count, inserted_text, cx),
         }
+    }
+
+    fn execute_block_delete(
+        &mut self,
+        row_count: usize,
+        column_count: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let (ranges, block_register) = {
+            let editor = self.editor.read(cx);
+            let ranges = block_byte_ranges_from_cursor(
+                &editor,
+                editor.cursor_cell(),
+                row_count,
+                column_count,
+            );
+            let block_register = build_block_register_from_cursor(
+                &editor,
+                editor.cursor_cell(),
+                row_count,
+                column_count,
+            );
+            (ranges, block_register)
+        };
+        if ranges.is_empty() {
+            return;
+        }
+        self.yank_register = YankRegister::BlockWise(block_register);
+        self.editor.update(cx, |editor, cx| {
+            for range in ranges.iter().rev() {
+                editor.replace_byte_range(range.clone(), "", cx);
+            }
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+        });
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        self.last_change = Some(RepeatableCommand::BlockDelete {
+            row_count,
+            column_count,
+        });
+        cx.notify();
+    }
+
+    fn execute_block_change(
+        &mut self,
+        row_count: usize,
+        column_count: usize,
+        inserted_text: String,
+        cx: &mut Context<Self>,
+    ) {
+        let (ranges, target_cells) = {
+            let editor = self.editor.read(cx);
+            (
+                block_byte_ranges_from_cursor(
+                    &editor,
+                    editor.cursor_cell(),
+                    row_count,
+                    column_count,
+                ),
+                block_insert_target_cells_from_cursor(
+                    &editor,
+                    editor.cursor_cell(),
+                    row_count,
+                    BlockInsertKind::Before,
+                ),
+            )
+        };
+        if target_cells.is_empty() {
+            return;
+        }
+        self.editor.update(cx, |editor, cx| {
+            editor.begin_transaction();
+            for range in ranges.iter().rev() {
+                editor.replace_byte_range(range.clone(), "", cx);
+            }
+            for &cell_index in target_cells.iter().rev() {
+                editor.move_cursor_to_display_cell(cell_index, cx);
+                let offset = editor.cursor_byte_offset();
+                editor.replace_byte_range(offset..offset, inserted_text.as_str(), cx);
+            }
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+            let _ = editor.commit_transaction(cx);
+        });
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        self.last_change = Some(RepeatableCommand::BlockChange {
+            row_count,
+            column_count,
+            inserted_text,
+        });
+        cx.notify();
+    }
+
+    fn execute_block_insert(
+        &mut self,
+        kind: BlockInsertKind,
+        row_count: usize,
+        inserted_text: String,
+        cx: &mut Context<Self>,
+    ) {
+        let target_cells = {
+            let editor = self.editor.read(cx);
+            block_insert_target_cells_from_cursor(&editor, editor.cursor_cell(), row_count, kind)
+        };
+        if target_cells.is_empty() || inserted_text.is_empty() {
+            return;
+        }
+        self.editor.update(cx, |editor, cx| {
+            editor.begin_transaction();
+            for &cell_index in target_cells.iter().rev() {
+                editor.move_cursor_to_display_cell(cell_index, cx);
+                let offset = editor.cursor_byte_offset();
+                editor.replace_byte_range(offset..offset, inserted_text.as_str(), cx);
+            }
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+            let _ = editor.commit_transaction(cx);
+        });
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        self.last_change = Some(RepeatableCommand::BlockInsert {
+            kind,
+            row_count,
+            inserted_text,
+        });
+        cx.notify();
     }
 
     fn execute_repeat_target(
@@ -1151,6 +1626,7 @@ impl Vim {
                 };
                 Some((insertion_offset, content.clone()))
             }
+            YankRegister::BlockWise(_) => None,
         }
     }
 
@@ -1161,6 +1637,16 @@ impl Vim {
         let cursor = self.editor.read(cx).cursor_cell();
         self.editor.update(cx, |editor, cx| {
             editor.select_visual_range(anchor, cursor, cx);
+        });
+    }
+
+    fn sync_block_selection_for_current_cursor(&mut self, cx: &mut Context<Self>) {
+        let Some(anchor) = self.state.visual_anchor_cell() else {
+            return;
+        };
+        let cursor = self.editor.read(cx).cursor_cell();
+        self.editor.update(cx, |editor, cx| {
+            editor.set_block_selection(anchor, cursor, cx);
         });
     }
 
@@ -1185,6 +1671,33 @@ impl Vim {
         self.visual_mode(cx);
     }
 
+    fn vim_visual_block_mode(
+        &mut self,
+        _: &VimVisualBlockMode,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.visual_block_mode(cx);
+    }
+
+    fn vim_block_insert_before(
+        &mut self,
+        _: &VimBlockInsertBefore,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.block_insert_before(cx);
+    }
+
+    fn vim_block_append_after(
+        &mut self,
+        _: &VimBlockAppendAfter,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.block_append_after(cx);
+    }
+
     fn vim_delete_char(&mut self, _: &VimDeleteChar, _window: &mut Window, cx: &mut Context<Self>) {
         self.delete_char(cx);
     }
@@ -1195,6 +1708,14 @@ impl Vim {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.state.mode() == VimMode::VisualBlock {
+            self.delete_block_selection(cx);
+            return;
+        }
+        if self.state.mode() == VimMode::Visual {
+            self.delete_char(cx);
+            return;
+        }
         if self.state.pending_operator() == Some(VimOperator::Delete) {
             self.apply_current_line_operator(VimOperator::Delete, cx);
             return;
@@ -1208,6 +1729,10 @@ impl Vim {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.state.mode() == VimMode::VisualBlock {
+            self.change_block_selection(cx);
+            return;
+        }
         if self.state.pending_operator() == Some(VimOperator::Change) {
             self.apply_current_line_operator(VimOperator::Change, cx);
             return;
@@ -1221,6 +1746,27 @@ impl Vim {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.state.mode() == VimMode::VisualBlock {
+            self.yank_block_selection(cx);
+            return;
+        }
+        if self.state.mode() == VimMode::Visual {
+            let range = self.editor.read(cx).selected_byte_range();
+            if range.is_empty() {
+                return;
+            }
+            self.yank_register = YankRegister::CharWise(self.editor.read(cx).text_in_range(range));
+            self.state.set_mode(VimMode::Normal);
+            self.state.set_visual_anchor_cell(None);
+            self.state.clear_pending();
+            self.editor.update(cx, |editor, cx| {
+                editor.clear_block_selection(cx);
+                editor.set_text_input_enabled(false, cx);
+                editor.collapse_selection_to_cursor_cell(cx);
+            });
+            cx.notify();
+            return;
+        }
         if self.state.pending_operator() == Some(VimOperator::Yank) {
             self.apply_current_line_operator(VimOperator::Yank, cx);
             return;
@@ -1394,6 +1940,9 @@ impl Render for Vim {
             .on_action(cx.listener(Self::vim_append))
             .on_action(cx.listener(Self::vim_normal_mode))
             .on_action(cx.listener(Self::vim_visual_mode))
+            .on_action(cx.listener(Self::vim_visual_block_mode))
+            .on_action(cx.listener(Self::vim_block_insert_before))
+            .on_action(cx.listener(Self::vim_block_append_after))
             .on_action(cx.listener(Self::vim_delete_char))
             .on_action(cx.listener(Self::vim_delete_operator))
             .on_action(cx.listener(Self::vim_change_operator))
@@ -1959,6 +2508,204 @@ fn current_column_cell_range(
     let start = column_index * rows_per_column;
     let end = (start + rows_per_column).min(used_cells);
     Some(start..end)
+}
+
+fn block_selection_cell_indices(
+    anchor_cell: usize,
+    cursor_cell: usize,
+    rows_per_column: usize,
+) -> Vec<usize> {
+    let rows_per_column = rows_per_column.max(1);
+    let anchor_row = anchor_cell % rows_per_column;
+    let anchor_column = anchor_cell / rows_per_column;
+    let cursor_row = cursor_cell % rows_per_column;
+    let cursor_column = cursor_cell / rows_per_column;
+    let row_start = anchor_row.min(cursor_row);
+    let row_end = anchor_row.max(cursor_row);
+    let column_start = anchor_column.min(cursor_column);
+    let column_end = anchor_column.max(cursor_column);
+    let mut cells = Vec::new();
+    for column in column_start..=column_end {
+        for row in row_start..=row_end {
+            cells.push(column * rows_per_column + row);
+        }
+    }
+    cells
+}
+
+fn block_selection_byte_ranges(
+    editor: &Editor,
+    anchor_cell: usize,
+    cursor_cell: usize,
+) -> Vec<Range<usize>> {
+    let mut ranges =
+        block_selection_cell_indices(anchor_cell, cursor_cell, editor.rows_per_column())
+            .into_iter()
+            .map(|cell| {
+                editor.byte_offset_for_display_cell(cell)
+                    ..editor.byte_offset_for_display_cell(cell + 1)
+            })
+            .filter(|range| !range.is_empty())
+            .collect::<Vec<_>>();
+    ranges.sort_by(|left, right| left.start.cmp(&right.start).then(left.end.cmp(&right.end)));
+    ranges.dedup();
+    ranges
+}
+
+fn build_block_register(editor: &Editor, anchor_cell: usize, cursor_cell: usize) -> BlockRegister {
+    let rows_per_column = editor.rows_per_column().max(1);
+    let anchor_row = anchor_cell % rows_per_column;
+    let anchor_column = anchor_cell / rows_per_column;
+    let cursor_row = cursor_cell % rows_per_column;
+    let cursor_column = cursor_cell / rows_per_column;
+    let row_start = anchor_row.min(cursor_row);
+    let row_end = anchor_row.max(cursor_row);
+    let column_start = anchor_column.min(cursor_column);
+    let column_end = anchor_column.max(cursor_column);
+    let row_count = row_end - row_start + 1;
+    let column_count = column_end - column_start + 1;
+    let mut cells = Vec::with_capacity(row_count * column_count);
+
+    for column in column_start..=column_end {
+        for row in row_start..=row_end {
+            let cell = column * rows_per_column + row;
+            let range = editor.byte_offset_for_display_cell(cell)
+                ..editor.byte_offset_for_display_cell(cell + 1);
+            cells.push(if range.is_empty() {
+                String::new()
+            } else {
+                editor.text_in_range(range)
+            });
+        }
+    }
+
+    BlockRegister {
+        row_count,
+        column_count,
+        cells,
+    }
+}
+
+fn build_block_register_from_cursor(
+    editor: &Editor,
+    cursor_cell: usize,
+    row_count: usize,
+    column_count: usize,
+) -> BlockRegister {
+    let cells = block_cell_indices_from_cursor(editor, cursor_cell, row_count, column_count)
+        .into_iter()
+        .map(|cell| {
+            let range = editor.byte_offset_for_display_cell(cell)
+                ..editor.byte_offset_for_display_cell(cell + 1);
+            if range.is_empty() {
+                String::new()
+            } else {
+                editor.text_in_range(range)
+            }
+        })
+        .collect();
+    BlockRegister {
+        row_count,
+        column_count,
+        cells,
+    }
+}
+
+fn block_insert_target_cells(
+    editor: &Editor,
+    anchor_cell: usize,
+    cursor_cell: usize,
+    kind: BlockInsertKind,
+) -> Vec<usize> {
+    let rows_per_column = editor.rows_per_column().max(1);
+    let anchor_row = anchor_cell % rows_per_column;
+    let anchor_column = anchor_cell / rows_per_column;
+    let cursor_row = cursor_cell % rows_per_column;
+    let cursor_column = cursor_cell / rows_per_column;
+    let row_start = anchor_row.min(cursor_row);
+    let row_end = anchor_row.max(cursor_row);
+    let target_column = match kind {
+        BlockInsertKind::Before => anchor_column.min(cursor_column),
+        BlockInsertKind::After => anchor_column.max(cursor_column) + 1,
+    };
+
+    (row_start..=row_end)
+        .map(|row| target_column * rows_per_column + row)
+        .collect()
+}
+
+fn block_insert_target_cells_from_cursor(
+    editor: &Editor,
+    cursor_cell: usize,
+    row_count: usize,
+    kind: BlockInsertKind,
+) -> Vec<usize> {
+    let rows_per_column = editor.rows_per_column().max(1);
+    let row_start = cursor_cell % rows_per_column;
+    let column = cursor_cell / rows_per_column;
+    let target_column = match kind {
+        BlockInsertKind::Before => column,
+        BlockInsertKind::After => column + 1,
+    };
+
+    (0..row_count)
+        .map(|row_offset| target_column * rows_per_column + row_start + row_offset)
+        .collect()
+}
+
+fn block_cell_indices_from_cursor(
+    editor: &Editor,
+    cursor_cell: usize,
+    row_count: usize,
+    column_count: usize,
+) -> Vec<usize> {
+    let rows_per_column = editor.rows_per_column().max(1);
+    let row_start = cursor_cell % rows_per_column;
+    let column_start = cursor_cell / rows_per_column;
+    let mut cells = Vec::with_capacity(row_count * column_count);
+    for column_offset in 0..column_count {
+        for row_offset in 0..row_count {
+            cells.push((column_start + column_offset) * rows_per_column + row_start + row_offset);
+        }
+    }
+    cells
+}
+
+fn block_byte_ranges_from_cursor(
+    editor: &Editor,
+    cursor_cell: usize,
+    row_count: usize,
+    column_count: usize,
+) -> Vec<Range<usize>> {
+    let mut ranges = block_cell_indices_from_cursor(editor, cursor_cell, row_count, column_count)
+        .into_iter()
+        .map(|cell| {
+            editor.byte_offset_for_display_cell(cell)..editor.byte_offset_for_display_cell(cell + 1)
+        })
+        .filter(|range| !range.is_empty())
+        .collect::<Vec<_>>();
+    ranges.sort_by(|left, right| left.start.cmp(&right.start).then(left.end.cmp(&right.end)));
+    ranges.dedup();
+    ranges
+}
+
+fn block_paste_operations(
+    base_cell: usize,
+    rows_per_column: usize,
+    register: &BlockRegister,
+) -> Vec<(usize, String)> {
+    let mut operations = Vec::with_capacity(register.cells.len());
+    for column_offset in 0..register.column_count {
+        for row_offset in 0..register.row_count {
+            let index = column_offset * register.row_count + row_offset;
+            let text = register.cells.get(index).cloned().unwrap_or_default();
+            operations.push((
+                base_cell + column_offset * rows_per_column + row_offset,
+                text,
+            ));
+        }
+    }
+    operations
 }
 
 fn inserted_text_between(before: &str, after: &str) -> String {

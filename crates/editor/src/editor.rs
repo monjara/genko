@@ -13,7 +13,9 @@ use crate::{
         EditorCanvas, cell_bounds_for_logical_index, logical_index_for_point,
         rows_per_column_for_window_height, visible_columns_for_window_width,
     },
-    editor_state::{EditOperation, EditTransaction, EditorState, PendingTransaction},
+    editor_state::{
+        BlockSelection, EditOperation, EditTransaction, EditorState, PendingTransaction,
+    },
 };
 
 mod editor_canvas;
@@ -145,6 +147,12 @@ impl Editor {
         self.state.selected_range.clone()
     }
 
+    pub fn block_selection(&self) -> Option<(usize, usize)> {
+        self.state
+            .block_selection
+            .map(|selection| (selection.anchor_cell, selection.cursor_cell))
+    }
+
     pub fn offset_after_cursor(&self) -> usize {
         self.state.next_boundary(self.state.cursor_offset())
     }
@@ -184,8 +192,34 @@ impl Editor {
         self.state.selected_range = start..end;
         self.state.selection_reversed = cursor_cell < anchor_cell;
         self.state.cursor_cell = cursor_cell;
+        self.state.block_selection = None;
         self.state.ensure_cursor_visible();
         cx.notify();
+    }
+
+    pub fn set_block_selection(
+        &mut self,
+        anchor_cell: usize,
+        cursor_cell: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let cursor_offset = self.state.byte_offset_for_display_cell(cursor_cell);
+        self.state.selected_range = cursor_offset..cursor_offset;
+        self.state.selection_reversed = false;
+        self.state.cursor_cell = cursor_cell;
+        self.state.marked_range = None;
+        self.state.block_selection = Some(BlockSelection {
+            anchor_cell,
+            cursor_cell,
+        });
+        self.state.ensure_cursor_visible();
+        cx.notify();
+    }
+
+    pub fn clear_block_selection(&mut self, cx: &mut Context<Self>) {
+        if self.state.block_selection.take().is_some() {
+            cx.notify();
+        }
     }
 
     pub fn collapse_selection_to_cursor_offset(&mut self, cx: &mut Context<Self>) {
@@ -193,6 +227,7 @@ impl Editor {
         self.state.selected_range = cursor_offset..cursor_offset;
         self.state.selection_reversed = false;
         self.state.marked_range = None;
+        self.state.block_selection = None;
         self.state.ensure_cursor_visible();
         cx.notify();
     }
@@ -293,6 +328,7 @@ impl Editor {
         self.state.selected_range = offset..offset;
         self.state.selection_reversed = false;
         self.state.cursor_cell = cell_index;
+        self.state.block_selection = None;
         self.state.ensure_cursor_visible();
         cx.notify();
     }
@@ -310,6 +346,7 @@ impl Editor {
                 self.state.selected_range.end..self.state.selected_range.start;
         }
         self.state.cursor_cell = cell_index;
+        self.state.block_selection = None;
         self.state.ensure_cursor_visible();
         cx.notify();
     }
@@ -482,6 +519,7 @@ impl Editor {
         self.state.selected_range = 0..self.state.draft.len_bytes();
         self.state.selection_reversed = false;
         self.state.cursor_cell = self.state.used_cells();
+        self.state.block_selection = None;
         cx.notify();
     }
 

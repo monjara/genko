@@ -15,6 +15,12 @@ pub(crate) struct EditorViewState {
     pub(crate) scroll_column: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BlockSelection {
+    pub(crate) anchor_cell: usize,
+    pub(crate) cursor_cell: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EditOperation {
     pub(crate) start: usize,
@@ -49,6 +55,7 @@ pub(crate) struct EditorState {
     pub(crate) selection_reversed: bool,
     pub(crate) cursor_cell: usize,
     pub(crate) marked_range: Option<Range<usize>>,
+    pub(crate) block_selection: Option<BlockSelection>,
     pub(crate) scroll_column: usize,
     pub(crate) scroll_remainder_columns: f32,
     pub(crate) visible_columns: usize,
@@ -69,6 +76,7 @@ impl EditorState {
             selection_reversed: false,
             cursor_cell: 0,
             marked_range: None,
+            block_selection: None,
             scroll_column: 0,
             scroll_remainder_columns: 0.0,
             visible_columns: DEFAULT_VISIBLE_COLUMNS,
@@ -212,6 +220,7 @@ impl EditorState {
         self.selection_reversed = false;
         self.cursor_cell = self.display_cell_for_byte(cursor_offset);
         self.marked_range = None;
+        self.block_selection = None;
         self.ensure_cursor_visible();
     }
 
@@ -243,6 +252,7 @@ impl EditorState {
         self.selection_reversed = state.selection_reversed;
         self.cursor_cell = state.cursor_cell;
         self.marked_range = state.marked_range;
+        self.block_selection = None;
         self.scroll_column = state.scroll_column.min(self.max_scroll_column());
         self.scroll_remainder_columns = 0.0;
         self.ensure_cursor_visible();
