@@ -13,7 +13,7 @@ use crate::{
         EditorCanvas, cell_bounds_for_logical_index, logical_index_for_point,
         rows_per_column_for_window_height, visible_columns_for_window_width,
     },
-    editor_state::EditorState,
+    editor_state::{EditorState, HistoryEntry},
 };
 
 mod editor_canvas;
@@ -198,6 +198,60 @@ impl Editor {
         self.replace_text_in_byte_range(range, new_text, cx);
     }
 
+    pub fn begin_transaction(&mut self) {
+        if self.state.history.active_before.is_none() {
+            self.state.history.active_before = Some(self.state.snapshot());
+        }
+    }
+
+    pub fn commit_transaction(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(before) = self.state.history.active_before.take() else {
+            return false;
+        };
+        let after = self.state.snapshot();
+        if before == after {
+            return false;
+        }
+
+        self.state
+            .history
+            .undo_stack
+            .push(HistoryEntry { before, after });
+        self.state.history.redo_stack.clear();
+        cx.notify();
+        true
+    }
+
+    pub fn cancel_transaction(&mut self) {
+        self.state.history.active_before = None;
+    }
+
+    pub fn undo(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(entry) = self.state.history.undo_stack.pop() else {
+            return false;
+        };
+        let before = entry.before.clone();
+        self.state.restore_snapshot(before);
+        self.state.history.redo_stack.push(entry);
+        cx.notify();
+        true
+    }
+
+    pub fn redo(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(entry) = self.state.history.redo_stack.pop() else {
+            return false;
+        };
+        let after = entry.after.clone();
+        self.state.restore_snapshot(after);
+        self.state.history.undo_stack.push(entry);
+        cx.notify();
+        true
+    }
+
+    pub fn has_active_transaction(&self) -> bool {
+        self.state.history.active_before.is_some()
+    }
+
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
         let offset = self.state.byte_offset_for_display_cell(cell_index);
         self.state.selected_range = offset..offset;
@@ -230,6 +284,10 @@ impl Editor {
         new_text: &str,
         cx: &mut Context<Self>,
     ) {
+        let implicit_transaction = self.state.history.active_before.is_none();
+        if implicit_transaction {
+            self.begin_transaction();
+        }
         let range = if new_text.is_empty() {
             range
         } else {
@@ -238,6 +296,9 @@ impl Editor {
         self.state.draft.replace_range(range.clone(), new_text);
         let cursor = range.start + new_text.len();
         self.state.set_cursor_from_offset(cursor);
+        if implicit_transaction {
+            let _ = self.commit_transaction(cx);
+        }
         cx.notify();
     }
 
@@ -247,6 +308,10 @@ impl Editor {
         new_text: String,
         cx: &mut Context<Self>,
     ) {
+        let implicit_transaction = self.state.history.active_before.is_none();
+        if implicit_transaction {
+            self.begin_transaction();
+        }
         let range = if new_text.is_empty() {
             range
         } else {
@@ -255,6 +320,9 @@ impl Editor {
         let cursor = range.start + new_text.len();
         self.state.draft.replace_range_owned(range, new_text);
         self.state.set_cursor_from_offset(cursor);
+        if implicit_transaction {
+            let _ = self.commit_transaction(cx);
+        }
         cx.notify();
     }
 
@@ -518,6 +586,10 @@ impl EntityInputHandler for Editor {
             return;
         }
 
+        let implicit_transaction = self.state.history.active_before.is_none();
+        if implicit_transaction {
+            self.begin_transaction();
+        }
         let range = self.state.editing_range(range_utf16);
         let range = if new_text.is_empty() {
             range
@@ -539,6 +611,9 @@ impl EntityInputHandler for Editor {
         self.state.selection_reversed = false;
         self.state.cursor_cell = self.state.display_cell_for_byte(self.state.cursor_offset());
         self.state.ensure_cursor_visible();
+        if implicit_transaction {
+            let _ = self.commit_transaction(cx);
+        }
         cx.notify();
     }
 

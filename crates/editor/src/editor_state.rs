@@ -6,6 +6,29 @@ use settings::AppSettings;
 
 use crate::DEFAULT_VISIBLE_COLUMNS;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EditorSnapshot {
+    pub(crate) text: String,
+    pub(crate) selected_range: Range<usize>,
+    pub(crate) selection_reversed: bool,
+    pub(crate) cursor_cell: usize,
+    pub(crate) marked_range: Option<Range<usize>>,
+    pub(crate) scroll_column: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct HistoryEntry {
+    pub(crate) before: EditorSnapshot,
+    pub(crate) after: EditorSnapshot,
+}
+
+#[derive(Default)]
+pub(crate) struct EditorHistory {
+    pub(crate) undo_stack: Vec<HistoryEntry>,
+    pub(crate) redo_stack: Vec<HistoryEntry>,
+    pub(crate) active_before: Option<EditorSnapshot>,
+}
+
 pub(crate) struct EditorState {
     pub(crate) draft: TextRope,
     pub(crate) rows_per_column: usize,
@@ -17,6 +40,7 @@ pub(crate) struct EditorState {
     pub(crate) scroll_remainder_columns: f32,
     pub(crate) visible_columns: usize,
     pub(crate) text_input_enabled: bool,
+    pub(crate) history: EditorHistory,
 }
 
 impl EditorState {
@@ -36,6 +60,7 @@ impl EditorState {
             scroll_remainder_columns: 0.0,
             visible_columns: DEFAULT_VISIBLE_COLUMNS,
             text_input_enabled: true,
+            history: EditorHistory::default(),
         }
     }
 
@@ -188,5 +213,28 @@ impl EditorState {
         self.marked_range
             .as_ref()
             .map(|range| self.range_to_utf16(range))
+    }
+
+    pub(crate) fn snapshot(&self) -> EditorSnapshot {
+        EditorSnapshot {
+            text: self.draft.slice(0..self.draft.len_bytes()),
+            selected_range: self.selected_range.clone(),
+            selection_reversed: self.selection_reversed,
+            cursor_cell: self.cursor_cell,
+            marked_range: self.marked_range.clone(),
+            scroll_column: self.scroll_column,
+        }
+    }
+
+    pub(crate) fn restore_snapshot(&mut self, snapshot: EditorSnapshot) {
+        self.draft = TextRope::new_with_rows(self.rows_per_column);
+        self.draft.replace_range(0..0, &snapshot.text);
+        self.selected_range = snapshot.selected_range;
+        self.selection_reversed = snapshot.selection_reversed;
+        self.cursor_cell = snapshot.cursor_cell;
+        self.marked_range = snapshot.marked_range;
+        self.scroll_column = snapshot.scroll_column.min(self.max_scroll_column());
+        self.scroll_remainder_columns = 0.0;
+        self.ensure_cursor_visible();
     }
 }

@@ -35,6 +35,9 @@ actions!(
         VimMoveWordEndForward,
         VimPasteAfter,
         VimPasteBefore,
+        VimUndo,
+        VimRedo,
+        VimRepeatLastChange,
     ]
 );
 
@@ -73,6 +76,42 @@ enum MotionKind {
     WordForward,
     BigWordForward,
     WordEndForward,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InsertKind {
+    Insert,
+    Append,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RepeatTarget {
+    Motion(MotionKind),
+    TextObject(TextObjectModifier, TextObjectTarget),
+    Line,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RepeatableCommand {
+    DeleteChar,
+    Delete(RepeatTarget),
+    Change {
+        target: RepeatTarget,
+        inserted_text: String,
+    },
+    PasteAfter,
+    PasteBefore,
+    Insert {
+        kind: InsertKind,
+        inserted_text: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingInsert {
+    kind: InsertKind,
+    change_target: Option<RepeatTarget>,
+    before_text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,6 +216,8 @@ pub struct Vim {
     editor: Entity<Editor>,
     state: VimState,
     yank_register: YankRegister,
+    last_change: Option<RepeatableCommand>,
+    pending_insert: Option<PendingInsert>,
 }
 
 impl Vim {
@@ -226,6 +267,9 @@ impl Vim {
             KeyBinding::new("y", VimYankOperator, Some("vim_mode == normal")),
             KeyBinding::new("p", VimPasteAfter, Some("vim_mode == normal")),
             KeyBinding::new("P", VimPasteBefore, Some("vim_mode == normal")),
+            KeyBinding::new("u", VimUndo, Some("vim_mode == normal")),
+            KeyBinding::new("ctrl-r", VimRedo, Some("vim_mode == normal")),
+            KeyBinding::new(".", VimRepeatLastChange, Some("vim_mode == normal")),
             KeyBinding::new("w", VimMoveWordForward, Some("vim_mode == normal")),
             KeyBinding::new("W", VimMoveBigWordForward, Some("vim_mode == normal")),
             KeyBinding::new("e", VimMoveWordEndForward, Some("vim_mode == normal")),
@@ -492,6 +536,8 @@ impl Vim {
             editor,
             state: VimState::new(),
             yank_register: YankRegister::Empty,
+            last_change: None,
+            pending_insert: None,
         }
     }
 
@@ -503,7 +549,21 @@ impl Vim {
         });
     }
 
-    fn enter_insert_mode(&mut self, cx: &mut Context<Self>) {
+    fn start_insert_session(
+        &mut self,
+        kind: InsertKind,
+        change_target: Option<RepeatTarget>,
+        before_text: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.pending_insert = Some(PendingInsert {
+            kind,
+            change_target,
+            before_text,
+        });
+        self.editor.update(cx, |editor, _| {
+            editor.begin_transaction();
+        });
         self.state.set_mode(VimMode::Insert);
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
@@ -514,14 +574,21 @@ impl Vim {
         cx.notify();
     }
 
+    fn enter_insert_mode(&mut self, cx: &mut Context<Self>) {
+        let before_text = self.editor.read(cx).snapshot_text();
+        self.start_insert_session(InsertKind::Insert, None, before_text, cx);
+    }
+
     fn append(&mut self, cx: &mut Context<Self>) {
         self.editor.update(cx, |editor, cx| {
             editor.move_cursor_by(1, cx);
         });
-        self.enter_insert_mode(cx);
+        let before_text = self.editor.read(cx).snapshot_text();
+        self.start_insert_session(InsertKind::Append, None, before_text, cx);
     }
 
     fn normal_mode(&mut self, cx: &mut Context<Self>) {
+        let leaving_insert = self.state.mode() == VimMode::Insert;
         self.state.set_mode(VimMode::Normal);
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
@@ -529,6 +596,9 @@ impl Vim {
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
         });
+        if leaving_insert {
+            self.finish_insert_session(cx);
+        }
         cx.notify();
     }
 
@@ -566,6 +636,7 @@ impl Vim {
         self.editor.update(cx, |editor, cx| {
             editor.delete_forward_command(cx);
         });
+        self.last_change = Some(RepeatableCommand::DeleteChar);
         self.state.set_mode(VimMode::Normal);
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
@@ -602,6 +673,7 @@ impl Vim {
         self.state.set_mode(VimMode::Normal);
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
+        self.last_change = Some(RepeatableCommand::PasteAfter);
         cx.notify();
     }
 
@@ -631,7 +703,41 @@ impl Vim {
         self.state.set_mode(VimMode::Normal);
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
+        self.last_change = Some(RepeatableCommand::PasteBefore);
         cx.notify();
+    }
+
+    fn undo(&mut self, cx: &mut Context<Self>) {
+        self.pending_insert = None;
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        self.editor.update(cx, |editor, cx| {
+            let _ = editor.undo(cx);
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+        });
+        cx.notify();
+    }
+
+    fn redo(&mut self, cx: &mut Context<Self>) {
+        self.pending_insert = None;
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        self.editor.update(cx, |editor, cx| {
+            let _ = editor.redo(cx);
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+        });
+        cx.notify();
+    }
+
+    fn repeat_last_change(&mut self, cx: &mut Context<Self>) {
+        let Some(command) = self.last_change.clone() else {
+            return;
+        };
+        self.execute_repeatable_command(command, cx);
     }
 
     fn move_by_motion(&mut self, motion: MotionKind, cx: &mut Context<Self>) {
@@ -671,7 +777,13 @@ impl Vim {
             return;
         };
 
-        self.apply_operator_to_range(operator, range, false, cx);
+        self.apply_operator_to_range(
+            operator,
+            range,
+            Some(RepeatTarget::Motion(motion)),
+            text,
+            cx,
+        );
     }
 
     fn apply_text_object(&mut self, target: TextObjectTarget, cx: &mut Context<Self>) {
@@ -693,29 +805,41 @@ impl Vim {
             return;
         };
 
-        self.apply_operator_to_range(operator, range, false, cx);
+        self.apply_operator_to_range(
+            operator,
+            range,
+            Some(RepeatTarget::TextObject(modifier, target)),
+            &text,
+            cx,
+        );
     }
 
     fn apply_operator_to_range(
         &mut self,
         operator: VimOperator,
         range: Range<usize>,
-        linewise: bool,
+        repeat_target: Option<RepeatTarget>,
+        source_text: &str,
         cx: &mut Context<Self>,
     ) {
         match operator {
             VimOperator::Yank => {
                 let yanked = self.editor.read(cx).text_in_range(range);
-                self.yank_register = if linewise {
+                self.yank_register = if repeat_target == Some(RepeatTarget::Line) {
                     YankRegister::LineWise(trim_trailing_newline(&yanked))
                 } else {
                     YankRegister::CharWise(yanked)
                 };
             }
             VimOperator::Delete | VimOperator::Change => {
-                if linewise {
+                if repeat_target == Some(RepeatTarget::Line) {
                     let yanked = self.editor.read(cx).text_in_range(range.clone());
                     self.yank_register = YankRegister::LineWise(trim_trailing_newline(&yanked));
+                }
+                if operator == VimOperator::Change {
+                    self.editor.update(cx, |editor, _| {
+                        editor.begin_transaction();
+                    });
                 }
                 self.editor.update(cx, |editor, cx| {
                     editor.replace_byte_range(range, "", cx);
@@ -731,6 +855,21 @@ impl Vim {
                         VimOperator::Yank => {}
                     }
                 });
+                match operator {
+                    VimOperator::Delete => {
+                        if let Some(target) = repeat_target {
+                            self.last_change = Some(RepeatableCommand::Delete(target));
+                        }
+                    }
+                    VimOperator::Change => {
+                        self.pending_insert = Some(PendingInsert {
+                            kind: InsertKind::Insert,
+                            change_target: repeat_target,
+                            before_text: source_text.to_string(),
+                        });
+                    }
+                    VimOperator::Yank => {}
+                }
             }
         }
 
@@ -755,7 +894,126 @@ impl Vim {
             return;
         };
 
-        self.apply_operator_to_range(operator, range, true, cx);
+        self.apply_operator_to_range(operator, range, Some(RepeatTarget::Line), &text, cx);
+    }
+
+    fn finish_insert_session(&mut self, cx: &mut Context<Self>) {
+        let Some(pending_insert) = self.pending_insert.take() else {
+            return;
+        };
+        let (committed, after_text) = self.editor.update(cx, |editor, cx| {
+            let committed = editor.commit_transaction(cx);
+            (committed, editor.snapshot_text())
+        });
+        if !committed {
+            return;
+        }
+
+        let inserted_text = inserted_text_between(&pending_insert.before_text, &after_text);
+        self.last_change = match pending_insert.change_target {
+            Some(target) => Some(RepeatableCommand::Change {
+                target,
+                inserted_text,
+            }),
+            None if inserted_text.is_empty() => None,
+            None => Some(RepeatableCommand::Insert {
+                kind: pending_insert.kind,
+                inserted_text,
+            }),
+        };
+    }
+
+    fn execute_repeatable_command(&mut self, command: RepeatableCommand, cx: &mut Context<Self>) {
+        match command {
+            RepeatableCommand::DeleteChar => self.delete_char(cx),
+            RepeatableCommand::Delete(target) => self.execute_repeat_target(target, None, cx),
+            RepeatableCommand::Change {
+                target,
+                inserted_text,
+            } => self.execute_repeat_target(target, Some(inserted_text), cx),
+            RepeatableCommand::PasteAfter => self.paste_after(cx),
+            RepeatableCommand::PasteBefore => self.paste_before(cx),
+            RepeatableCommand::Insert {
+                kind,
+                inserted_text,
+            } => self.execute_repeat_insert(kind, inserted_text, cx),
+        }
+    }
+
+    fn execute_repeat_target(
+        &mut self,
+        target: RepeatTarget,
+        inserted_text: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let (text, cursor) = {
+            let editor = self.editor.read(cx);
+            (editor.snapshot_text(), editor.cursor_byte_offset())
+        };
+        let Some(range) =
+            resolve_repeat_target_range(&text, cursor, target, inserted_text.is_some())
+        else {
+            return;
+        };
+
+        if let Some(inserted_text) = inserted_text {
+            self.editor.update(cx, |editor, cx| {
+                editor.begin_transaction();
+                editor.replace_byte_range(range, "", cx);
+                let insertion_offset = editor.cursor_byte_offset();
+                editor.replace_byte_range(
+                    insertion_offset..insertion_offset,
+                    inserted_text.as_str(),
+                    cx,
+                );
+                editor.set_text_input_enabled(false, cx);
+                editor.collapse_selection_to_cursor_cell(cx);
+                let _ = editor.commit_transaction(cx);
+            });
+            self.state.set_mode(VimMode::Normal);
+            self.state.set_visual_anchor_cell(None);
+            self.state.clear_pending();
+            self.last_change = Some(RepeatableCommand::Change {
+                target,
+                inserted_text,
+            });
+        } else {
+            self.apply_operator_to_range(VimOperator::Delete, range, Some(target), &text, cx);
+        }
+    }
+
+    fn execute_repeat_insert(
+        &mut self,
+        kind: InsertKind,
+        inserted_text: String,
+        cx: &mut Context<Self>,
+    ) {
+        if inserted_text.is_empty() {
+            return;
+        }
+        self.editor.update(cx, |editor, cx| {
+            editor.begin_transaction();
+            if kind == InsertKind::Append {
+                editor.move_cursor_by(1, cx);
+            }
+            let insertion_offset = editor.cursor_byte_offset();
+            editor.replace_byte_range(
+                insertion_offset..insertion_offset,
+                inserted_text.as_str(),
+                cx,
+            );
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+            let _ = editor.commit_transaction(cx);
+        });
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        self.last_change = Some(RepeatableCommand::Insert {
+            kind,
+            inserted_text,
+        });
+        cx.notify();
     }
 
     fn sync_visual_selection_for_current_cursor(&mut self, cx: &mut Context<Self>) {
@@ -944,6 +1202,23 @@ impl Vim {
         self.paste_before(cx);
     }
 
+    fn vim_undo(&mut self, _: &VimUndo, _window: &mut Window, cx: &mut Context<Self>) {
+        self.undo(cx);
+    }
+
+    fn vim_redo(&mut self, _: &VimRedo, _window: &mut Window, cx: &mut Context<Self>) {
+        self.redo(cx);
+    }
+
+    fn vim_repeat_last_change(
+        &mut self,
+        _: &VimRepeatLastChange,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.repeat_last_change(cx);
+    }
+
     fn on_up(&mut self, _: &editor::Up, _window: &mut Window, cx: &mut Context<Self>) {
         if self.state.mode() == VimMode::Visual {
             self.sync_visual_selection_for_current_cursor(cx);
@@ -995,6 +1270,9 @@ impl Render for Vim {
             .on_action(cx.listener(Self::vim_move_word_end_forward))
             .on_action(cx.listener(Self::vim_paste_after))
             .on_action(cx.listener(Self::vim_paste_before))
+            .on_action(cx.listener(Self::vim_undo))
+            .on_action(cx.listener(Self::vim_redo))
+            .on_action(cx.listener(Self::vim_repeat_last_change))
             .on_action(cx.listener(Self::on_up))
             .on_action(cx.listener(Self::on_down))
             .on_action(cx.listener(Self::on_left))
@@ -1093,6 +1371,30 @@ fn resolve_motion_range(
             let end = next_char_end(text, target);
             Some(start.min(end)..end.max(start))
         }
+    }
+}
+
+fn resolve_repeat_target_range(
+    text: &str,
+    cursor_byte_offset: usize,
+    target: RepeatTarget,
+    is_change: bool,
+) -> Option<Range<usize>> {
+    match target {
+        RepeatTarget::Motion(motion) => resolve_motion_range(
+            text,
+            cursor_byte_offset,
+            motion,
+            if is_change {
+                VimOperator::Change
+            } else {
+                VimOperator::Delete
+            },
+        ),
+        RepeatTarget::TextObject(modifier, target) => {
+            resolve_text_object_range(text, cursor_byte_offset, modifier, target)
+        }
+        RepeatTarget::Line => current_line_delete_range(text, cursor_byte_offset),
     }
 }
 
@@ -1588,6 +1890,26 @@ fn current_line_delete_range(text: &str, cursor_byte_offset: usize) -> Option<Ra
 
 fn trim_trailing_newline(text: &str) -> String {
     text.strip_suffix('\n').unwrap_or(text).to_string()
+}
+
+fn inserted_text_between(before: &str, after: &str) -> String {
+    let mut prefix_len = 0usize;
+    let prefix_max = before.len().min(after.len());
+    while prefix_len < prefix_max && before.as_bytes()[prefix_len] == after.as_bytes()[prefix_len] {
+        prefix_len += 1;
+    }
+
+    let mut before_suffix = before.len();
+    let mut after_suffix = after.len();
+    while before_suffix > prefix_len
+        && after_suffix > prefix_len
+        && before.as_bytes()[before_suffix - 1] == after.as_bytes()[after_suffix - 1]
+    {
+        before_suffix -= 1;
+        after_suffix -= 1;
+    }
+
+    after[prefix_len..after_suffix].to_string()
 }
 
 fn linewise_text_before(content: &str, is_empty_document: bool) -> String {
