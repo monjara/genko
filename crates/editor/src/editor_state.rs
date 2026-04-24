@@ -4,7 +4,7 @@ use gpui::App;
 use rope::{CellText, TextRope};
 use settings::AppSettings;
 
-use crate::DEFAULT_VISIBLE_COLUMNS;
+use crate::{DEFAULT_VISIBLE_COLUMNS, RUBY_GUTTER_RATIO};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EditorViewState {
@@ -13,6 +13,7 @@ pub(crate) struct EditorViewState {
     pub(crate) cursor_cell: usize,
     pub(crate) marked_range: Option<Range<usize>>,
     pub(crate) scroll_column: usize,
+    pub(crate) scroll_row: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +51,7 @@ pub(crate) struct EditorHistory {
 
 pub(crate) struct EditorState {
     pub(crate) draft: TextRope,
+    pub(crate) cell_size: f32,
     pub(crate) rows_per_column: usize,
     pub(crate) selected_range: Range<usize>,
     pub(crate) selection_reversed: bool,
@@ -57,8 +59,10 @@ pub(crate) struct EditorState {
     pub(crate) marked_range: Option<Range<usize>>,
     pub(crate) block_selection: Option<BlockSelection>,
     pub(crate) scroll_column: usize,
+    pub(crate) scroll_row: usize,
     pub(crate) scroll_remainder_columns: f32,
     pub(crate) visible_columns: usize,
+    pub(crate) max_visible_rows: usize,
     pub(crate) text_input_enabled: bool,
     pub(crate) history: EditorHistory,
 }
@@ -71,6 +75,7 @@ impl EditorState {
 
         Self {
             draft: TextRope::new_with_rows(rows_per_column),
+            cell_size: AppSettings::global(cx).cell_size as f32,
             rows_per_column,
             selected_range: 0..0,
             selection_reversed: false,
@@ -78,8 +83,10 @@ impl EditorState {
             marked_range: None,
             block_selection: None,
             scroll_column: 0,
+            scroll_row: 0,
             scroll_remainder_columns: 0.0,
             visible_columns: DEFAULT_VISIBLE_COLUMNS,
+            max_visible_rows: rows_per_column,
             text_input_enabled: true,
             history: EditorHistory::default(),
         }
@@ -87,6 +94,14 @@ impl EditorState {
 
     pub(crate) fn used_cells(&self) -> usize {
         self.draft.len_display_cells()
+    }
+
+    pub(crate) fn cell_size(&self) -> f32 {
+        self.cell_size
+    }
+
+    pub(crate) fn ruby_gutter_size(&self) -> f32 {
+        self.cell_size * RUBY_GUTTER_RATIO
     }
 
     pub(crate) fn total_columns(&self) -> usize {
@@ -103,9 +118,13 @@ impl EditorState {
     }
 
     pub(crate) fn visible_text(&self) -> Vec<CellText> {
-        let first_visible_index = self.first_visible_cell_index();
-        self.draft
-            .visible_cells(first_visible_index, self.visible_cell_capacity())
+        let visible_rows = self.visible_rows();
+        let mut cells = Vec::with_capacity(visible_rows * self.visible_columns());
+        for column in self.scroll_column..self.scroll_column + self.visible_columns() {
+            let start_index = column * self.rows_per_column() + self.scroll_row;
+            cells.extend(self.draft.visible_cells(start_index, visible_rows));
+        }
+        cells
     }
 
     pub(crate) fn rows_per_column(&self) -> usize {
@@ -118,6 +137,11 @@ impl EditorState {
 
     pub(crate) fn update_visible_columns(&mut self, visible_columns: usize) {
         self.visible_columns = visible_columns.max(1);
+        self.ensure_cursor_visible();
+    }
+
+    pub(crate) fn update_max_visible_rows(&mut self, visible_rows: usize) {
+        self.max_visible_rows = visible_rows.clamp(1, self.rows_per_column());
         self.ensure_cursor_visible();
     }
 
@@ -134,6 +158,15 @@ impl EditorState {
         self.ensure_cursor_visible();
     }
 
+    pub(crate) fn update_cell_size(&mut self, cell_size: f32) {
+        let cell_size = cell_size.max(1.0);
+        if (self.cell_size - cell_size).abs() < f32::EPSILON {
+            return;
+        }
+
+        self.cell_size = cell_size;
+    }
+
     pub(crate) fn update_hanging_punctuation(&mut self, enabled: bool) {
         if self.draft.hanging_punctuation() == enabled {
             return;
@@ -145,24 +178,32 @@ impl EditorState {
         self.ensure_cursor_visible();
     }
 
-    pub(crate) fn visible_cell_capacity(&self) -> usize {
-        self.rows_per_column() * self.visible_columns()
-    }
-
-    pub(crate) fn first_visible_cell_index(&self) -> usize {
-        self.scroll_column * self.rows_per_column()
-    }
-
     pub(crate) fn cursor_column(&self) -> usize {
         self.cursor_cell / self.rows_per_column()
+    }
+
+    pub(crate) fn cursor_row(&self) -> usize {
+        self.cursor_cell % self.rows_per_column()
     }
 
     pub(crate) fn max_scroll_column(&self) -> usize {
         self.total_columns().saturating_sub(self.visible_columns())
     }
 
+    pub(crate) fn visible_rows(&self) -> usize {
+        self.max_visible_rows.min(self.rows_per_column()).max(1)
+    }
+
+    pub(crate) fn max_scroll_row(&self) -> usize {
+        self.rows_per_column().saturating_sub(self.visible_rows())
+    }
+
     pub(crate) fn clamp_scroll_column(&mut self) {
         self.scroll_column = self.scroll_column.min(self.max_scroll_column());
+    }
+
+    pub(crate) fn clamp_scroll_row(&mut self) {
+        self.scroll_row = self.scroll_row.min(self.max_scroll_row());
     }
 
     pub(crate) fn ensure_cursor_visible(&mut self) {
@@ -173,6 +214,14 @@ impl EditorState {
             self.scroll_column = cursor_column + 1 - self.visible_columns();
         }
         self.clamp_scroll_column();
+
+        let cursor_row = self.cursor_row();
+        if cursor_row < self.scroll_row {
+            self.scroll_row = cursor_row;
+        } else if cursor_row >= self.scroll_row + self.visible_rows() {
+            self.scroll_row = cursor_row + 1 - self.visible_rows();
+        }
+        self.clamp_scroll_row();
     }
 
     pub(crate) fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
@@ -255,6 +304,7 @@ impl EditorState {
             cursor_cell: self.cursor_cell,
             marked_range: self.marked_range.clone(),
             scroll_column: self.scroll_column,
+            scroll_row: self.scroll_row,
         }
     }
 
@@ -265,6 +315,7 @@ impl EditorState {
         self.marked_range = state.marked_range;
         self.block_selection = None;
         self.scroll_column = state.scroll_column.min(self.max_scroll_column());
+        self.scroll_row = state.scroll_row.min(self.max_scroll_row());
         self.scroll_remainder_columns = 0.0;
         self.ensure_cursor_visible();
     }

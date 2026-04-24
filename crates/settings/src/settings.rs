@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 const DEFAULT_ROWS_PER_COLUMN: usize = 20;
 const MIN_ROWS_PER_COLUMN: usize = 1;
 const MAX_ROWS_PER_COLUMN: usize = 60;
+const DEFAULT_CELL_SIZE: usize = 28;
+const MIN_CELL_SIZE: usize = 20;
+const MAX_CELL_SIZE: usize = 60;
 const SETTINGS_FILE: &str = "settings.json";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -16,6 +19,7 @@ const SETTINGS_FILE: &str = "settings.json";
 pub struct AppSettings {
     pub show_grid_lines: bool,
     pub hanging_punctuation: bool,
+    pub cell_size: usize,
     pub rows_per_column: Option<usize>,
     #[serde(rename = "vimMode")]
     pub vim_mode: bool,
@@ -28,6 +32,7 @@ impl Default for AppSettings {
         Self {
             show_grid_lines: true,
             hanging_punctuation: true,
+            cell_size: DEFAULT_CELL_SIZE,
             rows_per_column: None,
             vim_mode: false,
         }
@@ -60,6 +65,18 @@ impl AppSettings {
         MAX_ROWS_PER_COLUMN
     }
 
+    pub fn default_cell_size() -> usize {
+        DEFAULT_CELL_SIZE
+    }
+
+    pub fn min_cell_size() -> usize {
+        MIN_CELL_SIZE
+    }
+
+    pub fn max_cell_size() -> usize {
+        MAX_CELL_SIZE
+    }
+
     pub fn load() -> Self {
         let xdg_dirs = xdg::BaseDirectories::with_prefix("genko");
         Self::load_from_base_dirs(&xdg_dirs)
@@ -78,6 +95,7 @@ impl AppSettings {
         Self {
             show_grid_lines: self.show_grid_lines,
             hanging_punctuation: self.hanging_punctuation,
+            cell_size: self.cell_size.clamp(MIN_CELL_SIZE, MAX_CELL_SIZE),
             rows_per_column: self
                 .rows_per_column
                 .map(|rows| rows.clamp(MIN_ROWS_PER_COLUMN, MAX_ROWS_PER_COLUMN)),
@@ -151,6 +169,7 @@ mod tests {
 
         assert!(!settings.show_grid_lines);
         assert!(settings.hanging_punctuation);
+        assert_eq!(settings.cell_size, DEFAULT_CELL_SIZE);
         assert_eq!(settings.rows_per_column, Some(24));
         assert!(!settings.vim_mode);
 
@@ -204,6 +223,7 @@ mod tests {
         let settings = AppSettings {
             show_grid_lines: false,
             hanging_punctuation: false,
+            cell_size: 32,
             rows_per_column: Some(24),
             vim_mode: true,
         };
@@ -213,6 +233,7 @@ mod tests {
         let reloaded = AppSettings::load_from_config_file(Some(settings_path));
         assert!(!reloaded.show_grid_lines);
         assert!(!reloaded.hanging_punctuation);
+        assert_eq!(reloaded.cell_size, 32);
         assert_eq!(reloaded.rows_per_column, Some(24));
         assert!(reloaded.vim_mode);
 
@@ -247,6 +268,22 @@ mod tests {
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
         assert!(!settings.hanging_punctuation);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clamps_cell_size_from_settings_file() {
+        let dir = test_settings_dir("cell_size_clamp");
+        fs::write(
+            dir.join("settings.json"),
+            format!(r#"{{"cell_size": {}}}"#, MAX_CELL_SIZE + 1),
+        )
+        .unwrap();
+
+        let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
+
+        assert_eq!(settings.cell_size, MAX_CELL_SIZE);
 
         let _ = fs::remove_dir_all(dir);
     }

@@ -89,6 +89,32 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn decrement_cell_size(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx).cell_size = AppSettings::global(cx)
+            .cell_size
+            .saturating_sub(1)
+            .max(AppSettings::min_cell_size());
+        self.status = "".into();
+        cx.notify();
+    }
+
+    fn increment_cell_size(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx).cell_size =
+            (AppSettings::global(cx).cell_size + 1).min(AppSettings::max_cell_size());
+        self.status = "".into();
+        cx.notify();
+    }
+
     fn apply(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
         match AppSettings::global(cx).save() {
             Ok(()) => {
@@ -105,6 +131,10 @@ impl SettingsWindow {
 
     fn apply_settings(&mut self, settings: AppSettings, cx: &mut Context<Self>) {
         let row_settings = AppSettings::global_mut(cx);
+        row_settings.cell_size = settings.cell_size;
+        row_settings.hanging_punctuation = settings.hanging_punctuation;
+        row_settings.show_grid_lines = settings.show_grid_lines;
+        row_settings.vim_mode = settings.vim_mode;
         // let was_vim_mode = self.settings.vim_mode;
         // old_settings = settings.normalized();
         // if self.settings.vim_mode != was_vim_mode {
@@ -217,6 +247,88 @@ impl SettingsWindow {
                             .active(|this| this.opacity(0.85))
                             .child("+")
                             .on_click(cx.listener(Self::increment_rows_per_column)),
+                    ),
+            )
+    }
+
+    fn render_cell_size(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .p_3()
+            .border_1()
+            .border_color(rgb(BORDER_MUTED))
+            .rounded_sm()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("マスの大きさ"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(TEXT_SECONDARY))
+                            .child(format!(
+                                "{}pxから{}pxの範囲で調整します。文字サイズも連動します",
+                                AppSettings::min_cell_size(),
+                                AppSettings::max_cell_size()
+                            )),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("settings-cell-size-decrement")
+                            .w(px(32.0))
+                            .h(px(32.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(rgb(BORDER_MUTED))
+                            .cursor_pointer()
+                            .active(|this| this.opacity(0.85))
+                            .child("-")
+                            .on_click(cx.listener(Self::decrement_cell_size)),
+                    )
+                    .child(
+                        div()
+                            .w(px(64.0))
+                            .h(px(32.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_sm()
+                            .bg(rgb(PANEL_BACKGROUND))
+                            .child(format!("{}px", AppSettings::global(cx).cell_size)),
+                    )
+                    .child(
+                        div()
+                            .id("settings-cell-size-increment")
+                            .w(px(32.0))
+                            .h(px(32.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_sm()
+                            .border_1()
+                            .border_color(rgb(BORDER_MUTED))
+                            .cursor_pointer()
+                            .active(|this| this.opacity(0.85))
+                            .child("+")
+                            .on_click(cx.listener(Self::increment_cell_size)),
                     ),
             )
     }
@@ -414,6 +526,7 @@ impl Render for SettingsWindow {
                     ),
             )
             .child(self.render_grid_toggle(cx))
+            .child(self.render_cell_size(cx))
             .child(self.render_hanging_punctuation_toggle(cx))
             .child(self.render_vim_mode_toggle(cx))
             .child(self.render_rows_per_column(cx))

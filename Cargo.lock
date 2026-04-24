@@ -628,6 +628,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "borsh"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfd1e3f8955a5d7de9fab72fc8373fade9fb8a703968cb200ae3dc6cf08e185a"
+dependencies = [
+ "bytes",
+ "cfg_aliases",
+]
+
+[[package]]
 name = "bstr"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -938,7 +948,7 @@ dependencies = [
 [[package]]
 name = "collections"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "indexmap",
  "rustc-hash 2.1.2",
@@ -1411,7 +1421,7 @@ dependencies = [
 [[package]]
 name = "derive_refineable"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1725,7 +1735,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2351,7 +2361,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
@@ -2432,7 +2442,7 @@ dependencies = [
 [[package]]
 name = "gpui_linux"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "as-raw-xcb-connection",
@@ -2481,7 +2491,7 @@ dependencies = [
 [[package]]
 name = "gpui_macos"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "async-task",
@@ -2524,7 +2534,7 @@ dependencies = [
 [[package]]
 name = "gpui_macros"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -2535,7 +2545,7 @@ dependencies = [
 [[package]]
 name = "gpui_platform"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "console_error_panic_hook",
  "gpui",
@@ -2548,18 +2558,17 @@ dependencies = [
 [[package]]
 name = "gpui_shared_string"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
- "derive_more",
- "gpui_util",
  "schemars",
  "serde",
+ "smol_str",
 ]
 
 [[package]]
 name = "gpui_util"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "log",
@@ -2568,7 +2577,7 @@ dependencies = [
 [[package]]
 name = "gpui_web"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -2592,7 +2601,7 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2620,7 +2629,7 @@ dependencies = [
 [[package]]
 name = "gpui_windows"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "collections",
@@ -2644,9 +2653,9 @@ dependencies = [
 
 [[package]]
 name = "grid"
-version = "0.18.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12101ecc8225ea6d675bc70263074eab6169079621c2186fe0c66590b2df9681"
+checksum = "b40ca9252762c466af32d0b1002e91e4e1bc5398f77455e55474deb466355ff5"
 
 [[package]]
 name = "half"
@@ -2817,7 +2826,7 @@ dependencies = [
 [[package]]
 name = "http_client"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -3737,7 +3746,7 @@ checksum = "ae960838283323069879657ca3de837e9f7bbb4c7bf6ea7f1b290d5e9476d2e0"
 [[package]]
 name = "media"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -4395,7 +4404,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 [[package]]
 name = "perf"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "collections",
  "serde",
@@ -4762,7 +4771,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5041,7 +5050,7 @@ dependencies = [
 [[package]]
 name = "refineable"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "derive_refineable",
 ]
@@ -5281,7 +5290,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5294,7 +5303,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5351,7 +5360,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5423,7 +5432,7 @@ dependencies = [
 [[package]]
 name = "scheduler"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "async-task",
  "backtrace",
@@ -5823,6 +5832,10 @@ name = "smol_str"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
+dependencies = [
+ "borsh",
+ "serde_core",
+]
 
 [[package]]
 name = "socket2"
@@ -5877,6 +5890,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
+ "windows-sys 0.52.0",
  "windows-sys 0.59.0",
 ]
 
@@ -5973,7 +5987,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "sum_tree"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "heapless",
  "log",
@@ -6143,9 +6157,9 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.9.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13e5d13f79d558b5d353a98072ca8ca0e99da429467804de959aa8c83c9a004"
+checksum = "aea22054047c16c3f34d3ac473a2170be1424b1115b2a3adcf28cfb067c88859"
 dependencies = [
  "arrayvec",
  "grid",
@@ -6192,7 +6206,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6773,7 +6787,7 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 [[package]]
 name = "util"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "async-fs",
@@ -6812,7 +6826,7 @@ dependencies = [
 [[package]]
 name = "util_macros"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "perf",
  "quote",
@@ -7397,7 +7411,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8379,7 +8393,7 @@ dependencies = [
 [[package]]
 name = "zlog"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "anyhow",
  "chrono",
@@ -8396,7 +8410,7 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 [[package]]
 name = "ztracing"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 dependencies = [
  "tracing",
  "tracing-subscriber",
@@ -8407,7 +8421,7 @@ dependencies = [
 [[package]]
 name = "ztracing_macro"
 version = "0.1.0"
-source = "git+https://github.com/zed-industries/zed#c95b41c75a21302180b2ddd86e3d2169ef0cb667"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#092c98966e93576d344bd375a77c98fa45ccdb5c"
 
 [[package]]
 name = "zune-core"

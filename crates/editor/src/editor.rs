@@ -23,8 +23,9 @@ mod editor_state;
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
-pub(crate) const CELL_SIZE: f32 = 28.0;
-pub(crate) const RUBY_GUTTER_SIZE: f32 = 10.0;
+pub(crate) const DEFAULT_CELL_SIZE: f32 = 28.0;
+pub(crate) const DEFAULT_RUBY_GUTTER_SIZE: f32 = 10.0;
+pub(crate) const RUBY_GUTTER_RATIO: f32 = DEFAULT_RUBY_GUTTER_SIZE / DEFAULT_CELL_SIZE;
 const IME_ANCHOR_WIDTH: f32 = 2.0;
 const IME_ANCHOR_INSET: f32 = 3.0;
 const IME_CANDIDATE_GAP: f32 = 16.0;
@@ -101,10 +102,24 @@ impl Editor {
         self.state
             .update_hanging_punctuation(AppSettings::global(cx).hanging_punctuation);
         self.state
-            .update_visible_columns(visible_columns_for_window_width(size.width));
+            .update_cell_size(AppSettings::global(cx).cell_size as f32);
+        self.state
+            .update_visible_columns(visible_columns_for_window_width(
+                size.width,
+                self.state.cell_size(),
+                self.state.ruby_gutter_size(),
+            ));
+        self.state
+            .update_max_visible_rows(rows_per_column_for_window_height(
+                size.height,
+                self.state.cell_size(),
+            ));
         if AppSettings::global(cx).rows_per_column.is_none() {
             self.state
-                .update_rows_per_column(rows_per_column_for_window_height(size.height));
+                .update_rows_per_column(rows_per_column_for_window_height(
+                    size.height,
+                    self.state.cell_size(),
+                ));
         }
     }
 
@@ -445,8 +460,12 @@ impl Editor {
             bounds,
             position,
             self.state.scroll_column,
+            self.state.scroll_row,
             self.state.rows_per_column(),
             self.state.visible_columns(),
+            self.state.visible_rows(),
+            self.state.cell_size(),
+            self.state.ruby_gutter_size(),
         )?;
         Some(self.state.draft.byte_offset_for_display_cell(index))
     }
@@ -465,8 +484,12 @@ impl Editor {
             board_bounds,
             logical_index,
             self.state.scroll_column,
+            self.state.scroll_row,
             self.state.rows_per_column(),
             self.state.visible_columns(),
+            self.state.visible_rows(),
+            self.state.cell_size(),
+            self.state.ruby_gutter_size(),
         )?;
         Some(ime_anchor_bounds_for_cell(cell_bounds, board_bounds))
     }
@@ -605,8 +628,12 @@ impl Editor {
             bounds,
             event.position,
             self.state.scroll_column,
+            self.state.scroll_row,
             self.state.rows_per_column(),
             self.state.visible_columns(),
+            self.state.visible_rows(),
+            self.state.cell_size(),
+            self.state.ruby_gutter_size(),
         ) {
             if event.modifiers.shift {
                 self.select_to_display_cell(cell_index, cx);
@@ -623,11 +650,11 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let delta = event.delta.pixel_delta(px(CELL_SIZE));
+        let delta = event.delta.pixel_delta(px(self.state.cell_size()));
         let column_delta = if delta.x == Pixels::ZERO {
-            -(delta.y / px(CELL_SIZE))
+            -(delta.y / px(self.state.cell_size()))
         } else {
-            -(delta.x / px(CELL_SIZE))
+            -(delta.x / px(self.state.cell_size()))
         };
 
         self.state.scroll_remainder_columns += column_delta;
@@ -648,7 +675,10 @@ fn ime_anchor_bounds_for_cell(
 
     Bounds::new(
         gpui::point(left, cell_bounds.top() + px(IME_ANCHOR_INSET)),
-        gpui::size(px(IME_ANCHOR_WIDTH), px(CELL_SIZE - IME_ANCHOR_INSET * 2.0)),
+        gpui::size(
+            px(IME_ANCHOR_WIDTH),
+            cell_bounds.size.height - px(IME_ANCHOR_INSET * 2.0),
+        ),
     )
 }
 
