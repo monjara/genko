@@ -358,19 +358,19 @@ fn main() {
         cx.set_menus(vec![
             Menu {
                 disabled: false,
-                name: "ファイル".into(),
-                items: vec![
-                    MenuItem::action("開く", OpenFile),
-                    MenuItem::action("保存", SaveFile),
-                ],
-            },
-            Menu {
-                disabled: false,
                 name: "Genko".into(),
                 items: vec![
                     MenuItem::action("設定", OpenSettings),
                     MenuItem::separator(),
                     MenuItem::action("終了", Quit),
+                ],
+            },
+            Menu {
+                disabled: false,
+                name: "ファイル".into(),
+                items: vec![
+                    MenuItem::action("開く", OpenFile),
+                    MenuItem::action("保存", SaveFile),
                 ],
             },
         ]);
