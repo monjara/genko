@@ -1,0 +1,11 @@
+[package]
+name = "editor"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui = { workspace = true }
+rope = { workspace = true }
+settings = { workspace = true }
+vim = { workspace = true }

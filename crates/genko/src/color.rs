@@ -7,7 +7,5 @@ pub(crate) const TEXT_SECONDARY: u32 = 0x705a4a;
 pub(crate) const TEXT_INVERSE: u32 = 0xffffff;
 
 pub(crate) const BORDER_MUTED: u32 = 0xd9cbb8;
-pub(crate) const GRID_LINE: u32 = 0xd94b4b;
 
 pub(crate) const ACCENT_PRIMARY: u32 = 0x2f6fff;
-pub(crate) const SELECTION_BACKGROUND: u32 = 0x2f6fff30;

@@ -1,6 +1,13 @@
 [workspace]
 resolver = "3"
-members = [".", "crates/genko", "crates/rope", "crates/settings", "crates/vim"]
+members = [
+  ".",
+  "crates/editor",
+  "crates/genko",
+  "crates/rope",
+  "crates/settings",
+  "crates/vim"
+]
 default-members = ["crates/genko"]
 
 [workspace.package]
@@ -8,6 +15,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
+editor = { path = "crates/editor" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 vim = { path = "crates/vim" }

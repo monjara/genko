@@ -1,3 +1,4 @@
+use crate::color::{GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
 use std::ops::Range;
 
 use gpui::{
@@ -11,10 +12,12 @@ use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 use vim::{VimMode, VimState};
 
-use crate::{
-    AUTOMATIC_ROWS_RESERVED_CELLS, CELL_SIZE, DEFAULT_VISIBLE_COLUMNS, RUBY_GUTTER_SIZE,
-    color::{GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY},
-};
+mod color;
+
+const DEFAULT_VISIBLE_COLUMNS: usize = 20;
+const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
+const CELL_SIZE: f32 = 28.0;
+const RUBY_GUTTER_SIZE: f32 = 10.0;
 
 actions!(
     genko,
@@ -45,7 +48,7 @@ actions!(
     ]
 );
 
-pub(crate) struct BoardElement {
+pub struct EditorElement {
     draft: TextRope,
     rows_per_column: usize,
     focus_handle: FocusHandle,
@@ -60,12 +63,12 @@ pub(crate) struct BoardElement {
     vim: VimState,
 }
 
-struct BoardCanvas {
-    board: Entity<BoardElement>,
+struct Editor {
+    board: Entity<EditorElement>,
 }
 
-impl BoardElement {
-    pub(crate) fn bind_keys(cx: &mut App) {
+impl EditorElement {
+    pub fn bind_keys(cx: &mut App) {
         cx.bind_keys([
             KeyBinding::new("backspace", Backspace, None),
             KeyBinding::new("delete", Delete, None),
@@ -108,7 +111,7 @@ impl BoardElement {
         ]);
     }
 
-    pub(crate) fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(cx: &mut Context<Self>) -> Self {
         let rows_per_column = AppSettings::global(cx)
             .rows_per_column
             .unwrap_or_else(AppSettings::default_rows_per_column);
@@ -151,7 +154,7 @@ impl BoardElement {
         self.vim.status_label(AppSettings::global(cx).vim_mode)
     }
 
-    pub(crate) fn update_viewport_size(&mut self, size: gpui::Size<Pixels>, cx: &App) {
+    pub fn update_viewport_size(&mut self, size: gpui::Size<Pixels>, cx: &App) {
         self.update_visible_columns(visible_columns_for_window_width(size.width));
         if AppSettings::global(cx).rows_per_column.is_none() {
             self.update_rows_per_column(rows_per_column_for_window_height(size.height));
@@ -878,7 +881,7 @@ impl BoardElement {
     }
 }
 
-impl EntityInputHandler for BoardElement {
+impl EntityInputHandler for EditorElement {
     fn text_for_range(
         &mut self,
         range_utf16: Range<usize>,
@@ -991,7 +994,7 @@ impl EntityInputHandler for BoardElement {
     }
 }
 
-impl Render for BoardElement {
+impl Render for EditorElement {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .track_focus(&self.focus_handle(cx))
@@ -1022,17 +1025,17 @@ impl Render for BoardElement {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .cursor(CursorStyle::IBeam)
-            .child(BoardCanvas { board: cx.entity() })
+            .child(Editor { board: cx.entity() })
     }
 }
 
-impl Focusable for BoardElement {
+impl Focusable for EditorElement {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
 }
 
-impl IntoElement for BoardCanvas {
+impl IntoElement for Editor {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -1040,7 +1043,7 @@ impl IntoElement for BoardCanvas {
     }
 }
 
-impl Element for BoardCanvas {
+impl Element for Editor {
     type RequestLayoutState = ();
     type PrepaintState = ();
 
@@ -1135,7 +1138,7 @@ impl Element for BoardCanvas {
                 .read(cx)
                 .paint_grid(bounds, rows_per_column, visible_columns, window);
         }
-        BoardElement::paint_text(
+        EditorElement::paint_text(
             &visible_text,
             bounds,
             scroll_column,
