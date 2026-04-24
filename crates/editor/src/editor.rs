@@ -468,12 +468,13 @@ impl Editor {
         Some(ime_anchor_bounds_for_cell(cell_bounds, board_bounds))
     }
 
-    fn backspace(&mut self, _: &Backspace, _window: &mut Window, cx: &mut Context<Self>) {
+    fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
         if self.state.selected_range.is_empty() {
             let previous = self.state.previous_boundary(self.state.cursor_offset());
             self.state.selected_range = previous..self.state.cursor_offset();
         }
         self.replace_text_in_byte_range(self.state.selected_range.clone(), "", cx);
+        invalidate_ime_position(window);
     }
 
     fn delete_forward(&mut self, cx: &mut Context<Self>) {
@@ -484,66 +485,80 @@ impl Editor {
         self.replace_text_in_byte_range(self.state.selected_range.clone(), "", cx);
     }
 
-    fn delete(&mut self, _: &Delete, _window: &mut Window, cx: &mut Context<Self>) {
+    fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
         self.delete_forward(cx);
+        invalidate_ime_position(window);
     }
 
-    fn up(&mut self, _: &Up, _window: &mut Window, cx: &mut Context<Self>) {
+    fn up(&mut self, _: &Up, window: &mut Window, cx: &mut Context<Self>) {
         self.move_cursor_by(-1, cx);
+        invalidate_ime_position(window);
     }
 
-    fn down(&mut self, _: &Down, _window: &mut Window, cx: &mut Context<Self>) {
+    fn down(&mut self, _: &Down, window: &mut Window, cx: &mut Context<Self>) {
         self.move_cursor_by(1, cx);
+        invalidate_ime_position(window);
     }
 
-    fn left(&mut self, _: &Left, _window: &mut Window, cx: &mut Context<Self>) {
+    fn left(&mut self, _: &Left, window: &mut Window, cx: &mut Context<Self>) {
         self.move_cursor_by(self.state.rows_per_column() as isize, cx);
+        invalidate_ime_position(window);
     }
 
-    fn right(&mut self, _: &Right, _window: &mut Window, cx: &mut Context<Self>) {
+    fn right(&mut self, _: &Right, window: &mut Window, cx: &mut Context<Self>) {
         self.move_cursor_by(-(self.state.rows_per_column() as isize), cx);
+        invalidate_ime_position(window);
     }
 
-    fn select_up(&mut self, _: &SelectUp, _window: &mut Window, cx: &mut Context<Self>) {
+    fn select_up(&mut self, _: &SelectUp, window: &mut Window, cx: &mut Context<Self>) {
         self.select_cursor_by(-1, cx);
+        invalidate_ime_position(window);
     }
 
-    fn select_down(&mut self, _: &SelectDown, _window: &mut Window, cx: &mut Context<Self>) {
+    fn select_down(&mut self, _: &SelectDown, window: &mut Window, cx: &mut Context<Self>) {
         self.select_cursor_by(1, cx);
+        invalidate_ime_position(window);
     }
 
-    fn select_left(&mut self, _: &SelectLeft, _window: &mut Window, cx: &mut Context<Self>) {
+    fn select_left(&mut self, _: &SelectLeft, window: &mut Window, cx: &mut Context<Self>) {
         self.select_cursor_by(self.state.rows_per_column() as isize, cx);
+        invalidate_ime_position(window);
     }
 
-    fn select_right(&mut self, _: &SelectRight, _window: &mut Window, cx: &mut Context<Self>) {
+    fn select_right(&mut self, _: &SelectRight, window: &mut Window, cx: &mut Context<Self>) {
         self.select_cursor_by(-(self.state.rows_per_column() as isize), cx);
+        invalidate_ime_position(window);
     }
 
-    fn select_all(&mut self, _: &SelectAll, _window: &mut Window, cx: &mut Context<Self>) {
+    fn select_all(&mut self, _: &SelectAll, window: &mut Window, cx: &mut Context<Self>) {
         self.state.selected_range = 0..self.state.draft.len_bytes();
         self.state.selection_reversed = false;
         self.state.cursor_cell = self.state.used_cells();
         self.state.block_selection = None;
+        invalidate_ime_position(window);
         cx.notify();
     }
 
-    fn home(&mut self, _: &Home, _window: &mut Window, cx: &mut Context<Self>) {
+    fn home(&mut self, _: &Home, window: &mut Window, cx: &mut Context<Self>) {
         self.move_to_display_cell(0, cx);
+        invalidate_ime_position(window);
     }
 
-    fn end(&mut self, _: &End, _window: &mut Window, cx: &mut Context<Self>) {
+    fn end(&mut self, _: &End, window: &mut Window, cx: &mut Context<Self>) {
         self.move_to_display_cell(self.state.used_cells(), cx);
+        invalidate_ime_position(window);
     }
 
-    fn paste(&mut self, _: &Paste, _window: &mut Window, cx: &mut Context<Self>) {
+    fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             self.replace_text_in_byte_range_owned(self.state.selected_range.clone(), text, cx);
+            invalidate_ime_position(window);
         }
     }
 
-    fn enter(&mut self, _: &Enter, _window: &mut Window, cx: &mut Context<Self>) {
+    fn enter(&mut self, _: &Enter, window: &mut Window, cx: &mut Context<Self>) {
         self.replace_text_in_byte_range(self.state.selected_range.clone(), "\n", cx);
+        invalidate_ime_position(window);
     }
 
     fn copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
@@ -554,12 +569,13 @@ impl Editor {
         }
     }
 
-    fn cut(&mut self, _: &Cut, _window: &mut Window, cx: &mut Context<Self>) {
+    fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.state.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.state.draft.slice(self.state.selected_range.clone()),
             ));
             self.replace_text_in_byte_range(self.state.selected_range.clone(), "", cx);
+            invalidate_ime_position(window);
         }
     }
 
@@ -594,6 +610,7 @@ impl Editor {
             } else {
                 self.move_to_display_cell(cell_index, cx);
             }
+            invalidate_ime_position(window);
         }
     }
 
@@ -638,6 +655,10 @@ fn ime_anchor_bounds_for_cell(
     )
 }
 
+fn invalidate_ime_position(window: &mut Window) {
+    window.invalidate_character_coordinates();
+}
+
 impl EntityInputHandler for Editor {
     fn text_for_range(
         &mut self,
@@ -668,8 +689,9 @@ impl EntityInputHandler for Editor {
         self.state.marked_range_utf16()
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.state.marked_range = None;
+        invalidate_ime_position(window);
         cx.notify();
     }
 
@@ -677,7 +699,7 @@ impl EntityInputHandler for Editor {
         &mut self,
         range_utf16: Option<Range<usize>>,
         text: &str,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if !self.state.text_input_enabled {
@@ -686,6 +708,7 @@ impl EntityInputHandler for Editor {
 
         let range = self.state.editing_range(range_utf16);
         self.replace_text_in_byte_range(range, text, cx);
+        invalidate_ime_position(window);
     }
 
     fn replace_and_mark_text_in_range(
@@ -693,7 +716,7 @@ impl EntityInputHandler for Editor {
         range_utf16: Option<Range<usize>>,
         new_text: &str,
         new_selected_range_utf16: Option<Range<usize>>,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if !self.state.text_input_enabled {
@@ -736,6 +759,7 @@ impl EntityInputHandler for Editor {
         if implicit_transaction {
             let _ = self.commit_transaction(cx);
         }
+        invalidate_ime_position(window);
         cx.notify();
     }
 
