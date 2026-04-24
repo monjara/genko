@@ -6,7 +6,7 @@ use gpui::{
     fill, point, px, rgb, rgba, size,
 };
 use rope::CellText;
-use settings::AppSettings;
+use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
 
 use crate::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor};
@@ -49,6 +49,10 @@ impl Element for EditorCanvas {
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
         let editor = self.editor.read(cx);
+        let header_height = column_number_header_height(
+            AppSettings::global(cx).column_number_mode,
+            editor.state.cell_size(),
+        );
         let mut style = Style::default();
         style.size.width = board_width_for_columns(
             editor.state.visible_columns(),
@@ -56,8 +60,9 @@ impl Element for EditorCanvas {
             editor.state.ruby_gutter_size(),
         )
         .into();
-        style.size.height =
-            px(editor.state.cell_size() * editor.state.visible_rows() as f32).into();
+        style.size.height = (px(editor.state.cell_size() * editor.state.visible_rows() as f32)
+            + header_height)
+            .into();
         (window.request_layout(style, [], cx), ())
     }
 
@@ -82,6 +87,15 @@ impl Element for EditorCanvas {
         window: &mut Window,
         cx: &mut App,
     ) {
+        let column_number_mode = AppSettings::global(cx).column_number_mode;
+        let header_height = {
+            let editor = self.editor.read(cx);
+            column_number_header_height(column_number_mode, editor.state.cell_size())
+        };
+        let content_bounds = Bounds::new(
+            point(bounds.left(), bounds.top() + header_height),
+            size(bounds.size.width, bounds.size.height - header_height),
+        );
         let focus_handle = self.editor.read(cx).focus_handle.clone();
         window.handle_input(
             &focus_handle,
@@ -89,7 +103,7 @@ impl Element for EditorCanvas {
             cx,
         );
         self.editor.update(cx, |editor, _cx| {
-            editor.last_board_bounds = Some(bounds);
+            editor.last_board_bounds = Some(content_bounds);
         });
 
         let show_grid = AppSettings::global(cx).show_grid_lines;
@@ -125,12 +139,22 @@ impl Element for EditorCanvas {
         };
 
         paint_paper(bounds, window);
+        paint_column_numbers(
+            content_bounds,
+            column_number_mode,
+            scroll_column,
+            visible_columns,
+            cell_size,
+            ruby_gutter_size,
+            window,
+            cx,
+        );
         paint_selection(
             &visible_text,
             &selected_range,
             marked_range.as_ref(),
             block_selection,
-            bounds,
+            content_bounds,
             scroll_column,
             scroll_row,
             rows_per_column,
@@ -142,7 +166,7 @@ impl Element for EditorCanvas {
         );
         if show_grid {
             paint_grid(
-                bounds,
+                content_bounds,
                 rows_per_column,
                 visible_columns,
                 scroll_row,
@@ -154,7 +178,7 @@ impl Element for EditorCanvas {
         }
         paint_text(
             &visible_text,
-            bounds,
+            content_bounds,
             scroll_column,
             scroll_row,
             rows_per_column,
@@ -168,7 +192,7 @@ impl Element for EditorCanvas {
         if focus_handle.is_focused(window) {
             paint_cursor(
                 cursor_index,
-                bounds,
+                content_bounds,
                 scroll_column,
                 scroll_row,
                 rows_per_column,
@@ -184,6 +208,71 @@ impl Element for EditorCanvas {
 
 pub(crate) fn paint_paper(bounds: Bounds<Pixels>, window: &mut Window) {
     window.paint_quad(fill(bounds, rgb(PAPER_BACKGROUND)));
+}
+
+fn column_number_header_height(mode: ColumnNumberMode, cell_size: f32) -> Pixels {
+    if mode == ColumnNumberMode::Hidden {
+        Pixels::ZERO
+    } else {
+        px((cell_size * 0.8).round().max(18.0))
+    }
+}
+
+fn paint_column_numbers(
+    content_bounds: Bounds<Pixels>,
+    mode: ColumnNumberMode,
+    scroll_column: usize,
+    visible_columns: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if mode == ColumnNumberMode::Hidden {
+        return;
+    }
+
+    let style = window.text_style();
+    let font_size = px((cell_size * 0.4).round().max(11.0));
+    let line_height = px((cell_size * 0.5).round().max(14.0));
+    let text_top = content_bounds.top() - line_height - px(2.0);
+
+    for column in 0..visible_columns {
+        let logical_column = scroll_column + (visible_columns - 1 - column);
+        let column_number = logical_column + 1;
+        if !mode.should_show(column_number) {
+            continue;
+        }
+
+        let label = column_number.to_string();
+        let run = TextRun {
+            len: label.len(),
+            font: {
+                let mut font = style.font();
+                font.family = APP_FONT_FAMILY.into();
+                font
+            },
+            color: rgb(TEXT_PRIMARY).into(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let line = window
+            .text_system()
+            .shape_line(label.clone().into(), font_size, &[run], None);
+        let column_left =
+            board_x_for_visible_column(content_bounds.left(), column, cell_size, ruby_gutter_size);
+        let text_origin = point(column_left + (px(cell_size) - line.width) / 2.0, text_top);
+        line.paint(
+            text_origin,
+            line_height,
+            TextAlign::Center,
+            None,
+            window,
+            cx,
+        )
+        .ok();
+    }
 }
 
 pub(crate) fn paint_grid(
@@ -728,6 +817,14 @@ pub(crate) fn rows_per_column_for_window_height(height: Pixels, cell_size: f32) 
     ((height / px(cell_size)).floor() as usize)
         .saturating_sub(AUTOMATIC_ROWS_RESERVED_CELLS)
         .clamp(1, AppSettings::max_rows_per_column())
+}
+
+pub(crate) fn content_height_for_window_height(
+    height: Pixels,
+    mode: ColumnNumberMode,
+    cell_size: f32,
+) -> Pixels {
+    (height - column_number_header_height(mode, cell_size)).max(Pixels::ZERO)
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, Window, div, px, rgb,
 };
 
-use settings::AppSettings;
+use settings::{AppSettings, ColumnNumberMode};
 
 use theme::{
     ACCENT_PRIMARY, APP_FONT_FAMILY, BORDER_MUTED, PANEL_BACKGROUND, PAPER_BACKGROUND,
@@ -43,6 +43,48 @@ impl SettingsWindow {
             !AppSettings::global(cx).hanging_punctuation;
         self.status = "".into();
         cx.notify();
+    }
+
+    fn set_column_number_mode(&mut self, mode: ColumnNumberMode, cx: &mut Context<Self>) {
+        AppSettings::global_mut(cx).column_number_mode = mode;
+        self.status = "".into();
+        cx.notify();
+    }
+
+    fn set_column_number_hidden(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_column_number_mode(ColumnNumberMode::Hidden, cx);
+    }
+
+    fn set_column_number_every_five(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_column_number_mode(ColumnNumberMode::EveryFive, cx);
+    }
+
+    fn set_column_number_every_ten(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_column_number_mode(ColumnNumberMode::EveryTen, cx);
+    }
+
+    fn set_column_number_all(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_column_number_mode(ColumnNumberMode::All, cx);
     }
 
     fn toggle_rows_auto(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -133,6 +175,7 @@ impl SettingsWindow {
         let row_settings = AppSettings::global_mut(cx);
         row_settings.cell_size = settings.cell_size;
         row_settings.hanging_punctuation = settings.hanging_punctuation;
+        row_settings.column_number_mode = settings.column_number_mode;
         row_settings.show_grid_lines = settings.show_grid_lines;
         row_settings.vim_mode = settings.vim_mode;
         // let was_vim_mode = self.settings.vim_mode;
@@ -486,6 +529,97 @@ impl SettingsWindow {
             )
     }
 
+    fn render_column_number_mode(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let selected = AppSettings::global(cx).column_number_mode;
+        let option = |id: &'static str,
+                      label: &'static str,
+                      active: bool,
+                      listener: fn(
+            &mut SettingsWindow,
+            &ClickEvent,
+            &mut Window,
+            &mut Context<Self>,
+        )| {
+            div()
+                .id(id)
+                .px_3()
+                .h(px(32.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_sm()
+                .border_1()
+                .border_color(rgb(BORDER_MUTED))
+                .bg(if active {
+                    rgb(ACCENT_PRIMARY)
+                } else {
+                    rgb(PANEL_BACKGROUND)
+                })
+                .text_color(if active {
+                    rgb(TEXT_INVERSE)
+                } else {
+                    rgb(TEXT_PRIMARY)
+                })
+                .cursor_pointer()
+                .active(|this| this.opacity(0.85))
+                .child(label)
+                .on_click(cx.listener(listener))
+        };
+
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .p_3()
+            .border_1()
+            .border_color(rgb(BORDER_MUTED))
+            .rounded_sm()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("列番号"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(TEXT_SECONDARY))
+                            .child("選択した間隔の列だけ、原稿用紙の上に番号を表示します"),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(option(
+                        "settings-column-number-hidden",
+                        ColumnNumberMode::Hidden.label(),
+                        selected == ColumnNumberMode::Hidden,
+                        Self::set_column_number_hidden,
+                    ))
+                    .child(option(
+                        "settings-column-number-every-five",
+                        ColumnNumberMode::EveryFive.label(),
+                        selected == ColumnNumberMode::EveryFive,
+                        Self::set_column_number_every_five,
+                    ))
+                    .child(option(
+                        "settings-column-number-every-ten",
+                        ColumnNumberMode::EveryTen.label(),
+                        selected == ColumnNumberMode::EveryTen,
+                        Self::set_column_number_every_ten,
+                    ))
+                    .child(option(
+                        "settings-column-number-all",
+                        ColumnNumberMode::All.label(),
+                        selected == ColumnNumberMode::All,
+                        Self::set_column_number_all,
+                    )),
+            )
+    }
+
     fn render_apply_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("settings-apply")
@@ -528,6 +662,7 @@ impl Render for SettingsWindow {
             .child(self.render_grid_toggle(cx))
             .child(self.render_cell_size(cx))
             .child(self.render_hanging_punctuation_toggle(cx))
+            .child(self.render_column_number_mode(cx))
             .child(self.render_vim_mode_toggle(cx))
             .child(self.render_rows_per_column(cx))
             .child(

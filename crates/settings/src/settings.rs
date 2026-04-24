@@ -14,11 +14,41 @@ const MIN_CELL_SIZE: usize = 20;
 const MAX_CELL_SIZE: usize = 60;
 const SETTINGS_FILE: &str = "settings.json";
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ColumnNumberMode {
+    Hidden,
+    EveryFive,
+    EveryTen,
+    All,
+}
+
+impl ColumnNumberMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Hidden => "非表示",
+            Self::EveryFive => "5列ごと",
+            Self::EveryTen => "10列ごと",
+            Self::All => "全列",
+        }
+    }
+
+    pub fn should_show(self, column_number: usize) -> bool {
+        match self {
+            Self::Hidden => false,
+            Self::EveryFive => column_number.is_multiple_of(5),
+            Self::EveryTen => column_number.is_multiple_of(10),
+            Self::All => true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct AppSettings {
     pub show_grid_lines: bool,
     pub hanging_punctuation: bool,
+    pub column_number_mode: ColumnNumberMode,
     pub cell_size: usize,
     pub rows_per_column: Option<usize>,
     #[serde(rename = "vimMode")]
@@ -32,6 +62,7 @@ impl Default for AppSettings {
         Self {
             show_grid_lines: true,
             hanging_punctuation: true,
+            column_number_mode: ColumnNumberMode::Hidden,
             cell_size: DEFAULT_CELL_SIZE,
             rows_per_column: None,
             vim_mode: false,
@@ -95,6 +126,7 @@ impl AppSettings {
         Self {
             show_grid_lines: self.show_grid_lines,
             hanging_punctuation: self.hanging_punctuation,
+            column_number_mode: self.column_number_mode,
             cell_size: self.cell_size.clamp(MIN_CELL_SIZE, MAX_CELL_SIZE),
             rows_per_column: self
                 .rows_per_column
@@ -169,6 +201,7 @@ mod tests {
 
         assert!(!settings.show_grid_lines);
         assert!(settings.hanging_punctuation);
+        assert_eq!(settings.column_number_mode, ColumnNumberMode::Hidden);
         assert_eq!(settings.cell_size, DEFAULT_CELL_SIZE);
         assert_eq!(settings.rows_per_column, Some(24));
         assert!(!settings.vim_mode);
@@ -223,6 +256,7 @@ mod tests {
         let settings = AppSettings {
             show_grid_lines: false,
             hanging_punctuation: false,
+            column_number_mode: ColumnNumberMode::EveryFive,
             cell_size: 32,
             rows_per_column: Some(24),
             vim_mode: true,
@@ -233,6 +267,7 @@ mod tests {
         let reloaded = AppSettings::load_from_config_file(Some(settings_path));
         assert!(!reloaded.show_grid_lines);
         assert!(!reloaded.hanging_punctuation);
+        assert_eq!(reloaded.column_number_mode, ColumnNumberMode::EveryFive);
         assert_eq!(reloaded.cell_size, 32);
         assert_eq!(reloaded.rows_per_column, Some(24));
         assert!(reloaded.vim_mode);

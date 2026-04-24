@@ -5,16 +5,18 @@ use gpui::{
     MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Styled,
     UTF16Selection, Window, actions, div, prelude::*, px,
 };
-use rope::utf16_to_byte_in_text;
+use rope::{TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
 use crate::{
     editor_canvas::{
-        EditorCanvas, cell_bounds_for_logical_index, logical_index_for_point,
-        rows_per_column_for_window_height, visible_columns_for_window_width,
+        EditorCanvas, cell_bounds_for_logical_index, content_height_for_window_height,
+        logical_index_for_point, rows_per_column_for_window_height,
+        visible_columns_for_window_width,
     },
     editor_state::{
-        BlockSelection, EditOperation, EditTransaction, EditorState, PendingTransaction,
+        BlockSelection, EditOperation, EditTransaction, EditorHistory, EditorState,
+        PendingTransaction,
     },
 };
 
@@ -109,15 +111,20 @@ impl Editor {
                 self.state.cell_size(),
                 self.state.ruby_gutter_size(),
             ));
+        let content_height = content_height_for_window_height(
+            size.height,
+            AppSettings::global(cx).column_number_mode,
+            self.state.cell_size(),
+        );
         self.state
             .update_max_visible_rows(rows_per_column_for_window_height(
-                size.height,
+                content_height,
                 self.state.cell_size(),
             ));
         if AppSettings::global(cx).rows_per_column.is_none() {
             self.state
                 .update_rows_per_column(rows_per_column_for_window_height(
-                    size.height,
+                    content_height,
                     self.state.cell_size(),
                 ));
         }
@@ -159,6 +166,21 @@ impl Editor {
 
     pub fn snapshot_text(&self) -> String {
         self.state.draft.slice(0..self.state.draft.len_bytes())
+    }
+
+    pub fn load_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        let rows_per_column = self.state.rows_per_column;
+        let hanging_punctuation = self.state.draft.hanging_punctuation();
+        let mut draft = TextRope::from_str_with_rows(text, rows_per_column);
+        draft.set_hanging_punctuation(hanging_punctuation);
+
+        self.state.draft = draft;
+        self.state.history = EditorHistory::default();
+        self.state.scroll_column = 0;
+        self.state.scroll_row = 0;
+        self.state.scroll_remainder_columns = 0.0;
+        self.state.set_cursor_from_offset(0);
+        cx.notify();
     }
 
     pub fn text_in_range(&self, range: Range<usize>) -> String {
@@ -347,6 +369,14 @@ impl Editor {
 
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
         let offset = self.state.byte_offset_for_display_cell(cell_index);
+        if self.state.cursor_cell == cell_index
+            && self.state.selected_range.start == offset
+            && self.state.selected_range.end == offset
+            && !self.state.selection_reversed
+            && self.state.block_selection.is_none()
+        {
+            return;
+        }
         self.state.selected_range = offset..offset;
         self.state.selection_reversed = false;
         self.state.cursor_cell = cell_index;
@@ -357,6 +387,8 @@ impl Editor {
 
     fn select_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
         let offset = self.state.byte_offset_for_display_cell(cell_index);
+        let original_range = self.state.selected_range.clone();
+        let original_reversed = self.state.selection_reversed;
         if self.state.selection_reversed {
             self.state.selected_range.start = offset;
         } else {
@@ -370,6 +402,13 @@ impl Editor {
         self.state.cursor_cell = cell_index;
         self.state.block_selection = None;
         self.state.ensure_cursor_visible();
+        if self.state.cursor_cell == cell_index
+            && self.state.selected_range == original_range
+            && self.state.selection_reversed == original_reversed
+            && self.state.block_selection.is_none()
+        {
+            return;
+        }
         cx.notify();
     }
 

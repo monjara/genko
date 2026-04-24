@@ -567,7 +567,6 @@ impl Vim {
                 editor.move_cursor_to_byte_offset(target, cx);
             });
         }
-        cx.notify();
     }
 
     fn move_by_cells(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -585,7 +584,6 @@ impl Vim {
         if is_visual_block {
             self.sync_block_selection_for_current_cursor(cx);
         }
-        cx.notify();
     }
 
     fn open_next_column(&mut self, cx: &mut Context<Self>) {
