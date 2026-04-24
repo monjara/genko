@@ -12,7 +12,7 @@ use settings::AppSettings;
 use vim::{VimMode, VimState};
 
 use crate::{
-    AUTOMATIC_ROWS_RESERVED_CELLS, CELL_SIZE, DEFAULT_VISIBLE_COLUMNS,
+    AUTOMATIC_ROWS_RESERVED_CELLS, CELL_SIZE, DEFAULT_VISIBLE_COLUMNS, RUBY_GUTTER_SIZE,
     color::{GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY},
 };
 
@@ -658,20 +658,32 @@ impl BoardElement {
         visible_columns: usize,
         window: &mut Window,
     ) {
-        for column in 0..=visible_columns {
-            let x = bounds.left() + px(column as f32 * CELL_SIZE);
-            window.paint_quad(fill(
-                Bounds::new(point(x, bounds.top()), size(px(1.0), bounds.size.height)),
-                rgb(GRID_LINE),
-            ));
-        }
+        for column in 0..visible_columns {
+            let column_left = board_x_for_visible_column(bounds.left(), column);
+            let column_right = column_left + px(CELL_SIZE);
 
-        for row in 0..=rows_per_column {
-            let y = bounds.top() + px(row as f32 * CELL_SIZE);
             window.paint_quad(fill(
-                Bounds::new(point(bounds.left(), y), size(bounds.size.width, px(1.0))),
+                Bounds::new(
+                    point(column_left, bounds.top()),
+                    size(px(1.0), bounds.size.height),
+                ),
                 rgb(GRID_LINE),
             ));
+            window.paint_quad(fill(
+                Bounds::new(
+                    point(column_right, bounds.top()),
+                    size(px(1.0), bounds.size.height),
+                ),
+                rgb(GRID_LINE),
+            ));
+
+            for row in 0..=rows_per_column {
+                let y = bounds.top() + px(row as f32 * CELL_SIZE);
+                window.paint_quad(fill(
+                    Bounds::new(point(column_left, y), size(px(CELL_SIZE), px(1.0))),
+                    rgb(GRID_LINE),
+                ));
+            }
         }
     }
 
@@ -1031,7 +1043,7 @@ impl Element for BoardCanvas {
     ) -> (LayoutId, Self::RequestLayoutState) {
         let board = self.board.read(cx);
         let mut style = Style::default();
-        style.size.width = px(CELL_SIZE * board.visible_columns() as f32).into();
+        style.size.width = board_width_for_columns(board.visible_columns()).into();
         style.size.height = px(CELL_SIZE * board.rows_per_column() as f32).into();
         (window.request_layout(style, [], cx), ())
     }
@@ -1169,7 +1181,7 @@ pub(crate) fn cell_bounds_for_logical_index(
     )?;
     Some(Bounds::new(
         point(
-            board_bounds.left() + px(column as f32 * CELL_SIZE),
+            board_x_for_visible_column(board_bounds.left(), column),
             board_bounds.top() + px(row as f32 * CELL_SIZE),
         ),
         size(px(CELL_SIZE), px(CELL_SIZE)),
@@ -1189,9 +1201,15 @@ pub(crate) fn logical_index_for_point(
         return None;
     }
 
-    let column = ((position.x - board_bounds.left()) / px(CELL_SIZE))
+    let local_x = position.x - board_bounds.left();
+    let stride = px(CELL_SIZE + RUBY_GUTTER_SIZE);
+    let column = (local_x / stride)
         .floor()
         .clamp(0.0, (visible_columns - 1) as f32) as usize;
+    let column_offset = local_x - px(column as f32 * (CELL_SIZE + RUBY_GUTTER_SIZE));
+    if column_offset > px(CELL_SIZE) {
+        return None;
+    }
     let row = ((position.y - board_bounds.top()) / px(CELL_SIZE))
         .floor()
         .clamp(0.0, (rows_per_column - 1) as f32) as usize;
@@ -1199,8 +1217,21 @@ pub(crate) fn logical_index_for_point(
     Some((first_visible_column + column_from_right) * rows_per_column + row)
 }
 
+fn board_width_for_columns(visible_columns: usize) -> Pixels {
+    if visible_columns == 0 {
+        return Pixels::ZERO;
+    }
+
+    px(visible_columns as f32 * CELL_SIZE
+        + visible_columns.saturating_sub(1) as f32 * RUBY_GUTTER_SIZE)
+}
+
+fn board_x_for_visible_column(board_left: Pixels, column: usize) -> Pixels {
+    board_left + px(column as f32 * (CELL_SIZE + RUBY_GUTTER_SIZE))
+}
+
 fn visible_columns_for_window_width(width: Pixels) -> usize {
-    ((width / px(CELL_SIZE)).floor() as usize)
+    (((width + px(RUBY_GUTTER_SIZE)) / px(CELL_SIZE + RUBY_GUTTER_SIZE)).floor() as usize)
         .saturating_sub(2)
         .max(1)
 }
@@ -1269,6 +1300,39 @@ mod tests {
         assert_eq!(
             row_column_for_logical_index(rows - 1, 0, rows, VISIBLE_COLUMNS),
             Some((rows - 1, VISIBLE_COLUMNS - 1))
+        );
+    }
+
+    #[test]
+    fn cell_bounds_leave_ruby_gutter_between_columns() {
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(200.0), px(200.0)));
+
+        let left_column = cell_bounds_for_logical_index(
+            bounds,
+            DEFAULT_ROWS_PER_COLUMN,
+            0,
+            DEFAULT_ROWS_PER_COLUMN,
+            2,
+        )
+        .unwrap();
+        let right_column =
+            cell_bounds_for_logical_index(bounds, 0, 0, DEFAULT_ROWS_PER_COLUMN, 2).unwrap();
+
+        assert_eq!(left_column.left(), px(0.0));
+        assert_eq!(right_column.left(), px(CELL_SIZE + RUBY_GUTTER_SIZE));
+    }
+
+    #[test]
+    fn click_in_ruby_gutter_does_not_target_main_cell() {
+        let bounds = Bounds::new(
+            point(px(0.0), px(0.0)),
+            size(board_width_for_columns(2), px(200.0)),
+        );
+        let gutter_point = point(px(CELL_SIZE + RUBY_GUTTER_SIZE / 2.0), px(8.0));
+
+        assert_eq!(
+            logical_index_for_point(bounds, gutter_point, 0, DEFAULT_ROWS_PER_COLUMN, 2),
+            None
         );
     }
 }

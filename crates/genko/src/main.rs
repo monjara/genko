@@ -17,6 +17,7 @@ use gpui::{
 const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
 const CELL_SIZE: f32 = 28.0;
+const RUBY_GUTTER_SIZE: f32 = 10.0;
 
 actions!(genko, [OpenSettings, Quit]);
 

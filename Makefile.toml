@@ -5,7 +5,7 @@ default_to_workspace = false
 command = "cargo"
 args = ["run"]
 
-[tasks.dev-watch]
+[tasks.watch]
 command = "cargo"
 args = ["watch", "-x", "run"]
 
@@ -17,7 +17,10 @@ args = ["test", "--offline", "--all"]
 command = "cargo"
 args = ["test", "--offline", "--target", "${@}"]
 
-
 [tasks.new]
 command = "cargo"
 args = ["new", "--lib", "./crates/${@}"]
+
+[tasks.configure]
+command = "nvim"
+args = ["~/.config/genko/settings.json"]
