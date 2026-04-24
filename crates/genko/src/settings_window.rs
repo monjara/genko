@@ -1,11 +1,11 @@
 use gpui::{
-    ClickEvent, Context, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled,
-    Window, div, prelude::*, px, rgb,
+    ClickEvent, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Render,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px, rgb,
 };
 
 use settings::AppSettings;
 
-use crate::color::{
+use theme::{
     ACCENT_PRIMARY, BORDER_MUTED, PANEL_BACKGROUND, PAPER_BACKGROUND, TEXT_INVERSE, TEXT_PRIMARY,
     TEXT_SECONDARY,
 };

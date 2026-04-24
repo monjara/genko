@@ -1,11 +1,10 @@
-mod color;
 mod settings_window;
 
 use editor::EditorElement;
 use settings::AppSettings;
 use settings_window::SettingsWindow;
 
-use crate::color::APP_BACKGROUND;
+use theme::APP_BACKGROUND;
 
 use gpui::{
     App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding,

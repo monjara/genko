@@ -19,7 +19,7 @@ args = ["test", "--offline", "--target", "${@}"]
 
 [tasks.new]
 command = "cargo"
-args = ["new", "--lib", "./crates/${@}"]
+args = ["new", "--lib", "./crates/${@}", "--vcs", "none"]
 
 [tasks.configure]
 command = "nvim"

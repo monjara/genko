@@ -6,6 +6,7 @@ members = [
   "crates/genko",
   "crates/rope",
   "crates/settings",
+  "crates/theme",
   "crates/vim"
 ]
 default-members = ["crates/genko"]
@@ -18,6 +19,7 @@ publish = false
 editor = { path = "crates/editor" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
+theme = { path = "crates/theme" }
 vim = { path = "crates/vim" }
 
 gpui = { git = "https://github.com/zed-industries/zed" }

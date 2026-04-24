@@ -17,3 +17,4 @@ settings = { workspace = true }
 vim = { workspace = true }
 xdg = { workspace = true }
 editor = { workspace = true }
+theme = { workspace = true }

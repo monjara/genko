@@ -9,3 +9,4 @@ gpui = { workspace = true }
 rope = { workspace = true }
 settings = { workspace = true }
 vim = { workspace = true }
+theme = { workspace = true }

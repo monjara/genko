@@ -1,0 +1,10 @@
+pub const ACCENT_PRIMARY: u32 = 0x2f6fff;
+pub const APP_BACKGROUND: u32 = 0xebe5d8;
+pub const BORDER_MUTED: u32 = 0xd9cbb8;
+pub const GRID_LINE: u32 = 0xd94b4b;
+pub const PANEL_BACKGROUND: u32 = 0xe7ded0;
+pub const PAPER_BACKGROUND: u32 = 0xfffbf2;
+pub const SELECTION_BACKGROUND: u32 = 0x2f6fff30;
+pub const TEXT_INVERSE: u32 = 0xffffff;
+pub const TEXT_PRIMARY: u32 = 0x2f241d;
+pub const TEXT_SECONDARY: u32 = 0x705a4a;
