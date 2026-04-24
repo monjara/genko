@@ -1,11 +1,11 @@
 use editor::Editor;
 use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, ParentElement, Render, Window, actions, div,
-    prelude::*,
+    App, Context, Entity, FocusHandle, Focusable, InteractiveElement, KeyBinding, ParentElement,
+    Render, Window, actions, div,
 };
 
 actions!(
-    genko,
+    vim,
     [
         VimEnterInsertMode,
         VimAppend,
@@ -72,19 +72,19 @@ impl Vim {
             gpui::KeyBinding::new("i", VimEnterInsertMode, Some("Genko && vim_mode == normal")),
             gpui::KeyBinding::new("a", VimAppend, Some("Genko && vim_mode == normal")),
             gpui::KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == insert")),
-            gpui::KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("v", VimVisualMode, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("v", VimNormalMode, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("h", editor::Right, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("j", editor::Down, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("k", editor::Up, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("l", editor::Left, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("h", editor::Right, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("j", editor::Down, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("k", editor::Up, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("l", editor::Left, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("v", VimVisualMode, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("v", VimNormalMode, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("h", editor::Right, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("j", editor::Down, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("k", editor::Up, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("l", editor::Left, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("h", editor::Right, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("j", editor::Down, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("k", editor::Up, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("l", editor::Left, Some("Genko && vim_mode == visual")),
+            KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == normal")),
+            KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == visual")),
         ]);
     }
 

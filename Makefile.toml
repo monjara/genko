@@ -23,4 +23,4 @@ args = ["${@}"]
 
 [tasks.configure]
 command = "nvim"
-args = ["~/.config/genko/settings.json"]
+args = ["${HOME}/.config/genko/settings.json"]
