@@ -125,9 +125,22 @@ impl Editor {
         self.state.draft.slice(0..self.state.draft.len_bytes())
     }
 
+    pub fn text_in_range(&self, range: Range<usize>) -> String {
+        self.state.draft.slice(range)
+    }
+
+    pub fn offset_after_cursor(&self) -> usize {
+        self.state.next_boundary(self.state.cursor_offset())
+    }
+
     pub fn move_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
         let target = self.state.cursor_cell.saturating_add_signed(delta);
         self.move_to_display_cell(target, cx);
+    }
+
+    pub fn move_cursor_to_byte_offset(&mut self, byte_offset: usize, cx: &mut Context<Self>) {
+        let cell_index = self.state.display_cell_for_byte(byte_offset);
+        self.move_to_display_cell(cell_index, cx);
     }
 
     pub fn select_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {

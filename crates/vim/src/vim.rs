@@ -21,6 +21,7 @@ actions!(
         VimDeleteChar,
         VimDeleteOperator,
         VimChangeOperator,
+        VimYankOperator,
         VimTextObjectInner,
         VimTextObjectAround,
         VimTextObjectWord,
@@ -29,6 +30,11 @@ actions!(
         VimTextObjectSingleQuote,
         VimTextObjectParen,
         VimTextObjectBracket,
+        VimMoveWordForward,
+        VimMoveBigWordForward,
+        VimMoveWordEndForward,
+        VimPasteAfter,
+        VimPasteBefore,
     ]
 );
 
@@ -43,6 +49,7 @@ pub enum VimMode {
 enum VimOperator {
     Delete,
     Change,
+    Yank,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +66,20 @@ enum TextObjectTarget {
     SingleQuote,
     Paren,
     Bracket,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MotionKind {
+    WordForward,
+    BigWordForward,
+    WordEndForward,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum YankRegister {
+    Empty,
+    CharWise(String),
+    LineWise(String),
 }
 
 static JAPANESE_TOKENIZER: OnceLock<Result<Tokenizer, String>> = OnceLock::new();
@@ -129,6 +150,7 @@ impl VimState {
             (VimMode::Normal, None, _) => "Genko vim_mode=normal",
             (VimMode::Normal, Some(VimOperator::Delete), None) => "Genko vim_mode=operator_delete",
             (VimMode::Normal, Some(VimOperator::Change), None) => "Genko vim_mode=operator_change",
+            (VimMode::Normal, Some(VimOperator::Yank), None) => "Genko vim_mode=operator_yank",
             (VimMode::Normal, Some(VimOperator::Delete), Some(TextObjectModifier::Inner)) => {
                 "Genko vim_mode=operator_delete_inner"
             }
@@ -141,6 +163,12 @@ impl VimState {
             (VimMode::Normal, Some(VimOperator::Change), Some(TextObjectModifier::Around)) => {
                 "Genko vim_mode=operator_change_around"
             }
+            (VimMode::Normal, Some(VimOperator::Yank), Some(TextObjectModifier::Inner)) => {
+                "Genko vim_mode=operator_yank_inner"
+            }
+            (VimMode::Normal, Some(VimOperator::Yank), Some(TextObjectModifier::Around)) => {
+                "Genko vim_mode=operator_yank_around"
+            }
         }
     }
 }
@@ -148,6 +176,7 @@ impl VimState {
 pub struct Vim {
     editor: Entity<Editor>,
     state: VimState,
+    yank_register: YankRegister,
 }
 
 impl Vim {
@@ -159,6 +188,7 @@ impl Vim {
             KeyBinding::new("escape", VimNormalMode, Some("vim_mode == visual")),
             KeyBinding::new("escape", VimNormalMode, Some("vim_mode == operator_delete")),
             KeyBinding::new("escape", VimNormalMode, Some("vim_mode == operator_change")),
+            KeyBinding::new("escape", VimNormalMode, Some("vim_mode == operator_yank")),
             KeyBinding::new(
                 "escape",
                 VimNormalMode,
@@ -179,10 +209,62 @@ impl Vim {
                 VimNormalMode,
                 Some("vim_mode == operator_change_around"),
             ),
+            KeyBinding::new(
+                "escape",
+                VimNormalMode,
+                Some("vim_mode == operator_yank_inner"),
+            ),
+            KeyBinding::new(
+                "escape",
+                VimNormalMode,
+                Some("vim_mode == operator_yank_around"),
+            ),
             KeyBinding::new("v", VimVisualMode, Some("vim_mode == normal")),
             KeyBinding::new("v", VimNormalMode, Some("vim_mode == visual")),
             KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == normal")),
             KeyBinding::new("c", VimChangeOperator, Some("vim_mode == normal")),
+            KeyBinding::new("y", VimYankOperator, Some("vim_mode == normal")),
+            KeyBinding::new("p", VimPasteAfter, Some("vim_mode == normal")),
+            KeyBinding::new("P", VimPasteBefore, Some("vim_mode == normal")),
+            KeyBinding::new("w", VimMoveWordForward, Some("vim_mode == normal")),
+            KeyBinding::new("W", VimMoveBigWordForward, Some("vim_mode == normal")),
+            KeyBinding::new("e", VimMoveWordEndForward, Some("vim_mode == normal")),
+            KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == operator_delete")),
+            KeyBinding::new("c", VimChangeOperator, Some("vim_mode == operator_change")),
+            KeyBinding::new("y", VimYankOperator, Some("vim_mode == operator_yank")),
+            KeyBinding::new("w", VimMoveWordForward, Some("vim_mode == operator_delete")),
+            KeyBinding::new("w", VimMoveWordForward, Some("vim_mode == operator_change")),
+            KeyBinding::new("w", VimMoveWordForward, Some("vim_mode == operator_yank")),
+            KeyBinding::new(
+                "W",
+                VimMoveBigWordForward,
+                Some("vim_mode == operator_delete"),
+            ),
+            KeyBinding::new(
+                "W",
+                VimMoveBigWordForward,
+                Some("vim_mode == operator_change"),
+            ),
+            KeyBinding::new(
+                "W",
+                VimMoveBigWordForward,
+                Some("vim_mode == operator_yank"),
+            ),
+            KeyBinding::new(
+                "e",
+                VimMoveWordEndForward,
+                Some("vim_mode == operator_delete"),
+            ),
+            KeyBinding::new(
+                "e",
+                VimMoveWordEndForward,
+                Some("vim_mode == operator_change"),
+            ),
+            KeyBinding::new(
+                "e",
+                VimMoveWordEndForward,
+                Some("vim_mode == operator_yank"),
+            ),
             KeyBinding::new("i", VimTextObjectInner, Some("vim_mode == operator_delete")),
             KeyBinding::new(
                 "a",
@@ -195,6 +277,8 @@ impl Vim {
                 VimTextObjectAround,
                 Some("vim_mode == operator_change"),
             ),
+            KeyBinding::new("i", VimTextObjectInner, Some("vim_mode == operator_yank")),
+            KeyBinding::new("a", VimTextObjectAround, Some("vim_mode == operator_yank")),
             KeyBinding::new(
                 "w",
                 VimTextObjectWord,
@@ -214,6 +298,16 @@ impl Vim {
                 "w",
                 VimTextObjectWord,
                 Some("vim_mode == operator_change_around"),
+            ),
+            KeyBinding::new(
+                "w",
+                VimTextObjectWord,
+                Some("vim_mode == operator_yank_inner"),
+            ),
+            KeyBinding::new(
+                "w",
+                VimTextObjectWord,
+                Some("vim_mode == operator_yank_around"),
             ),
             KeyBinding::new(
                 "W",
@@ -236,6 +330,16 @@ impl Vim {
                 Some("vim_mode == operator_change_around"),
             ),
             KeyBinding::new(
+                "W",
+                VimTextObjectBigWord,
+                Some("vim_mode == operator_yank_inner"),
+            ),
+            KeyBinding::new(
+                "W",
+                VimTextObjectBigWord,
+                Some("vim_mode == operator_yank_around"),
+            ),
+            KeyBinding::new(
                 "\"",
                 VimTextObjectDoubleQuote,
                 Some("vim_mode == operator_delete_inner"),
@@ -254,6 +358,16 @@ impl Vim {
                 "\"",
                 VimTextObjectDoubleQuote,
                 Some("vim_mode == operator_change_around"),
+            ),
+            KeyBinding::new(
+                "\"",
+                VimTextObjectDoubleQuote,
+                Some("vim_mode == operator_yank_inner"),
+            ),
+            KeyBinding::new(
+                "\"",
+                VimTextObjectDoubleQuote,
+                Some("vim_mode == operator_yank_around"),
             ),
             KeyBinding::new(
                 "'",
@@ -276,6 +390,16 @@ impl Vim {
                 Some("vim_mode == operator_change_around"),
             ),
             KeyBinding::new(
+                "'",
+                VimTextObjectSingleQuote,
+                Some("vim_mode == operator_yank_inner"),
+            ),
+            KeyBinding::new(
+                "'",
+                VimTextObjectSingleQuote,
+                Some("vim_mode == operator_yank_around"),
+            ),
+            KeyBinding::new(
                 "(",
                 VimTextObjectParen,
                 Some("vim_mode == operator_delete_inner"),
@@ -296,6 +420,16 @@ impl Vim {
                 Some("vim_mode == operator_change_around"),
             ),
             KeyBinding::new(
+                "(",
+                VimTextObjectParen,
+                Some("vim_mode == operator_yank_inner"),
+            ),
+            KeyBinding::new(
+                "(",
+                VimTextObjectParen,
+                Some("vim_mode == operator_yank_around"),
+            ),
+            KeyBinding::new(
                 "[",
                 VimTextObjectBracket,
                 Some("vim_mode == operator_delete_inner"),
@@ -315,11 +449,41 @@ impl Vim {
                 VimTextObjectBracket,
                 Some("vim_mode == operator_change_around"),
             ),
-            KeyBinding::new("h", editor::Left, Some("vim_mode == normal || vim_mode == visual")),
-            KeyBinding::new("j", editor::Down, Some("vim_mode == normal || vim_mode == visual")),
-            KeyBinding::new("k", editor::Up, Some("vim_mode == normal || vim_mode == visual")),
-            KeyBinding::new("l", editor::Right, Some("vim_mode == normal || vim_mode == visual")),
-            KeyBinding::new("x", VimDeleteChar, Some("vim_mode == normal || vim_mode == visual")),
+            KeyBinding::new(
+                "[",
+                VimTextObjectBracket,
+                Some("vim_mode == operator_yank_inner"),
+            ),
+            KeyBinding::new(
+                "[",
+                VimTextObjectBracket,
+                Some("vim_mode == operator_yank_around"),
+            ),
+            KeyBinding::new(
+                "h",
+                editor::Left,
+                Some("vim_mode == normal || vim_mode == visual"),
+            ),
+            KeyBinding::new(
+                "j",
+                editor::Down,
+                Some("vim_mode == normal || vim_mode == visual"),
+            ),
+            KeyBinding::new(
+                "k",
+                editor::Up,
+                Some("vim_mode == normal || vim_mode == visual"),
+            ),
+            KeyBinding::new(
+                "l",
+                editor::Right,
+                Some("vim_mode == normal || vim_mode == visual"),
+            ),
+            KeyBinding::new(
+                "x",
+                VimDeleteChar,
+                Some("vim_mode == normal || vim_mode == visual"),
+            ),
         ]);
     }
 
@@ -327,6 +491,7 @@ impl Vim {
         Self {
             editor,
             state: VimState::new(),
+            yank_register: YankRegister::Empty,
         }
     }
 
@@ -411,6 +576,104 @@ impl Vim {
         cx.notify();
     }
 
+    fn paste_after(&mut self, cx: &mut Context<Self>) {
+        let (text, cursor) = {
+            let editor = self.editor.read(cx);
+            (editor.snapshot_text(), editor.cursor_byte_offset())
+        };
+        let Some((insertion_offset, inserted_text)) = resolve_paste(
+            text.as_str(),
+            cursor,
+            &self.yank_register,
+            PastePosition::After,
+        ) else {
+            return;
+        };
+
+        self.editor.update(cx, |editor, cx| {
+            editor.replace_byte_range(
+                insertion_offset..insertion_offset,
+                inserted_text.as_str(),
+                cx,
+            );
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+        });
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        cx.notify();
+    }
+
+    fn paste_before(&mut self, cx: &mut Context<Self>) {
+        let (text, cursor) = {
+            let editor = self.editor.read(cx);
+            (editor.snapshot_text(), editor.cursor_byte_offset())
+        };
+        let Some((insertion_offset, inserted_text)) = resolve_paste(
+            text.as_str(),
+            cursor,
+            &self.yank_register,
+            PastePosition::Before,
+        ) else {
+            return;
+        };
+
+        self.editor.update(cx, |editor, cx| {
+            editor.replace_byte_range(
+                insertion_offset..insertion_offset,
+                inserted_text.as_str(),
+                cx,
+            );
+            editor.set_text_input_enabled(false, cx);
+            editor.collapse_selection_to_cursor_cell(cx);
+        });
+        self.state.set_mode(VimMode::Normal);
+        self.state.set_visual_anchor_cell(None);
+        self.state.clear_pending();
+        cx.notify();
+    }
+
+    fn move_by_motion(&mut self, motion: MotionKind, cx: &mut Context<Self>) {
+        let (text, cursor) = {
+            let editor = self.editor.read(cx);
+            (editor.snapshot_text(), editor.cursor_byte_offset())
+        };
+
+        if self.state.pending_operator().is_some() {
+            self.apply_motion(motion, &text, cursor, cx);
+            return;
+        }
+
+        let Some(target) = resolve_motion_target(&text, cursor, motion) else {
+            return;
+        };
+
+        self.editor.update(cx, |editor, cx| {
+            editor.move_cursor_to_byte_offset(target, cx);
+        });
+        cx.notify();
+    }
+
+    fn apply_motion(
+        &mut self,
+        motion: MotionKind,
+        text: &str,
+        cursor: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(operator) = self.state.pending_operator() else {
+            return;
+        };
+        let Some(range) = resolve_motion_range(text, cursor, motion, operator) else {
+            self.state.clear_pending();
+            cx.notify();
+            return;
+        };
+
+        self.apply_operator_to_range(operator, range, false, cx);
+    }
+
     fn apply_text_object(&mut self, target: TextObjectTarget, cx: &mut Context<Self>) {
         let Some(operator) = self.state.pending_operator() else {
             return;
@@ -430,27 +693,69 @@ impl Vim {
             return;
         };
 
-        self.editor.update(cx, |editor, cx| {
-            editor.replace_byte_range(range, "", cx);
-            match operator {
-                VimOperator::Delete => {
-                    editor.set_text_input_enabled(false, cx);
-                    editor.collapse_selection_to_cursor_cell(cx);
-                }
-                VimOperator::Change => {
-                    editor.set_text_input_enabled(true, cx);
-                    editor.collapse_selection_to_cursor_offset(cx);
-                }
+        self.apply_operator_to_range(operator, range, false, cx);
+    }
+
+    fn apply_operator_to_range(
+        &mut self,
+        operator: VimOperator,
+        range: Range<usize>,
+        linewise: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match operator {
+            VimOperator::Yank => {
+                let yanked = self.editor.read(cx).text_in_range(range);
+                self.yank_register = if linewise {
+                    YankRegister::LineWise(trim_trailing_newline(&yanked))
+                } else {
+                    YankRegister::CharWise(yanked)
+                };
             }
-        });
+            VimOperator::Delete | VimOperator::Change => {
+                if linewise {
+                    let yanked = self.editor.read(cx).text_in_range(range.clone());
+                    self.yank_register = YankRegister::LineWise(trim_trailing_newline(&yanked));
+                }
+                self.editor.update(cx, |editor, cx| {
+                    editor.replace_byte_range(range, "", cx);
+                    match operator {
+                        VimOperator::Delete => {
+                            editor.set_text_input_enabled(false, cx);
+                            editor.collapse_selection_to_cursor_cell(cx);
+                        }
+                        VimOperator::Change => {
+                            editor.set_text_input_enabled(true, cx);
+                            editor.collapse_selection_to_cursor_offset(cx);
+                        }
+                        VimOperator::Yank => {}
+                    }
+                });
+            }
+        }
 
         self.state.clear_pending();
         self.state.set_visual_anchor_cell(None);
         self.state.set_mode(match operator {
             VimOperator::Delete => VimMode::Normal,
             VimOperator::Change => VimMode::Insert,
+            VimOperator::Yank => VimMode::Normal,
         });
         cx.notify();
+    }
+
+    fn apply_current_line_operator(&mut self, operator: VimOperator, cx: &mut Context<Self>) {
+        let (text, cursor) = {
+            let editor = self.editor.read(cx);
+            (editor.snapshot_text(), editor.cursor_byte_offset())
+        };
+        let Some(range) = current_line_delete_range(text.as_str(), cursor) else {
+            self.state.clear_pending();
+            cx.notify();
+            return;
+        };
+
+        self.apply_operator_to_range(operator, range, true, cx);
     }
 
     fn sync_visual_selection_for_current_cursor(&mut self, cx: &mut Context<Self>) {
@@ -494,6 +799,10 @@ impl Vim {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.state.pending_operator() == Some(VimOperator::Delete) {
+            self.apply_current_line_operator(VimOperator::Delete, cx);
+            return;
+        }
         self.begin_operator(VimOperator::Delete, cx);
     }
 
@@ -503,7 +812,24 @@ impl Vim {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.state.pending_operator() == Some(VimOperator::Change) {
+            self.apply_current_line_operator(VimOperator::Change, cx);
+            return;
+        }
         self.begin_operator(VimOperator::Change, cx);
+    }
+
+    fn vim_yank_operator(
+        &mut self,
+        _: &VimYankOperator,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.pending_operator() == Some(VimOperator::Yank) {
+            self.apply_current_line_operator(VimOperator::Yank, cx);
+            return;
+        }
+        self.begin_operator(VimOperator::Yank, cx);
     }
 
     fn vim_text_object_inner(
@@ -578,6 +904,46 @@ impl Vim {
         self.apply_text_object(TextObjectTarget::Bracket, cx);
     }
 
+    fn vim_move_word_forward(
+        &mut self,
+        _: &VimMoveWordForward,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_by_motion(MotionKind::WordForward, cx);
+    }
+
+    fn vim_move_big_word_forward(
+        &mut self,
+        _: &VimMoveBigWordForward,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_by_motion(MotionKind::BigWordForward, cx);
+    }
+
+    fn vim_move_word_end_forward(
+        &mut self,
+        _: &VimMoveWordEndForward,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_by_motion(MotionKind::WordEndForward, cx);
+    }
+
+    fn vim_paste_after(&mut self, _: &VimPasteAfter, _window: &mut Window, cx: &mut Context<Self>) {
+        self.paste_after(cx);
+    }
+
+    fn vim_paste_before(
+        &mut self,
+        _: &VimPasteBefore,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.paste_before(cx);
+    }
+
     fn on_up(&mut self, _: &editor::Up, _window: &mut Window, cx: &mut Context<Self>) {
         if self.state.mode() == VimMode::Visual {
             self.sync_visual_selection_for_current_cursor(cx);
@@ -615,6 +981,7 @@ impl Render for Vim {
             .on_action(cx.listener(Self::vim_delete_char))
             .on_action(cx.listener(Self::vim_delete_operator))
             .on_action(cx.listener(Self::vim_change_operator))
+            .on_action(cx.listener(Self::vim_yank_operator))
             .on_action(cx.listener(Self::vim_text_object_inner))
             .on_action(cx.listener(Self::vim_text_object_around))
             .on_action(cx.listener(Self::vim_text_object_word))
@@ -623,6 +990,11 @@ impl Render for Vim {
             .on_action(cx.listener(Self::vim_text_object_single_quote))
             .on_action(cx.listener(Self::vim_text_object_paren))
             .on_action(cx.listener(Self::vim_text_object_bracket))
+            .on_action(cx.listener(Self::vim_move_word_forward))
+            .on_action(cx.listener(Self::vim_move_big_word_forward))
+            .on_action(cx.listener(Self::vim_move_word_end_forward))
+            .on_action(cx.listener(Self::vim_paste_after))
+            .on_action(cx.listener(Self::vim_paste_before))
             .on_action(cx.listener(Self::on_up))
             .on_action(cx.listener(Self::on_down))
             .on_action(cx.listener(Self::on_left))
@@ -674,7 +1046,144 @@ fn resolve_text_object_range(
     }
 }
 
-fn find_japanese_word_range(text: &str, cursor_byte_offset: usize) -> Option<(usize, usize)> {
+fn resolve_motion_target(
+    text: &str,
+    cursor_byte_offset: usize,
+    motion: MotionKind,
+) -> Option<usize> {
+    match motion {
+        MotionKind::WordForward => resolve_forward_word_start(text, cursor_byte_offset, false),
+        MotionKind::BigWordForward => resolve_forward_word_start(text, cursor_byte_offset, true),
+        MotionKind::WordEndForward => resolve_forward_word_end(text, cursor_byte_offset),
+    }
+}
+
+fn resolve_motion_range(
+    text: &str,
+    cursor_byte_offset: usize,
+    motion: MotionKind,
+    operator: VimOperator,
+) -> Option<Range<usize>> {
+    if text.is_empty() {
+        return None;
+    }
+
+    let start = cursor_byte_offset.min(text.len());
+    match motion {
+        MotionKind::WordForward | MotionKind::BigWordForward => {
+            if operator == VimOperator::Change {
+                let target = match motion {
+                    MotionKind::WordForward => find_japanese_word_range(text, start)
+                        .map(|(_, end)| end)
+                        .or_else(|| find_word_range(text, start, is_word_char).map(|(_, end)| end)),
+                    MotionKind::BigWordForward => {
+                        find_word_range(text, start, |ch| !ch.is_whitespace()).map(|(_, end)| end)
+                    }
+                    MotionKind::WordEndForward => None,
+                }
+                .unwrap_or(text.len());
+                Some(start.min(target)..target.max(start))
+            } else {
+                let target = resolve_motion_target(text, start, motion).unwrap_or(text.len());
+                Some(start.min(target)..target.max(start))
+            }
+        }
+        MotionKind::WordEndForward => {
+            let target = resolve_motion_target(text, start, motion)?;
+            let end = next_char_end(text, target);
+            Some(start.min(end)..end.max(start))
+        }
+    }
+}
+
+fn resolve_forward_word_start(
+    text: &str,
+    cursor_byte_offset: usize,
+    big_word: bool,
+) -> Option<usize> {
+    if text.is_empty() {
+        return None;
+    }
+
+    let ranges = token_ranges_for_target(
+        text,
+        if cursor_byte_offset < text.len() {
+            cursor_byte_offset
+        } else {
+            text.len().saturating_sub(1)
+        },
+        if big_word {
+            TextObjectTarget::BigWord
+        } else {
+            TextObjectTarget::Word
+        },
+    )?;
+
+    let current = current_token_index(&ranges, cursor_byte_offset);
+    if let Some(index) = current {
+        if cursor_byte_offset < ranges[index].end.saturating_sub(1) {
+            return ranges.get(index + 1).map(|range| range.start);
+        }
+        return ranges.get(index + 1).map(|range| range.start);
+    }
+
+    ranges
+        .iter()
+        .find(|range| range.start >= cursor_byte_offset)
+        .map(|range| range.start)
+}
+
+fn resolve_forward_word_end(text: &str, cursor_byte_offset: usize) -> Option<usize> {
+    if text.is_empty() {
+        return None;
+    }
+
+    let ranges = token_ranges_for_target(
+        text,
+        if cursor_byte_offset < text.len() {
+            cursor_byte_offset
+        } else {
+            text.len().saturating_sub(1)
+        },
+        TextObjectTarget::Word,
+    )?;
+
+    let current = current_token_index(&ranges, cursor_byte_offset);
+    if let Some(index) = current {
+        let range = &ranges[index];
+        if cursor_byte_offset < range.end.saturating_sub(1) {
+            return Some(previous_char_start(text, range.end));
+        }
+        return ranges
+            .get(index + 1)
+            .map(|range| previous_char_start(text, range.end));
+    }
+
+    ranges
+        .iter()
+        .find(|range| range.start >= cursor_byte_offset)
+        .map(|range| previous_char_start(text, range.end))
+}
+
+fn token_ranges_for_target(
+    text: &str,
+    cursor_byte_offset: usize,
+    target: TextObjectTarget,
+) -> Option<Vec<Range<usize>>> {
+    match target {
+        TextObjectTarget::Word => japanese_token_ranges(text)
+            .or_else(|| word_ranges(text, is_word_char))
+            .filter(|ranges| !ranges.is_empty())
+            .or_else(|| {
+                let _ = cursor_byte_offset;
+                None
+            }),
+        TextObjectTarget::BigWord => word_ranges(text, |ch| !ch.is_whitespace()),
+        _ => None,
+    }
+}
+
+fn japanese_token_ranges(text: &str) -> Option<Vec<Range<usize>>> {
     let tokenizer = japanese_tokenizer()?;
     let tokens = tokenizer.tokenize(text).ok()?;
     if tokens.is_empty() {
@@ -688,11 +1197,42 @@ fn find_japanese_word_range(text: &str, cursor_byte_offset: usize) -> Option<(us
         let relative_start = text[offset..].find(surface)?;
         let start = offset + relative_start;
         let end = start + surface.len();
-        let range = start..end;
+        ranges.push(start..end);
         offset = end;
-        ranges.push(range);
+    }
+    Some(ranges)
+}
+
+fn word_ranges<F>(text: &str, predicate: F) -> Option<Vec<Range<usize>>>
+where
+    F: Fn(char) -> bool,
+{
+    let mut ranges = Vec::new();
+    let mut current_start = None;
+
+    for (index, ch) in text.char_indices() {
+        if predicate(ch) {
+            current_start.get_or_insert(index);
+        } else if let Some(start) = current_start.take() {
+            ranges.push(start..index);
+        }
     }
 
+    if let Some(start) = current_start {
+        ranges.push(start..text.len());
+    }
+
+    (!ranges.is_empty()).then_some(ranges)
+}
+
+fn current_token_index(ranges: &[Range<usize>], cursor_byte_offset: usize) -> Option<usize> {
+    ranges
+        .iter()
+        .position(|range| range.start <= cursor_byte_offset && cursor_byte_offset < range.end)
+}
+
+fn find_japanese_word_range(text: &str, cursor_byte_offset: usize) -> Option<(usize, usize)> {
+    let ranges = japanese_token_ranges(text)?;
     find_token_range_at_or_near_cursor(text, &ranges, cursor_byte_offset)
 }
 
@@ -943,6 +1483,132 @@ fn previous_char_start(text: &str, offset: usize) -> usize {
     index
 }
 
+fn next_char_end(text: &str, offset: usize) -> usize {
+    if offset >= text.len() {
+        return text.len();
+    }
+    let ch = text[offset..].chars().next().unwrap();
+    offset + ch.len_utf8()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PastePosition {
+    Before,
+    After,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LineBounds {
+    start: usize,
+    end_content: usize,
+    end_with_newline: usize,
+}
+
+fn resolve_paste(
+    text: &str,
+    cursor_byte_offset: usize,
+    register: &YankRegister,
+    position: PastePosition,
+) -> Option<(usize, String)> {
+    match register {
+        YankRegister::Empty => None,
+        YankRegister::CharWise(content) => {
+            let insertion_offset = match position {
+                PastePosition::Before => cursor_byte_offset,
+                PastePosition::After => next_char_end(text, cursor_byte_offset),
+            };
+            Some((insertion_offset, content.clone()))
+        }
+        YankRegister::LineWise(content) => {
+            let line = current_line_bounds(text, cursor_byte_offset)?;
+            let insertion_offset = match position {
+                PastePosition::Before => line.start,
+                PastePosition::After => {
+                    if line.end_with_newline > line.end_content {
+                        line.end_with_newline
+                    } else {
+                        line.end_content
+                    }
+                }
+            };
+            let inserted = match position {
+                PastePosition::Before => linewise_text_before(content, text.is_empty()),
+                PastePosition::After => linewise_text_after(
+                    content,
+                    text.is_empty(),
+                    line.end_with_newline == text.len(),
+                ),
+            };
+            Some((insertion_offset, inserted))
+        }
+    }
+}
+
+fn current_line_bounds(text: &str, cursor_byte_offset: usize) -> Option<LineBounds> {
+    if text.is_empty() {
+        return Some(LineBounds {
+            start: 0,
+            end_content: 0,
+            end_with_newline: 0,
+        });
+    }
+
+    let cursor = cursor_byte_offset.min(text.len());
+    let start = text[..cursor]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let end_content = text[start..]
+        .find('\n')
+        .map(|index| start + index)
+        .unwrap_or(text.len());
+    let end_with_newline = if end_content < text.len() {
+        end_content + 1
+    } else {
+        end_content
+    };
+
+    Some(LineBounds {
+        start,
+        end_content,
+        end_with_newline,
+    })
+}
+
+fn current_line_delete_range(text: &str, cursor_byte_offset: usize) -> Option<Range<usize>> {
+    let line = current_line_bounds(text, cursor_byte_offset)?;
+    if line.end_with_newline > line.end_content {
+        return Some(line.start..line.end_with_newline);
+    }
+    if line.start > 0 {
+        return Some(previous_char_start(text, line.start)..line.end_content);
+    }
+    Some(line.start..line.end_content)
+}
+
+fn trim_trailing_newline(text: &str) -> String {
+    text.strip_suffix('\n').unwrap_or(text).to_string()
+}
+
+fn linewise_text_before(content: &str, is_empty_document: bool) -> String {
+    if is_empty_document {
+        content.to_string()
+    } else {
+        format!("{content}\n")
+    }
+}
+
+fn linewise_text_after(content: &str, is_empty_document: bool, after_last_line: bool) -> String {
+    if is_empty_document {
+        return content.to_string();
+    }
+    if after_last_line {
+        format!("\n{content}")
+    } else {
+        format!("{content}\n")
+    }
+}
+
 fn is_word_char(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
 }
@@ -1129,6 +1795,122 @@ mod tests {
                 TextObjectTarget::Bracket
             ),
             Some(7..12)
+        );
+    }
+
+    #[test]
+    fn word_forward_moves_to_next_word_start() {
+        assert_eq!(
+            resolve_motion_target("alpha beta gamma", 0, MotionKind::WordForward),
+            Some(6)
+        );
+        assert_eq!(
+            resolve_motion_target("alpha beta gamma", 5, MotionKind::WordForward),
+            Some(6)
+        );
+    }
+
+    #[test]
+    fn big_word_forward_skips_until_next_whitespace_boundary() {
+        assert_eq!(
+            resolve_motion_target("foo.bar baz", 0, MotionKind::BigWordForward),
+            Some(8)
+        );
+    }
+
+    #[test]
+    fn word_end_moves_to_current_or_next_word_end() {
+        assert_eq!(
+            resolve_motion_target("alpha beta", 1, MotionKind::WordEndForward),
+            Some(4)
+        );
+        assert_eq!(
+            resolve_motion_target("alpha beta", 5, MotionKind::WordEndForward),
+            Some(9)
+        );
+    }
+
+    #[test]
+    fn japanese_word_forward_uses_lindera_boundaries() {
+        let text = "関西国際空港限定トートバッグ";
+        assert_eq!(
+            resolve_motion_target(text, 0, MotionKind::WordForward),
+            Some("関西国際空港".len())
+        );
+    }
+
+    #[test]
+    fn delete_word_motion_targets_next_word_start() {
+        assert_eq!(
+            resolve_motion_range(
+                "alpha beta",
+                0,
+                MotionKind::WordForward,
+                VimOperator::Delete
+            ),
+            Some(0..6)
+        );
+    }
+
+    #[test]
+    fn change_word_motion_stops_at_current_word_end() {
+        assert_eq!(
+            resolve_motion_range(
+                "alpha beta",
+                0,
+                MotionKind::WordForward,
+                VimOperator::Change
+            ),
+            Some(0..5)
+        );
+    }
+
+    #[test]
+    fn end_motion_range_includes_target_character() {
+        assert_eq!(
+            resolve_motion_range(
+                "alpha beta",
+                0,
+                MotionKind::WordEndForward,
+                VimOperator::Delete
+            ),
+            Some(0..5)
+        );
+    }
+
+    #[test]
+    fn line_delete_range_prefers_trailing_newline() {
+        assert_eq!(current_line_delete_range("one\ntwo", 0), Some(0..4));
+    }
+
+    #[test]
+    fn line_delete_range_uses_leading_newline_for_last_line() {
+        assert_eq!(current_line_delete_range("one\ntwo", 4), Some(3..7));
+    }
+
+    #[test]
+    fn linewise_paste_after_last_line_inserts_newline_prefix() {
+        assert_eq!(
+            resolve_paste(
+                "one",
+                0,
+                &YankRegister::LineWise("two".to_string()),
+                PastePosition::After
+            ),
+            Some((3, "\ntwo".to_string()))
+        );
+    }
+
+    #[test]
+    fn linewise_paste_before_prefixes_line_and_newline() {
+        assert_eq!(
+            resolve_paste(
+                "one\ntwo",
+                4,
+                &YankRegister::LineWise("zero".to_string()),
+                PastePosition::Before
+            ),
+            Some((4, "zero\n".to_string()))
         );
     }
 }
