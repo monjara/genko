@@ -16,8 +16,8 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-gpui = { git = "https://github.com/monjara/zed", branch = "vertical-text-feature" }
-gpui_platform = { git = "https://github.com/monjara/zed", branch = "vertical-text-feature", features = [
+gpui = { package = "gpui", git = "https://github.com/monjara/zed", branch = "vertical-text-feature" }
+gpui_platform = { package = "gpui_platform", git = "https://github.com/monjara/zed", branch = "vertical-text-feature", features = [
   "font-kit",
   "runtime_shaders",
   "wayland",
