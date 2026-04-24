@@ -1,4 +1,3 @@
-use crate::color::{GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
 use std::ops::Range;
 
 use gpui::{
@@ -10,9 +9,8 @@ use gpui::{
 };
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
+use theme::{GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
 use vim::{VimMode, VimState};
-
-mod color;
 
 const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
