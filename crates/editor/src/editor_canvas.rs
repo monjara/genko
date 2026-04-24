@@ -301,6 +301,11 @@ fn paint_cell_text(
     window: &mut Window,
     cx: &mut App,
 ) {
+    if is_vertical_prolonged_sound_mark(&cell_text.text) {
+        paint_vertical_prolonged_sound_mark(cell_bounds, px(3.0), px(CELL_SIZE - 8.0), window);
+        return;
+    }
+
     let style = window.text_style();
     let font_size = px(21.0);
     let line_height = px(24.0);
@@ -337,6 +342,11 @@ fn paint_attached_punctuation(
     window: &mut Window,
     cx: &mut App,
 ) {
+    if is_vertical_prolonged_sound_mark(&cell_text.text) {
+        paint_vertical_prolonged_sound_mark(cell_bounds, px(2.0), px(14.0), window);
+        return;
+    }
+
     let style = window.text_style();
     let font_size = px(14.0);
     let line_height = px(16.0);
@@ -365,6 +375,28 @@ fn paint_attached_punctuation(
         cx,
     )
     .ok();
+}
+
+fn is_vertical_prolonged_sound_mark(text: &str) -> bool {
+    text == "ー"
+}
+
+fn paint_vertical_prolonged_sound_mark(
+    cell_bounds: Bounds<Pixels>,
+    stroke_width: Pixels,
+    stroke_height: Pixels,
+    window: &mut Window,
+) {
+    window.paint_quad(fill(
+        Bounds::new(
+            point(
+                cell_bounds.left() + (px(CELL_SIZE) - stroke_width) / 2.0,
+                cell_bounds.top() + (px(CELL_SIZE) - stroke_height) / 2.0,
+            ),
+            size(stroke_width, stroke_height),
+        ),
+        rgb(TEXT_PRIMARY),
+    ));
 }
 
 pub(crate) fn paint_cursor(
