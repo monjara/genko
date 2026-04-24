@@ -1,4 +1,5 @@
 mod board;
+mod color;
 mod settings_window;
 
 use board::BoardElement;
@@ -7,8 +8,8 @@ use settings_window::SettingsWindow;
 
 use gpui::{
     App, Bounds, Context, Entity, FocusHandle, Focusable, KeyBinding, Menu, MenuItem,
-    ParentElement, Render, SharedString, Styled, Window, WindowBounds, WindowOptions, actions, div,
-    prelude::*, px, rgb, size,
+    ParentElement, Render, Styled, Window, WindowBounds, WindowOptions, actions, div, prelude::*,
+    px, rgb, size,
 };
 
 const DEFAULT_VISIBLE_COLUMNS: usize = 20;
@@ -18,7 +19,6 @@ const CELL_SIZE: f32 = 28.0;
 actions!(genko, [OpenSettings, Quit]);
 
 pub(crate) struct GenkoApp {
-    title: SharedString,
     board: Entity<BoardElement>,
 }
 
@@ -29,39 +29,7 @@ impl GenkoApp {
         let board = cx.new(BoardElement::new);
         cx.observe(&board, |_, _, cx| cx.notify()).detach();
 
-        Self {
-            title: "Genko".into(),
-            board,
-        }
-    }
-
-    fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let board = self.board.read(cx);
-        let mode_label = board.vim_status_label(cx);
-        let scroll_column = board.scroll_column();
-        let visible_columns = board.visible_columns();
-        let total_columns = board.total_columns();
-
-        div()
-            .w_full()
-            .flex()
-            .justify_between()
-            .items_end()
-            .text_color(rgb(0x2f241d))
-            .child(
-                div()
-                    .text_2xl()
-                    .font_weight(gpui::FontWeight::BOLD)
-                    .child(self.title.clone()),
-            )
-            .child(div().text_sm().text_color(rgb(0x705a4a)).child(format!(
-                "vertical{} / {} cells / columns {}-{} of {}",
-                mode_label,
-                board.used_cells(),
-                scroll_column + 1,
-                (scroll_column + visible_columns).min(total_columns),
-                total_columns
-            )))
+        Self { board }
     }
 }
 
@@ -84,7 +52,6 @@ impl Render for GenkoApp {
                     .flex_col()
                     .gap_4()
                     .items_center()
-                    .child(self.render_header(cx))
                     .child(self.board.clone()),
             )
     }
