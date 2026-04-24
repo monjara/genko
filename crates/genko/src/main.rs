@@ -21,7 +21,33 @@ actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
 pub(crate) struct GenkoApp {
     editor: Entity<Editor>,
     vim: Entity<Vim>,
+    vim_mode_status: Entity<VimModeStatus>,
     current_path: Option<PathBuf>,
+    last_viewport_size: Option<gpui::Size<gpui::Pixels>>,
+    last_vim_mode_enabled: Option<bool>,
+}
+
+struct VimModeStatus {
+    vim: Entity<Vim>,
+}
+
+impl VimModeStatus {
+    fn new(vim: Entity<Vim>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&vim, |_, _, cx| cx.notify()).detach();
+        Self { vim }
+    }
+}
+
+impl Render for VimModeStatus {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .right_auto()
+            .py_1()
+            .text_color(rgb(0x2D2416))
+            .border_1()
+            .rounded_sm()
+            .child(self.vim.read(cx).mode_label())
+    }
 }
 
 impl GenkoApp {
@@ -37,13 +63,15 @@ impl GenkoApp {
 
         let editor = cx.new(Editor::new);
         let vim = cx.new(|_| Vim::new(editor.clone()));
-        cx.observe(&editor, |_, _, cx| cx.notify()).detach();
-        cx.observe(&vim, |_, _, cx| cx.notify()).detach();
+        let vim_mode_status = cx.new(|cx| VimModeStatus::new(vim.clone(), cx));
 
         Self {
             editor,
             vim,
+            vim_mode_status,
             current_path: None,
+            last_viewport_size: None,
+            last_vim_mode_enabled: None,
         }
     }
 
@@ -221,21 +249,36 @@ impl Render for GenkoApp {
         self.sync_window_title(window);
         let viewport_size = window.viewport_size();
         let vim_mode_enabled = AppSettings::global(cx).vim_mode;
-        let vim_mode_label = if vim_mode_enabled {
-            Some(self.vim.read(cx).mode_label())
-        } else {
-            None
-        };
-        if vim_mode_enabled {
+        let needs_viewport_sync = self.last_viewport_size != Some(viewport_size)
+            || self.last_vim_mode_enabled != Some(vim_mode_enabled);
+        if needs_viewport_sync && vim_mode_enabled {
             self.vim.update(cx, |vim, cx| {
                 vim.update_viewport_size(viewport_size, cx);
             });
-        } else {
+        } else if needs_viewport_sync {
             self.editor.update(cx, |editor, cx| {
                 editor.update_viewport_size(viewport_size, cx);
                 editor.set_text_input_enabled(true, cx);
             });
         }
+        self.last_viewport_size = Some(viewport_size);
+        self.last_vim_mode_enabled = Some(vim_mode_enabled);
+
+        let content = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .items_start()
+            .child(if vim_mode_enabled {
+                self.vim.clone().into_element()
+            } else {
+                self.editor.clone().into_element()
+            });
+        let content = if vim_mode_enabled {
+            content.child(self.vim_mode_status.clone())
+        } else {
+            content
+        };
 
         div()
             .size_full()
@@ -246,29 +289,7 @@ impl Render for GenkoApp {
             .justify_center()
             .on_action(cx.listener(Self::open_file_action))
             .on_action(cx.listener(Self::save_file_action))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .items_start()
-                    .child(if vim_mode_enabled {
-                        self.vim.clone().into_element()
-                    } else {
-                        self.editor.clone().into_element()
-                    })
-                    .child(if let Some(label) = vim_mode_label {
-                        div()
-                            .right_auto()
-                            .py_1()
-                            .text_color(rgb(0x2D2416))
-                            .border_1()
-                            .rounded_sm()
-                            .child(label)
-                    } else {
-                        div()
-                    }),
-            )
+            .child(content)
     }
 }
 

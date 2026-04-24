@@ -319,6 +319,9 @@ pub(crate) fn paint_grid(
         rgb(GRID_LINE),
     ));
 
+    let mut vertical_dashes = PathBuilder::stroke(px(1.0)).dash_array(&[px(2.0), px(2.0)]);
+    let mut horizontal_dashes = PathBuilder::stroke(px(1.0)).dash_array(&[px(2.0), px(2.0)]);
+
     for column in 0..visible_columns {
         let column_left =
             board_x_for_visible_column(bounds.left(), column, cell_size, ruby_gutter_size);
@@ -326,23 +329,20 @@ pub(crate) fn paint_grid(
         let has_ruby_gutter = column + 1 < visible_columns;
 
         if column > 0 {
-            paint_dashed_vertical_line(
-                point(column_left + px(0.5), bounds.top()),
-                bounds.size.height,
-                window,
-            );
+            let x = column_left + px(0.5);
+            vertical_dashes.move_to(point(x, bounds.top()));
+            vertical_dashes.line_to(point(x, bounds.bottom()));
         }
         if has_ruby_gutter {
-            paint_dashed_vertical_line(
-                point(column_right + px(0.5), bounds.top()),
-                bounds.size.height,
-                window,
-            );
+            let x = column_right + px(0.5);
+            vertical_dashes.move_to(point(x, bounds.top()));
+            vertical_dashes.line_to(point(x, bounds.bottom()));
         }
 
         for row in 1..visible_rows {
             let y = bounds.top() + px(row as f32 * cell_size);
-            paint_dashed_horizontal_line(point(column_left, y + px(0.5)), px(cell_size), window);
+            horizontal_dashes.move_to(point(column_left, y + px(0.5)));
+            horizontal_dashes.line_to(point(column_left + px(cell_size), y + px(0.5)));
         }
 
         if has_ruby_gutter {
@@ -362,22 +362,11 @@ pub(crate) fn paint_grid(
             ));
         }
     }
-}
 
-fn paint_dashed_horizontal_line(origin: gpui::Point<Pixels>, width: Pixels, window: &mut Window) {
-    let mut builder = PathBuilder::stroke(px(1.0)).dash_array(&[px(2.0), px(2.0)]);
-    builder.move_to(origin);
-    builder.line_to(point(origin.x + width, origin.y));
-    if let Ok(path) = builder.build() {
+    if let Ok(path) = vertical_dashes.build() {
         window.paint_path(path, rgb(GRID_LINE));
     }
-}
-
-fn paint_dashed_vertical_line(origin: gpui::Point<Pixels>, height: Pixels, window: &mut Window) {
-    let mut builder = PathBuilder::stroke(px(1.0)).dash_array(&[px(2.0), px(2.0)]);
-    builder.move_to(origin);
-    builder.line_to(point(origin.x, origin.y + height));
-    if let Ok(path) = builder.build() {
+    if let Ok(path) = horizontal_dashes.build() {
         window.paint_path(path, rgb(GRID_LINE));
     }
 }
