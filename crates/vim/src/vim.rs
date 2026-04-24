@@ -33,8 +33,13 @@ actions!(
         VimMoveWordForward,
         VimMoveBigWordForward,
         VimMoveWordEndForward,
+        VimMoveLeft,
+        VimMoveDown,
+        VimMoveUp,
+        VimMoveRight,
         VimPasteAfter,
         VimPasteBefore,
+        VimOpenNextColumn,
         VimUndo,
         VimRedo,
         VimRepeatLastChange,
@@ -270,9 +275,22 @@ impl Vim {
             KeyBinding::new("u", VimUndo, Some("vim_mode == normal")),
             KeyBinding::new("ctrl-r", VimRedo, Some("vim_mode == normal")),
             KeyBinding::new(".", VimRepeatLastChange, Some("vim_mode == normal")),
-            KeyBinding::new("w", VimMoveWordForward, Some("vim_mode == normal")),
-            KeyBinding::new("W", VimMoveBigWordForward, Some("vim_mode == normal")),
-            KeyBinding::new("e", VimMoveWordEndForward, Some("vim_mode == normal")),
+            KeyBinding::new(
+                "w",
+                VimMoveWordForward,
+                Some("vim_mode == normal || vim_mode == visual"),
+            ),
+            KeyBinding::new(
+                "W",
+                VimMoveBigWordForward,
+                Some("vim_mode == normal || vim_mode == visual"),
+            ),
+            KeyBinding::new(
+                "e",
+                VimMoveWordEndForward,
+                Some("vim_mode == normal || vim_mode == visual"),
+            ),
+            KeyBinding::new("o", VimOpenNextColumn, Some("vim_mode == normal")),
             KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == operator_delete")),
             KeyBinding::new("c", VimChangeOperator, Some("vim_mode == operator_change")),
             KeyBinding::new("y", VimYankOperator, Some("vim_mode == operator_yank")),
@@ -505,22 +523,22 @@ impl Vim {
             ),
             KeyBinding::new(
                 "h",
-                editor::Left,
+                VimMoveLeft,
                 Some("vim_mode == normal || vim_mode == visual"),
             ),
             KeyBinding::new(
                 "j",
-                editor::Down,
+                VimMoveDown,
                 Some("vim_mode == normal || vim_mode == visual"),
             ),
             KeyBinding::new(
                 "k",
-                editor::Up,
+                VimMoveUp,
                 Some("vim_mode == normal || vim_mode == visual"),
             ),
             KeyBinding::new(
                 "l",
-                editor::Right,
+                VimMoveRight,
                 Some("vim_mode == normal || vim_mode == visual"),
             ),
             KeyBinding::new(
@@ -633,10 +651,28 @@ impl Vim {
     }
 
     fn delete_char(&mut self, cx: &mut Context<Self>) {
+        let (range, yanked, repeatable) = {
+            let editor = self.editor.read(cx);
+            if self.state.mode() == VimMode::Visual && !editor.selected_byte_range().is_empty() {
+                let range = editor.selected_byte_range();
+                let yanked = editor.text_in_range(range.clone());
+                (range, yanked, None)
+            } else {
+                let start = editor.cursor_byte_offset();
+                let end = editor.offset_after_cursor();
+                let range = start..end;
+                let yanked = editor.text_in_range(range.clone());
+                (range, yanked, Some(RepeatableCommand::DeleteChar))
+            }
+        };
+        if range.is_empty() {
+            return;
+        }
+        self.yank_register = YankRegister::CharWise(yanked);
         self.editor.update(cx, |editor, cx| {
-            editor.delete_forward_command(cx);
+            editor.replace_byte_range(range, "", cx);
         });
-        self.last_change = Some(RepeatableCommand::DeleteChar);
+        self.last_change = repeatable;
         self.state.set_mode(VimMode::Normal);
         self.state.set_visual_anchor_cell(None);
         self.state.clear_pending();
@@ -648,16 +684,13 @@ impl Vim {
     }
 
     fn paste_after(&mut self, cx: &mut Context<Self>) {
-        let (text, cursor) = {
+        let cursor = {
             let editor = self.editor.read(cx);
-            (editor.snapshot_text(), editor.cursor_byte_offset())
+            editor.cursor_byte_offset()
         };
-        let Some((insertion_offset, inserted_text)) = resolve_paste(
-            text.as_str(),
-            cursor,
-            &self.yank_register,
-            PastePosition::After,
-        ) else {
+        let Some((insertion_offset, inserted_text)) =
+            self.resolve_paste(cursor, PastePosition::After, cx)
+        else {
             return;
         };
 
@@ -678,16 +711,13 @@ impl Vim {
     }
 
     fn paste_before(&mut self, cx: &mut Context<Self>) {
-        let (text, cursor) = {
+        let cursor = {
             let editor = self.editor.read(cx);
-            (editor.snapshot_text(), editor.cursor_byte_offset())
+            editor.cursor_byte_offset()
         };
-        let Some((insertion_offset, inserted_text)) = resolve_paste(
-            text.as_str(),
-            cursor,
-            &self.yank_register,
-            PastePosition::Before,
-        ) else {
+        let Some((insertion_offset, inserted_text)) =
+            self.resolve_paste(cursor, PastePosition::Before, cx)
+        else {
             return;
         };
 
@@ -755,10 +785,50 @@ impl Vim {
             return;
         };
 
+        if self.state.mode() == VimMode::Visual {
+            self.editor.update(cx, |editor, cx| {
+                editor.move_cursor_to_byte_offset(target, cx);
+            });
+            self.sync_visual_selection_for_current_cursor(cx);
+        } else {
+            self.editor.update(cx, |editor, cx| {
+                editor.move_cursor_to_byte_offset(target, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    fn move_by_cells(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let is_visual = self.state.mode() == VimMode::Visual;
         self.editor.update(cx, |editor, cx| {
-            editor.move_cursor_to_byte_offset(target, cx);
+            if is_visual {
+                editor.select_cursor_by(delta, cx);
+            } else {
+                editor.move_cursor_by(delta, cx);
+            }
         });
         cx.notify();
+    }
+
+    fn open_next_column(&mut self, cx: &mut Context<Self>) {
+        let target_cell = {
+            let editor = self.editor.read(cx);
+            let rows_per_column = editor.rows_per_column();
+            let used_cells = editor.used_cells();
+            let current_cell = if used_cells == 0 {
+                0
+            } else if editor.cursor_cell() >= used_cells {
+                used_cells.saturating_sub(1)
+            } else {
+                editor.cursor_cell()
+            };
+            ((current_cell / rows_per_column) + 1) * rows_per_column
+        };
+        self.editor.update(cx, |editor, cx| {
+            editor.move_cursor_to_display_cell(target_cell, cx);
+        });
+        let before_text = self.editor.read(cx).snapshot_text();
+        self.start_insert_session(InsertKind::Insert, None, before_text, cx);
     }
 
     fn apply_motion(
@@ -826,7 +896,7 @@ impl Vim {
             VimOperator::Yank => {
                 let yanked = self.editor.read(cx).text_in_range(range);
                 self.yank_register = if repeat_target == Some(RepeatTarget::Line) {
-                    YankRegister::LineWise(trim_trailing_newline(&yanked))
+                    YankRegister::LineWise(yanked)
                 } else {
                     YankRegister::CharWise(yanked)
                 };
@@ -834,7 +904,7 @@ impl Vim {
             VimOperator::Delete | VimOperator::Change => {
                 if repeat_target == Some(RepeatTarget::Line) {
                     let yanked = self.editor.read(cx).text_in_range(range.clone());
-                    self.yank_register = YankRegister::LineWise(trim_trailing_newline(&yanked));
+                    self.yank_register = YankRegister::LineWise(yanked);
                 }
                 if operator == VimOperator::Change {
                     self.editor.update(cx, |editor, _| {
@@ -884,16 +954,27 @@ impl Vim {
     }
 
     fn apply_current_line_operator(&mut self, operator: VimOperator, cx: &mut Context<Self>) {
-        let (text, cursor) = {
+        let (cursor_cell, rows_per_column, used_cells) = {
             let editor = self.editor.read(cx);
-            (editor.snapshot_text(), editor.cursor_byte_offset())
+            (
+                editor.cursor_cell(),
+                editor.rows_per_column(),
+                editor.used_cells(),
+            )
         };
-        let Some(range) = current_line_delete_range(text.as_str(), cursor) else {
+        let Some(cell_range) = current_column_cell_range(cursor_cell, rows_per_column, used_cells)
+        else {
             self.state.clear_pending();
             cx.notify();
             return;
         };
+        let range = {
+            let editor = self.editor.read(cx);
+            editor.byte_offset_for_display_cell(cell_range.start)
+                ..editor.byte_offset_for_display_cell(cell_range.end)
+        };
 
+        let text = self.editor.read(cx).snapshot_text();
         self.apply_operator_to_range(operator, range, Some(RepeatTarget::Line), &text, cx);
     }
 
@@ -950,10 +1031,30 @@ impl Vim {
             let editor = self.editor.read(cx);
             (editor.snapshot_text(), editor.cursor_byte_offset())
         };
-        let Some(range) =
-            resolve_repeat_target_range(&text, cursor, target, inserted_text.is_some())
-        else {
-            return;
+        let range = if target == RepeatTarget::Line {
+            let (cursor_cell, rows_per_column, used_cells) = {
+                let editor = self.editor.read(cx);
+                (
+                    editor.cursor_cell(),
+                    editor.rows_per_column(),
+                    editor.used_cells(),
+                )
+            };
+            let Some(cell_range) =
+                current_column_cell_range(cursor_cell, rows_per_column, used_cells)
+            else {
+                return;
+            };
+            let editor = self.editor.read(cx);
+            editor.byte_offset_for_display_cell(cell_range.start)
+                ..editor.byte_offset_for_display_cell(cell_range.end)
+        } else {
+            let Some(range) =
+                resolve_repeat_target_range(&text, cursor, target, inserted_text.is_some())
+            else {
+                return;
+            };
+            range
         };
 
         if let Some(inserted_text) = inserted_text {
@@ -1014,6 +1115,43 @@ impl Vim {
             inserted_text,
         });
         cx.notify();
+    }
+
+    fn resolve_paste(
+        &self,
+        cursor_byte_offset: usize,
+        position: PastePosition,
+        cx: &App,
+    ) -> Option<(usize, String)> {
+        match &self.yank_register {
+            YankRegister::Empty => None,
+            YankRegister::CharWise(content) => {
+                let text = self.editor.read(cx).snapshot_text();
+                let insertion_offset = match position {
+                    PastePosition::Before => cursor_byte_offset,
+                    PastePosition::After => next_char_end(text.as_str(), cursor_byte_offset),
+                };
+                Some((insertion_offset, content.clone()))
+            }
+            YankRegister::LineWise(content) => {
+                let editor = self.editor.read(cx);
+                let cell_range = current_column_cell_range(
+                    editor.cursor_cell(),
+                    editor.rows_per_column(),
+                    editor.used_cells(),
+                );
+                let insertion_offset = match (position, cell_range) {
+                    (_, None) => 0,
+                    (PastePosition::Before, Some(cell_range)) => {
+                        editor.byte_offset_for_display_cell(cell_range.start)
+                    }
+                    (PastePosition::After, Some(cell_range)) => {
+                        editor.byte_offset_for_display_cell(cell_range.end)
+                    }
+                };
+                Some((insertion_offset, content.clone()))
+            }
+        }
     }
 
     fn sync_visual_selection_for_current_cursor(&mut self, cx: &mut Context<Self>) {
@@ -1189,6 +1327,24 @@ impl Vim {
         self.move_by_motion(MotionKind::WordEndForward, cx);
     }
 
+    fn vim_move_left(&mut self, _: &VimMoveLeft, _window: &mut Window, cx: &mut Context<Self>) {
+        let rows_per_column = self.editor.read(cx).rows_per_column() as isize;
+        self.move_by_cells(rows_per_column, cx);
+    }
+
+    fn vim_move_down(&mut self, _: &VimMoveDown, _window: &mut Window, cx: &mut Context<Self>) {
+        self.move_by_cells(1, cx);
+    }
+
+    fn vim_move_up(&mut self, _: &VimMoveUp, _window: &mut Window, cx: &mut Context<Self>) {
+        self.move_by_cells(-1, cx);
+    }
+
+    fn vim_move_right(&mut self, _: &VimMoveRight, _window: &mut Window, cx: &mut Context<Self>) {
+        let rows_per_column = self.editor.read(cx).rows_per_column() as isize;
+        self.move_by_cells(-rows_per_column, cx);
+    }
+
     fn vim_paste_after(&mut self, _: &VimPasteAfter, _window: &mut Window, cx: &mut Context<Self>) {
         self.paste_after(cx);
     }
@@ -1200,6 +1356,15 @@ impl Vim {
         cx: &mut Context<Self>,
     ) {
         self.paste_before(cx);
+    }
+
+    fn vim_open_next_column(
+        &mut self,
+        _: &VimOpenNextColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_next_column(cx);
     }
 
     fn vim_undo(&mut self, _: &VimUndo, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1217,30 +1382,6 @@ impl Vim {
         cx: &mut Context<Self>,
     ) {
         self.repeat_last_change(cx);
-    }
-
-    fn on_up(&mut self, _: &editor::Up, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.mode() == VimMode::Visual {
-            self.sync_visual_selection_for_current_cursor(cx);
-        }
-    }
-
-    fn on_down(&mut self, _: &editor::Down, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.mode() == VimMode::Visual {
-            self.sync_visual_selection_for_current_cursor(cx);
-        }
-    }
-
-    fn on_left(&mut self, _: &editor::Left, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.mode() == VimMode::Visual {
-            self.sync_visual_selection_for_current_cursor(cx);
-        }
-    }
-
-    fn on_right(&mut self, _: &editor::Right, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.mode() == VimMode::Visual {
-            self.sync_visual_selection_for_current_cursor(cx);
-        }
     }
 }
 
@@ -1268,15 +1409,16 @@ impl Render for Vim {
             .on_action(cx.listener(Self::vim_move_word_forward))
             .on_action(cx.listener(Self::vim_move_big_word_forward))
             .on_action(cx.listener(Self::vim_move_word_end_forward))
+            .on_action(cx.listener(Self::vim_move_left))
+            .on_action(cx.listener(Self::vim_move_down))
+            .on_action(cx.listener(Self::vim_move_up))
+            .on_action(cx.listener(Self::vim_move_right))
             .on_action(cx.listener(Self::vim_paste_after))
             .on_action(cx.listener(Self::vim_paste_before))
+            .on_action(cx.listener(Self::vim_open_next_column))
             .on_action(cx.listener(Self::vim_undo))
             .on_action(cx.listener(Self::vim_redo))
             .on_action(cx.listener(Self::vim_repeat_last_change))
-            .on_action(cx.listener(Self::on_up))
-            .on_action(cx.listener(Self::on_down))
-            .on_action(cx.listener(Self::on_left))
-            .on_action(cx.listener(Self::on_right))
             .child(self.editor.clone())
     }
 }
@@ -1394,7 +1536,7 @@ fn resolve_repeat_target_range(
         RepeatTarget::TextObject(modifier, target) => {
             resolve_text_object_range(text, cursor_byte_offset, modifier, target)
         }
-        RepeatTarget::Line => current_line_delete_range(text, cursor_byte_offset),
+        RepeatTarget::Line => None,
     }
 }
 
@@ -1799,136 +1941,59 @@ enum PastePosition {
     After,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct LineBounds {
-    start: usize,
-    end_content: usize,
-    end_with_newline: usize,
-}
-
-fn resolve_paste(
-    text: &str,
-    cursor_byte_offset: usize,
-    register: &YankRegister,
-    position: PastePosition,
-) -> Option<(usize, String)> {
-    match register {
-        YankRegister::Empty => None,
-        YankRegister::CharWise(content) => {
-            let insertion_offset = match position {
-                PastePosition::Before => cursor_byte_offset,
-                PastePosition::After => next_char_end(text, cursor_byte_offset),
-            };
-            Some((insertion_offset, content.clone()))
-        }
-        YankRegister::LineWise(content) => {
-            let line = current_line_bounds(text, cursor_byte_offset)?;
-            let insertion_offset = match position {
-                PastePosition::Before => line.start,
-                PastePosition::After => {
-                    if line.end_with_newline > line.end_content {
-                        line.end_with_newline
-                    } else {
-                        line.end_content
-                    }
-                }
-            };
-            let inserted = match position {
-                PastePosition::Before => linewise_text_before(content, text.is_empty()),
-                PastePosition::After => linewise_text_after(
-                    content,
-                    text.is_empty(),
-                    line.end_with_newline == text.len(),
-                ),
-            };
-            Some((insertion_offset, inserted))
-        }
-    }
-}
-
-fn current_line_bounds(text: &str, cursor_byte_offset: usize) -> Option<LineBounds> {
-    if text.is_empty() {
-        return Some(LineBounds {
-            start: 0,
-            end_content: 0,
-            end_with_newline: 0,
-        });
+fn current_column_cell_range(
+    cursor_cell: usize,
+    rows_per_column: usize,
+    used_cells: usize,
+) -> Option<Range<usize>> {
+    if used_cells == 0 || rows_per_column == 0 {
+        return None;
     }
 
-    let cursor = cursor_byte_offset.min(text.len());
-    let start = text[..cursor]
-        .rfind('\n')
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    let end_content = text[start..]
-        .find('\n')
-        .map(|index| start + index)
-        .unwrap_or(text.len());
-    let end_with_newline = if end_content < text.len() {
-        end_content + 1
+    let target_cell = if cursor_cell >= used_cells {
+        used_cells.saturating_sub(1)
     } else {
-        end_content
+        cursor_cell
     };
-
-    Some(LineBounds {
-        start,
-        end_content,
-        end_with_newline,
-    })
-}
-
-fn current_line_delete_range(text: &str, cursor_byte_offset: usize) -> Option<Range<usize>> {
-    let line = current_line_bounds(text, cursor_byte_offset)?;
-    if line.end_with_newline > line.end_content {
-        return Some(line.start..line.end_with_newline);
-    }
-    if line.start > 0 {
-        return Some(previous_char_start(text, line.start)..line.end_content);
-    }
-    Some(line.start..line.end_content)
-}
-
-fn trim_trailing_newline(text: &str) -> String {
-    text.strip_suffix('\n').unwrap_or(text).to_string()
+    let column_index = target_cell / rows_per_column;
+    let start = column_index * rows_per_column;
+    let end = (start + rows_per_column).min(used_cells);
+    Some(start..end)
 }
 
 fn inserted_text_between(before: &str, after: &str) -> String {
     let mut prefix_len = 0usize;
-    let prefix_max = before.len().min(after.len());
-    while prefix_len < prefix_max && before.as_bytes()[prefix_len] == after.as_bytes()[prefix_len] {
-        prefix_len += 1;
+    let mut before_chars = before.chars();
+    let mut after_chars = after.chars();
+    loop {
+        match (before_chars.next(), after_chars.next()) {
+            (Some(before_ch), Some(after_ch)) if before_ch == after_ch => {
+                prefix_len += before_ch.len_utf8();
+            }
+            _ => break,
+        }
     }
 
-    let mut before_suffix = before.len();
-    let mut after_suffix = after.len();
-    while before_suffix > prefix_len
-        && after_suffix > prefix_len
-        && before.as_bytes()[before_suffix - 1] == after.as_bytes()[after_suffix - 1]
-    {
-        before_suffix -= 1;
-        after_suffix -= 1;
+    let before_remaining = &before[prefix_len..];
+    let after_remaining = &after[prefix_len..];
+    let mut shared_suffix_len = 0usize;
+    let mut before_rev = before_remaining.chars().rev();
+    let mut after_rev = after_remaining.chars().rev();
+    loop {
+        match (before_rev.next(), after_rev.next()) {
+            (Some(before_ch), Some(after_ch))
+                if before_ch == after_ch
+                    && shared_suffix_len + before_ch.len_utf8() <= before_remaining.len()
+                    && shared_suffix_len + after_ch.len_utf8() <= after_remaining.len() =>
+            {
+                shared_suffix_len += after_ch.len_utf8();
+            }
+            _ => break,
+        }
     }
 
-    after[prefix_len..after_suffix].to_string()
-}
-
-fn linewise_text_before(content: &str, is_empty_document: bool) -> String {
-    if is_empty_document {
-        content.to_string()
-    } else {
-        format!("{content}\n")
-    }
-}
-
-fn linewise_text_after(content: &str, is_empty_document: bool, after_last_line: bool) -> String {
-    if is_empty_document {
-        return content.to_string();
-    }
-    if after_last_line {
-        format!("\n{content}")
-    } else {
-        format!("{content}\n")
-    }
+    let after_end = after.len().saturating_sub(shared_suffix_len);
+    after[prefix_len..after_end].to_string()
 }
 
 fn is_word_char(ch: char) -> bool {
@@ -2201,38 +2266,34 @@ mod tests {
     }
 
     #[test]
-    fn line_delete_range_prefers_trailing_newline() {
-        assert_eq!(current_line_delete_range("one\ntwo", 0), Some(0..4));
+    fn current_column_cell_range_returns_current_column_bounds() {
+        assert_eq!(current_column_cell_range(0, 4, 10), Some(0..4));
+        assert_eq!(current_column_cell_range(4, 4, 10), Some(4..8));
+        assert_eq!(current_column_cell_range(8, 4, 10), Some(8..10));
     }
 
     #[test]
-    fn line_delete_range_uses_leading_newline_for_last_line() {
-        assert_eq!(current_line_delete_range("one\ntwo", 4), Some(3..7));
+    fn current_column_cell_range_uses_last_non_empty_column_for_end_cursor() {
+        assert_eq!(current_column_cell_range(10, 4, 10), Some(8..10));
     }
 
     #[test]
-    fn linewise_paste_after_last_line_inserts_newline_prefix() {
+    fn current_column_cell_range_returns_none_for_empty_document() {
+        assert_eq!(current_column_cell_range(0, 4, 0), None);
+        assert_eq!(current_column_cell_range(0, 0, 10), None);
+    }
+
+    #[test]
+    fn resolve_repeat_target_range_ignores_line_targets() {
         assert_eq!(
-            resolve_paste(
-                "one",
-                0,
-                &YankRegister::LineWise("two".to_string()),
-                PastePosition::After
-            ),
-            Some((3, "\ntwo".to_string()))
+            resolve_repeat_target_range("abc", 0, RepeatTarget::Line, false),
+            None
         );
     }
 
     #[test]
-    fn linewise_paste_before_prefixes_line_and_newline() {
-        assert_eq!(
-            resolve_paste(
-                "one\ntwo",
-                4,
-                &YankRegister::LineWise("zero".to_string()),
-                PastePosition::Before
-            ),
-            Some((4, "zero\n".to_string()))
-        );
+    fn inserted_text_between_handles_multibyte_text() {
+        assert_eq!(inserted_text_between("かな", "かな文字"), "文字");
+        assert_eq!(inserted_text_between("何かな入力", "何wかな入力"), "w");
     }
 }

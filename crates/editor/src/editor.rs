@@ -121,12 +121,28 @@ impl Editor {
         self.state.cursor_offset()
     }
 
+    pub fn rows_per_column(&self) -> usize {
+        self.state.rows_per_column()
+    }
+
+    pub fn used_cells(&self) -> usize {
+        self.state.used_cells()
+    }
+
+    pub fn byte_offset_for_display_cell(&self, display_cell_index: usize) -> usize {
+        self.state.byte_offset_for_display_cell(display_cell_index)
+    }
+
     pub fn snapshot_text(&self) -> String {
         self.state.draft.slice(0..self.state.draft.len_bytes())
     }
 
     pub fn text_in_range(&self, range: Range<usize>) -> String {
         self.state.draft.slice(range)
+    }
+
+    pub fn selected_byte_range(&self) -> Range<usize> {
+        self.state.selected_range.clone()
     }
 
     pub fn offset_after_cursor(&self) -> usize {
@@ -136,6 +152,10 @@ impl Editor {
     pub fn move_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
         let target = self.state.cursor_cell.saturating_add_signed(delta);
         self.move_to_display_cell(target, cx);
+    }
+
+    pub fn move_cursor_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
+        self.move_to_display_cell(cell_index, cx);
     }
 
     pub fn move_cursor_to_byte_offset(&mut self, byte_offset: usize, cx: &mut Context<Self>) {
