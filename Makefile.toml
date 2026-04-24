@@ -18,8 +18,8 @@ command = "cargo"
 args = ["test", "--offline", "--target", "${@}"]
 
 [tasks.new]
-command = "cargo"
-args = ["new", "--lib", "./crates/${@}", "--vcs", "none"]
+command = "./scripts/new_crate.py"
+args = ["${@}"]
 
 [tasks.configure]
 command = "nvim"

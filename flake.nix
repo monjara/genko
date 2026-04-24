@@ -5,8 +5,15 @@
     utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { nixpkgs, utils, naersk, ... }:
-    utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      nixpkgs,
+      utils,
+      naersk,
+      ...
+    }:
+    utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
@@ -44,33 +51,46 @@
           commonBuildInputs
           ++ lib.optionals pkgs.stdenv.isLinux linuxBuildInputs
           ++ lib.optionals pkgs.stdenv.isDarwin darwinBuildInputs;
-        devTools = with pkgs; [
-          cargo
-          cargo-make
-          cargo-watch
-          nixpkgs-fmt
-          pre-commit
-          rust-analyzer
-          rustPackages.clippy
-          rustc
-          rustfmt
-        ] ++ lib.optionals pkgs.stdenv.isLinux (with pkgs; [
-          vulkan-tools
-        ]);
+        devTools =
+          with pkgs;
+          [
+            cargo
+            cargo-make
+            cargo-watch
+            nixpkgs-fmt
+            pre-commit
+            rust-analyzer
+            rustPackages.clippy
+            rustc
+            rustfmt
+
+            python313
+            python313Packages.tomlkit
+            ty
+          ]
+          ++ lib.optionals pkgs.stdenv.isLinux (
+            with pkgs;
+            [
+              vulkan-tools
+            ]
+          );
         runtimeLibraryPath = pkgs.lib.makeLibraryPath buildInputs;
         package = naersk-lib.buildPackage {
           src = ./.;
           inherit nativeBuildInputs buildInputs;
         };
-        devShell = pkgs.mkShell ({
-          packages = devTools;
-          inherit nativeBuildInputs buildInputs;
+        devShell = pkgs.mkShell (
+          {
+            packages = devTools;
+            inherit nativeBuildInputs buildInputs;
 
-          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-          RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
-        } // lib.optionalAttrs pkgs.stdenv.isLinux {
-          LD_LIBRARY_PATH = runtimeLibraryPath;
-        });
+            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+            RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
+          }
+          // lib.optionalAttrs pkgs.stdenv.isLinux {
+            LD_LIBRARY_PATH = runtimeLibraryPath;
+          }
+        );
       in
       {
         packages.default = package;
