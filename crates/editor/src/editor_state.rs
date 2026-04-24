@@ -3,7 +3,6 @@ use std::ops::Range;
 use gpui::App;
 use rope::{CellText, TextRope};
 use settings::AppSettings;
-use vim::{VimMode, VimState};
 
 use crate::DEFAULT_VISIBLE_COLUMNS;
 
@@ -17,7 +16,7 @@ pub(crate) struct EditorState {
     pub(crate) scroll_column: usize,
     pub(crate) scroll_remainder_columns: f32,
     pub(crate) visible_columns: usize,
-    pub(crate) vim: VimState,
+    pub(crate) text_input_enabled: bool,
 }
 
 impl EditorState {
@@ -36,7 +35,7 @@ impl EditorState {
             scroll_column: 0,
             scroll_remainder_columns: 0.0,
             visible_columns: DEFAULT_VISIBLE_COLUMNS,
-            vim: VimState::new(AppSettings::global(cx).vim_mode),
+            text_input_enabled: true,
         }
     }
 
@@ -55,14 +54,6 @@ impl EditorState {
         } else {
             self.selected_range.end
         }
-    }
-
-    pub(crate) fn vim_key_context(&self, cx: &App) -> &'static str {
-        self.vim.key_context(AppSettings::global(cx).vim_mode)
-    }
-
-    pub(crate) fn is_vim_command_mode(&self, cx: &App) -> bool {
-        self.vim.is_command_mode(AppSettings::global(cx).vim_mode)
     }
 
     pub(crate) fn visible_text(&self) -> Vec<CellText> {
@@ -94,12 +85,6 @@ impl EditorState {
         self.rows_per_column = rows_per_column;
         self.draft.set_rows_per_column(rows_per_column);
         self.cursor_cell = self.display_cell_for_byte(cursor_offset);
-        if self.vim.mode() == VimMode::Visual {
-            self.selected_range = cursor_offset..cursor_offset;
-            self.selection_reversed = false;
-            self.vim.set_mode(VimMode::Normal);
-        }
-        self.vim.set_visual_anchor_cell(None);
         self.ensure_cursor_visible();
     }
 
@@ -189,7 +174,6 @@ impl EditorState {
         self.selection_reversed = false;
         self.cursor_cell = self.display_cell_for_byte(cursor_offset);
         self.marked_range = None;
-        self.vim.set_visual_anchor_cell(None);
         self.ensure_cursor_visible();
     }
 

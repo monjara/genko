@@ -1,7 +1,9 @@
 mod settings_window;
 
 use editor::Editor;
+use settings::AppSettings;
 use settings_window::SettingsWindow;
+use vim::Vim;
 
 use theme::APP_BACKGROUND;
 
@@ -15,6 +17,7 @@ actions!(genko, [OpenSettings, Quit]);
 
 pub(crate) struct GenkoApp {
     editor: Entity<Editor>,
+    vim: Entity<Vim>,
 }
 
 impl GenkoApp {
@@ -23,18 +26,27 @@ impl GenkoApp {
         cx.bind_keys([KeyBinding::new("ctrl-,", OpenSettings, None)]);
 
         let editor = cx.new(Editor::new);
+        let vim = cx.new(|_| Vim::new(editor.clone()));
         cx.observe(&editor, |_, _, cx| cx.notify()).detach();
+        cx.observe(&vim, |_, _, cx| cx.notify()).detach();
 
-        Self { editor }
+        Self { editor, vim }
     }
 }
 
 impl Render for GenkoApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let viewport_size = window.viewport_size();
-        self.editor.update(cx, |editor, cx| {
-            editor.update_viewport_size(viewport_size, cx);
-        });
+        let vim_mode_enabled = AppSettings::global(cx).vim_mode;
+        if vim_mode_enabled {
+            self.vim.update(cx, |vim, cx| {
+                vim.update_viewport_size(viewport_size, cx);
+            });
+        } else {
+            self.editor.update(cx, |editor, cx| {
+                editor.update_viewport_size(viewport_size, cx);
+            });
+        }
 
         div()
             .size_full()
@@ -48,14 +60,22 @@ impl Render for GenkoApp {
                     .flex_col()
                     .gap_4()
                     .items_center()
-                    .child(self.editor.clone()),
+                    .child(if vim_mode_enabled {
+                        self.vim.clone().into_element()
+                    } else {
+                        self.editor.clone().into_element()
+                    }),
             )
     }
 }
 
 impl Focusable for GenkoApp {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.editor.focus_handle(cx)
+        if AppSettings::global(cx).vim_mode {
+            self.vim.focus_handle(cx)
+        } else {
+            self.editor.focus_handle(cx)
+        }
     }
 }
 
@@ -85,6 +105,7 @@ fn main() {
     gpui_platform::application().run(|cx: &mut App| {
         settings::init(cx);
         Editor::bind_keys(cx);
+        Vim::bind_keys(cx);
 
         let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
 

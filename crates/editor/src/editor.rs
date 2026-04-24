@@ -7,7 +7,6 @@ use gpui::{
 };
 use rope::utf16_to_byte_in_text;
 use settings::AppSettings;
-use vim::VimMode;
 
 use crate::{
     editor_canvas::{
@@ -46,11 +45,6 @@ actions!(
         Copy,
         Enter,
         ShowCharacterPalette,
-        VimEnterInsertMode,
-        VimAppend,
-        VimNormalMode,
-        VimVisualMode,
-        VimDeleteChar,
     ]
 );
 
@@ -85,22 +79,6 @@ impl Editor {
             gpui::KeyBinding::new("home", Home, None),
             gpui::KeyBinding::new("end", End, None),
             gpui::KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
-            gpui::KeyBinding::new("i", VimEnterInsertMode, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("a", VimAppend, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == insert")),
-            gpui::KeyBinding::new("escape", VimNormalMode, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("v", VimVisualMode, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("v", VimNormalMode, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("h", Left, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("j", Down, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("k", Up, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("l", Right, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("h", Left, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("j", Down, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("k", Up, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("l", Right, Some("Genko && vim_mode == visual")),
-            gpui::KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == normal")),
-            gpui::KeyBinding::new("x", VimDeleteChar, Some("Genko && vim_mode == visual")),
         ]);
     }
 
@@ -121,12 +99,80 @@ impl Editor {
         }
     }
 
+    pub fn set_text_input_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.state.text_input_enabled == enabled {
+            return;
+        }
+
+        self.state.text_input_enabled = enabled;
+        if enabled {
+            let cursor_offset = self.state.cursor_offset();
+            self.state.selected_range = cursor_offset..cursor_offset;
+            self.state.selection_reversed = false;
+        }
+        cx.notify();
+    }
+
+    pub fn cursor_cell(&self) -> usize {
+        self.state.cursor_cell
+    }
+
+    pub fn move_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let target = self.state.cursor_cell.saturating_add_signed(delta);
+        self.move_to_display_cell(target, cx);
+    }
+
+    pub fn select_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let target = self.state.cursor_cell.saturating_add_signed(delta);
+        self.select_to_display_cell(target, cx);
+    }
+
+    pub fn select_visual_range(
+        &mut self,
+        anchor_cell: usize,
+        cursor_cell: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let start_cell = anchor_cell.min(cursor_cell);
+        let end_cell = anchor_cell.max(cursor_cell);
+        let start = self.state.draft.byte_offset_for_display_cell(start_cell);
+        let end = self
+            .state
+            .next_boundary(self.state.draft.byte_offset_for_display_cell(end_cell))
+            .max(start);
+        self.state.selected_range = start..end;
+        self.state.selection_reversed = cursor_cell < anchor_cell;
+        self.state.cursor_cell = cursor_cell;
+        self.state.ensure_cursor_visible();
+        cx.notify();
+    }
+
+    pub fn collapse_selection_to_cursor_offset(&mut self, cx: &mut Context<Self>) {
+        let cursor_offset = self.state.cursor_offset();
+        self.state.selected_range = cursor_offset..cursor_offset;
+        self.state.selection_reversed = false;
+        self.state.marked_range = None;
+        self.state.ensure_cursor_visible();
+        cx.notify();
+    }
+
+    pub fn collapse_selection_to_cursor_cell(&mut self, cx: &mut Context<Self>) {
+        let cursor_offset = self
+            .state
+            .byte_offset_for_display_cell(self.state.cursor_cell);
+        self.state.set_cursor_from_offset(cursor_offset);
+        cx.notify();
+    }
+
+    pub fn delete_forward_command(&mut self, cx: &mut Context<Self>) {
+        self.delete_forward(cx);
+    }
+
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
         let offset = self.state.byte_offset_for_display_cell(cell_index);
         self.state.selected_range = offset..offset;
         self.state.selection_reversed = false;
         self.state.cursor_cell = cell_index;
-        self.state.vim.set_visual_anchor_cell(None);
         self.state.ensure_cursor_visible();
         cx.notify();
     }
@@ -144,29 +190,6 @@ impl Editor {
                 self.state.selected_range.end..self.state.selected_range.start;
         }
         self.state.cursor_cell = cell_index;
-        self.state.ensure_cursor_visible();
-        cx.notify();
-    }
-
-    fn update_visual_selection(&mut self) {
-        let Some(anchor_cell) = self.state.vim.visual_anchor_cell() else {
-            return;
-        };
-        let start_cell = anchor_cell.min(self.state.cursor_cell);
-        let end_cell = anchor_cell.max(self.state.cursor_cell);
-        let start = self.state.draft.byte_offset_for_display_cell(start_cell);
-        let end = self
-            .state
-            .next_boundary(self.state.draft.byte_offset_for_display_cell(end_cell))
-            .max(start);
-        self.state.selected_range = start..end;
-        self.state.selection_reversed = self.state.cursor_cell < anchor_cell;
-    }
-
-    fn vim_select_to_cell_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let target = self.state.cursor_cell.saturating_add_signed(delta);
-        self.state.cursor_cell = target;
-        self.update_visual_selection();
         self.state.ensure_cursor_visible();
         cx.notify();
     }
@@ -203,16 +226,6 @@ impl Editor {
         self.state.draft.replace_range_owned(range, new_text);
         self.state.set_cursor_from_offset(cursor);
         cx.notify();
-    }
-
-    fn move_to_cell_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let target = self.state.cursor_cell.saturating_add_signed(delta);
-        self.move_to_display_cell(target, cx);
-    }
-
-    fn select_to_cell_delta(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let target = self.state.cursor_cell.saturating_add_signed(delta);
-        self.select_to_display_cell(target, cx);
     }
 
     fn scroll_columns_by(&mut self, delta_columns: isize, cx: &mut Context<Self>) {
@@ -284,51 +297,35 @@ impl Editor {
     }
 
     fn up(&mut self, _: &Up, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.vim.mode() == VimMode::Visual {
-            self.vim_select_to_cell_delta(-1, cx);
-            return;
-        }
-        self.move_to_cell_delta(-1, cx);
+        self.move_cursor_by(-1, cx);
     }
 
     fn down(&mut self, _: &Down, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.vim.mode() == VimMode::Visual {
-            self.vim_select_to_cell_delta(1, cx);
-            return;
-        }
-        self.move_to_cell_delta(1, cx);
+        self.move_cursor_by(1, cx);
     }
 
     fn left(&mut self, _: &Left, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.vim.mode() == VimMode::Visual {
-            self.vim_select_to_cell_delta(self.state.rows_per_column() as isize, cx);
-            return;
-        }
-        self.move_to_cell_delta(self.state.rows_per_column() as isize, cx);
+        self.move_cursor_by(self.state.rows_per_column() as isize, cx);
     }
 
     fn right(&mut self, _: &Right, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.vim.mode() == VimMode::Visual {
-            self.vim_select_to_cell_delta(-(self.state.rows_per_column() as isize), cx);
-            return;
-        }
-        self.move_to_cell_delta(-(self.state.rows_per_column() as isize), cx);
+        self.move_cursor_by(-(self.state.rows_per_column() as isize), cx);
     }
 
     fn select_up(&mut self, _: &SelectUp, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to_cell_delta(-1, cx);
+        self.select_cursor_by(-1, cx);
     }
 
     fn select_down(&mut self, _: &SelectDown, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to_cell_delta(1, cx);
+        self.select_cursor_by(1, cx);
     }
 
     fn select_left(&mut self, _: &SelectLeft, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to_cell_delta(self.state.rows_per_column() as isize, cx);
+        self.select_cursor_by(self.state.rows_per_column() as isize, cx);
     }
 
     fn select_right(&mut self, _: &SelectRight, _window: &mut Window, cx: &mut Context<Self>) {
-        self.select_to_cell_delta(-(self.state.rows_per_column() as isize), cx);
+        self.select_cursor_by(-(self.state.rows_per_column() as isize), cx);
     }
 
     fn select_all(&mut self, _: &SelectAll, _window: &mut Window, cx: &mut Context<Self>) {
@@ -380,61 +377,6 @@ impl Editor {
         _cx: &mut Context<Self>,
     ) {
         window.show_character_palette();
-    }
-
-    fn vim_enter_insert_mode(
-        &mut self,
-        _: &VimEnterInsertMode,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.state.vim.set_mode(VimMode::Insert);
-        self.state.vim.set_visual_anchor_cell(None);
-        self.state.selected_range = self.state.cursor_offset()..self.state.cursor_offset();
-        self.state.selection_reversed = false;
-        cx.notify();
-    }
-
-    fn vim_append(&mut self, _: &VimAppend, _window: &mut Window, cx: &mut Context<Self>) {
-        self.state.vim.set_mode(VimMode::Insert);
-        self.state.vim.set_visual_anchor_cell(None);
-        self.move_to_cell_delta(1, cx);
-    }
-
-    fn vim_normal_mode(&mut self, _: &VimNormalMode, _window: &mut Window, cx: &mut Context<Self>) {
-        if AppSettings::global(cx).vim_mode {
-            let cursor_offset = if self.state.vim.mode() == VimMode::Visual {
-                self.state
-                    .draft
-                    .byte_offset_for_display_cell(self.state.cursor_cell)
-            } else {
-                self.state.cursor_offset()
-            };
-            self.state.vim.set_mode(VimMode::Normal);
-            self.state.vim.set_visual_anchor_cell(None);
-            self.state.marked_range = None;
-            self.state.selected_range = cursor_offset..cursor_offset;
-            self.state.selection_reversed = false;
-            self.state.cursor_cell = self.state.display_cell_for_byte(cursor_offset);
-            self.state.ensure_cursor_visible();
-            cx.notify();
-        }
-    }
-
-    fn vim_visual_mode(&mut self, _: &VimVisualMode, _window: &mut Window, cx: &mut Context<Self>) {
-        self.state.vim.set_mode(VimMode::Visual);
-        self.state
-            .vim
-            .set_visual_anchor_cell(Some(self.state.cursor_cell));
-        self.update_visual_selection();
-        cx.notify();
-    }
-
-    fn vim_delete_char(&mut self, _: &VimDeleteChar, _window: &mut Window, cx: &mut Context<Self>) {
-        self.delete_forward(cx);
-        if AppSettings::global(cx).vim_mode {
-            self.state.vim.set_mode(VimMode::Normal);
-        }
     }
 
     fn on_board_mouse_down(
@@ -526,7 +468,7 @@ impl EntityInputHandler for Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.state.is_vim_command_mode(cx) {
+        if !self.state.text_input_enabled {
             return;
         }
 
@@ -542,7 +484,7 @@ impl EntityInputHandler for Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.state.is_vim_command_mode(cx) {
+        if !self.state.text_input_enabled {
             return;
         }
 
@@ -596,7 +538,7 @@ impl Render for Editor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .track_focus(&self.focus_handle(cx))
-            .key_context(self.state.vim_key_context(cx))
+            .key_context("Genko")
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
             .on_action(cx.listener(Self::up))
@@ -615,11 +557,6 @@ impl Render for Editor {
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::enter))
             .on_action(cx.listener(Self::show_character_palette))
-            .on_action(cx.listener(Self::vim_enter_insert_mode))
-            .on_action(cx.listener(Self::vim_append))
-            .on_action(cx.listener(Self::vim_normal_mode))
-            .on_action(cx.listener(Self::vim_visual_mode))
-            .on_action(cx.listener(Self::vim_delete_char))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .cursor(CursorStyle::IBeam)
