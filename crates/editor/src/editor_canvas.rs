@@ -377,24 +377,21 @@ fn paint_grid(
         let column_left =
             board_x_for_visible_column(bounds.left(), column, cell_size, ruby_gutter_size);
         let column_right = column_left + px(cell_size);
-        let has_ruby_gutter = column + 1 < visible_columns;
 
-        if has_ruby_gutter {
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(column_right, bounds.top()),
-                    size(px(ruby_gutter_size), px(1.0)),
-                ),
-                rgb(GRID_LINE),
-            ));
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(column_right, bottom_border_y),
-                    size(px(ruby_gutter_size), px(1.0)),
-                ),
-                rgb(GRID_LINE),
-            ));
-        }
+        window.paint_quad(fill(
+            Bounds::new(
+                point(column_right, bounds.top()),
+                size(px(ruby_gutter_size), px(1.0)),
+            ),
+            rgb(GRID_LINE),
+        ));
+        window.paint_quad(fill(
+            Bounds::new(
+                point(column_right, bottom_border_y),
+                size(px(ruby_gutter_size), px(1.0)),
+            ),
+            rgb(GRID_LINE),
+        ));
     }
 
     if let Some(path) = &grid_cache.vertical_dashes {
@@ -419,18 +416,15 @@ fn build_grid_path_cache(
         let column_left =
             board_x_for_visible_column(bounds.left(), column, cell_size, ruby_gutter_size);
         let column_right = column_left + px(cell_size);
-        let has_ruby_gutter = column + 1 < visible_columns;
 
         if column > 0 {
             let x = column_left + px(0.5);
             vertical_dashes.move_to(point(x, bounds.top()));
             vertical_dashes.line_to(point(x, bounds.bottom()));
         }
-        if has_ruby_gutter {
-            let x = column_right + px(0.5);
-            vertical_dashes.move_to(point(x, bounds.top()));
-            vertical_dashes.line_to(point(x, bounds.bottom()));
-        }
+        let x = column_right + px(0.5);
+        vertical_dashes.move_to(point(x, bounds.top()));
+        vertical_dashes.line_to(point(x, bounds.bottom()));
 
         for row in 1..visible_rows {
             let y = bounds.top() + px(row as f32 * cell_size);
@@ -881,8 +875,7 @@ pub(crate) fn board_width_for_columns(
         return Pixels::ZERO;
     }
 
-    px(visible_columns as f32 * cell_size
-        + visible_columns.saturating_sub(1) as f32 * ruby_gutter_size)
+    px(visible_columns as f32 * (cell_size + ruby_gutter_size))
 }
 
 pub(crate) fn board_x_for_visible_column(
@@ -899,7 +892,7 @@ pub(crate) fn visible_columns_for_window_width(
     cell_size: f32,
     ruby_gutter_size: f32,
 ) -> usize {
-    (((width + px(ruby_gutter_size)) / px(cell_size + ruby_gutter_size)).floor() as usize)
+    ((width / px(cell_size + ruby_gutter_size)).floor() as usize)
         .saturating_sub(2)
         .max(1)
 }
@@ -1032,6 +1025,44 @@ mod tests {
             logical_index_for_point(
                 bounds,
                 gutter_point,
+                0,
+                0,
+                DEFAULT_ROWS_PER_COLUMN,
+                2,
+                DEFAULT_ROWS_PER_COLUMN,
+                TEST_CELL_SIZE,
+                TEST_RUBY_GUTTER_SIZE,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn board_width_includes_trailing_ruby_gutter() {
+        assert_eq!(
+            board_width_for_columns(2, TEST_CELL_SIZE, TEST_RUBY_GUTTER_SIZE),
+            px(2.0 * (TEST_CELL_SIZE + TEST_RUBY_GUTTER_SIZE))
+        );
+    }
+
+    #[test]
+    fn click_in_trailing_ruby_gutter_does_not_target_main_cell() {
+        let bounds = Bounds::new(
+            point(px(0.0), px(0.0)),
+            size(
+                board_width_for_columns(2, TEST_CELL_SIZE, TEST_RUBY_GUTTER_SIZE),
+                px(200.0),
+            ),
+        );
+        let trailing_gutter_point = point(
+            px(2.0 * TEST_CELL_SIZE + 1.5 * TEST_RUBY_GUTTER_SIZE),
+            px(8.0),
+        );
+
+        assert_eq!(
+            logical_index_for_point(
+                bounds,
+                trailing_gutter_point,
                 0,
                 0,
                 DEFAULT_ROWS_PER_COLUMN,
