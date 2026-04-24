@@ -1,7 +1,6 @@
 mod settings_window;
 
 use editor::EditorElement;
-use settings::AppSettings;
 use settings_window::SettingsWindow;
 
 use theme::APP_BACKGROUND;
@@ -20,7 +19,8 @@ pub(crate) struct GenkoApp {
 
 impl GenkoApp {
     fn new(cx: &mut Context<Self>) -> Self {
-        AppSettings::init(cx);
+        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+        cx.bind_keys([KeyBinding::new("ctrl-,", OpenSettings, None)]);
 
         let editor = cx.new(EditorElement::new);
         cx.observe(&editor, |_, _, cx| cx.notify()).detach();
@@ -83,9 +83,8 @@ fn open_settings_window(cx: &mut App) {
 
 fn main() {
     gpui_platform::application().run(|cx: &mut App| {
+        settings::init(cx);
         EditorElement::bind_keys(cx);
-        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-        cx.on_action(|_: &Quit, cx| cx.quit());
 
         let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
 
@@ -100,7 +99,9 @@ fn main() {
             )
             .unwrap();
 
-        cx.on_action(move |_: &OpenSettings, cx| open_settings_window(cx));
+        cx.on_action(|_: &Quit, cx| cx.quit())
+            .on_action(|_: &OpenSettings, cx| open_settings_window(cx));
+
         cx.set_menus(vec![Menu {
             disabled: false,
             name: "Genko".into(),

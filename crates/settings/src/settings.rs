@@ -32,12 +32,12 @@ impl Default for AppSettings {
     }
 }
 
-impl AppSettings {
-    pub fn init(cx: &mut App) {
-        let state = Self::load();
-        cx.set_global::<AppSettings>(state);
-    }
+pub fn init(cx: &mut App) {
+    let state = AppSettings::load();
+    cx.set_global::<AppSettings>(state);
+}
 
+impl AppSettings {
     pub fn global(cx: &App) -> &Self {
         cx.global::<Self>()
     }
