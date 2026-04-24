@@ -92,6 +92,15 @@ impl Vim {
         }
     }
 
+    pub fn mode_label(&self) -> &'static str {
+        match self.state.mode() {
+            VimMode::Normal => "-- NORMAL --",
+            VimMode::Insert => "-- INSERT --",
+            VimMode::Visual => "-- VISUAL --",
+            VimMode::VisualBlock => "-- VISUAL BLOCK --",
+        }
+    }
+
     pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {
         let text_input_enabled = self.state.mode() == VimMode::Insert;
         self.editor.update(cx, |editor, cx| {

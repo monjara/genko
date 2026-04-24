@@ -221,6 +221,11 @@ impl Render for GenkoApp {
         self.sync_window_title(window);
         let viewport_size = window.viewport_size();
         let vim_mode_enabled = AppSettings::global(cx).vim_mode;
+        let vim_mode_label = if vim_mode_enabled {
+            Some(self.vim.read(cx).mode_label())
+        } else {
+            None
+        };
         if vim_mode_enabled {
             self.vim.update(cx, |vim, cx| {
                 vim.update_viewport_size(viewport_size, cx);
@@ -245,12 +250,23 @@ impl Render for GenkoApp {
                 div()
                     .flex()
                     .flex_col()
-                    .gap_4()
-                    .items_center()
+                    .gap_2()
+                    .items_start()
                     .child(if vim_mode_enabled {
                         self.vim.clone().into_element()
                     } else {
                         self.editor.clone().into_element()
+                    })
+                    .child(if let Some(label) = vim_mode_label {
+                        div()
+                            .right_auto()
+                            .py_1()
+                            .text_color(rgb(0x2D2416))
+                            .border_1()
+                            .rounded_sm()
+                            .child(label)
+                    } else {
+                        div()
                     }),
             )
     }
