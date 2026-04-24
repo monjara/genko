@@ -26,6 +26,36 @@ pub(crate) const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
 pub(crate) const CELL_SIZE: f32 = 28.0;
 pub(crate) const RUBY_GUTTER_SIZE: f32 = 10.0;
 
+pub fn init(cx: &mut App) {
+    if AppSettings::global(cx).vim_mode {
+        return;
+    }
+    cx.bind_keys([
+        gpui::KeyBinding::new("backspace", Backspace, None),
+        gpui::KeyBinding::new("delete", Delete, None),
+        gpui::KeyBinding::new("up", Up, None),
+        gpui::KeyBinding::new("down", Down, None),
+        gpui::KeyBinding::new("left", Left, None),
+        gpui::KeyBinding::new("right", Right, None),
+        gpui::KeyBinding::new("shift-up", SelectUp, None),
+        gpui::KeyBinding::new("shift-down", SelectDown, None),
+        gpui::KeyBinding::new("shift-left", SelectLeft, None),
+        gpui::KeyBinding::new("shift-right", SelectRight, None),
+        gpui::KeyBinding::new("cmd-a", SelectAll, None),
+        gpui::KeyBinding::new("ctrl-a", SelectAll, None),
+        gpui::KeyBinding::new("cmd-v", Paste, None),
+        gpui::KeyBinding::new("ctrl-v", Paste, None),
+        gpui::KeyBinding::new("cmd-c", Copy, None),
+        gpui::KeyBinding::new("ctrl-c", Copy, None),
+        gpui::KeyBinding::new("cmd-x", Cut, None),
+        gpui::KeyBinding::new("ctrl-x", Cut, None),
+        gpui::KeyBinding::new("enter", Enter, None),
+        gpui::KeyBinding::new("home", Home, None),
+        gpui::KeyBinding::new("end", End, None),
+        gpui::KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
+    ]);
+}
+
 actions!(
     genko,
     [
@@ -55,35 +85,7 @@ pub struct Editor {
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
 }
-
 impl Editor {
-    pub fn bind_keys(cx: &mut App) {
-        cx.bind_keys([
-            gpui::KeyBinding::new("backspace", Backspace, None),
-            gpui::KeyBinding::new("delete", Delete, None),
-            gpui::KeyBinding::new("up", Up, None),
-            gpui::KeyBinding::new("down", Down, None),
-            gpui::KeyBinding::new("left", Left, None),
-            gpui::KeyBinding::new("right", Right, None),
-            gpui::KeyBinding::new("shift-up", SelectUp, None),
-            gpui::KeyBinding::new("shift-down", SelectDown, None),
-            gpui::KeyBinding::new("shift-left", SelectLeft, None),
-            gpui::KeyBinding::new("shift-right", SelectRight, None),
-            gpui::KeyBinding::new("cmd-a", SelectAll, None),
-            gpui::KeyBinding::new("ctrl-a", SelectAll, None),
-            gpui::KeyBinding::new("cmd-v", Paste, None),
-            gpui::KeyBinding::new("ctrl-v", Paste, None),
-            gpui::KeyBinding::new("cmd-c", Copy, None),
-            gpui::KeyBinding::new("ctrl-c", Copy, None),
-            gpui::KeyBinding::new("cmd-x", Cut, None),
-            gpui::KeyBinding::new("ctrl-x", Cut, None),
-            gpui::KeyBinding::new("enter", Enter, None),
-            gpui::KeyBinding::new("home", Home, None),
-            gpui::KeyBinding::new("end", End, None),
-            gpui::KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
-        ]);
-    }
-
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             state: EditorState::new(cx),

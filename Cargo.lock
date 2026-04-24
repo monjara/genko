@@ -6898,6 +6898,7 @@ dependencies = [
  "editor",
  "gpui",
  "lindera",
+ "settings",
 ]
 
 [[package]]

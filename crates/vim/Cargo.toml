@@ -8,6 +8,8 @@ name = "vim"
 path = "src/vim.rs"
 
 [dependencies]
-gpui = { workspace = true }
 editor = { workspace = true }
+gpui = { workspace = true }
+settings = { workspace = true }
+
 lindera = { version = "2.3.4", features = ["embed-ipadic"] }

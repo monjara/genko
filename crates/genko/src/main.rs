@@ -105,8 +105,8 @@ fn open_settings_window(cx: &mut App) {
 fn main() {
     gpui_platform::application().run(|cx: &mut App| {
         settings::init(cx);
-        Editor::bind_keys(cx);
-        Vim::bind_keys(cx);
+        editor::init(cx);
+        vim::init(cx);
 
         let bounds = Bounds::centered(None, size(px(760.0), px(760.0)), cx);
 
