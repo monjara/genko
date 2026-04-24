@@ -639,30 +639,10 @@ impl Editor {
 
 fn ime_anchor_bounds_for_cell(
     cell_bounds: Bounds<Pixels>,
-    board_bounds: Bounds<Pixels>,
+    _board_bounds: Bounds<Pixels>,
 ) -> Bounds<Pixels> {
-    // Keep some horizontal distance from the caret so IME candidate popups are less likely
-    // to overlap with the current composing column.
     let horizontal_gap = px(IME_ANCHOR_INSET + IME_CANDIDATE_GAP);
-    let left_side = cell_bounds.left() - px(IME_ANCHOR_WIDTH) - horizontal_gap;
-    let right_side = cell_bounds.right() + horizontal_gap;
-    let can_place_left = left_side >= board_bounds.left();
-    let can_place_right = right_side + px(IME_ANCHOR_WIDTH) <= board_bounds.right();
-
-    let left = match (can_place_left, can_place_right) {
-        (true, true) => {
-            let left_space = cell_bounds.left() - board_bounds.left();
-            let right_space = board_bounds.right() - cell_bounds.right();
-            if left_space >= right_space {
-                left_side
-            } else {
-                right_side
-            }
-        }
-        (true, false) => left_side,
-        (false, true) => right_side,
-        (false, false) => board_bounds.left(),
-    };
+    let left = cell_bounds.right() + horizontal_gap;
 
     Bounds::new(
         gpui::point(left, cell_bounds.top() + px(IME_ANCHOR_INSET)),
