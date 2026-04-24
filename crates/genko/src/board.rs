@@ -11,7 +11,10 @@ use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 use vim::{VimMode, VimState};
 
-use crate::{AUTOMATIC_ROWS_RESERVED_CELLS, CELL_SIZE, DEFAULT_VISIBLE_COLUMNS};
+use crate::{
+    AUTOMATIC_ROWS_RESERVED_CELLS, CELL_SIZE, DEFAULT_VISIBLE_COLUMNS,
+    color::{GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY},
+};
 
 actions!(
     genko,
@@ -645,7 +648,7 @@ impl BoardElement {
     }
 
     fn paint_paper(&self, bounds: Bounds<Pixels>, window: &mut Window) {
-        window.paint_quad(fill(bounds, rgb(0xfffbf2)));
+        window.paint_quad(fill(bounds, rgb(PAPER_BACKGROUND)));
     }
 
     fn paint_grid(
@@ -659,7 +662,7 @@ impl BoardElement {
             let x = bounds.left() + px(column as f32 * CELL_SIZE);
             window.paint_quad(fill(
                 Bounds::new(point(x, bounds.top()), size(px(1.0), bounds.size.height)),
-                rgb(0xd94b4b),
+                rgb(GRID_LINE),
             ));
         }
 
@@ -667,7 +670,7 @@ impl BoardElement {
             let y = bounds.top() + px(row as f32 * CELL_SIZE);
             window.paint_quad(fill(
                 Bounds::new(point(bounds.left(), y), size(bounds.size.width, px(1.0))),
-                rgb(0xd94b4b),
+                rgb(GRID_LINE),
             ));
         }
     }
@@ -694,7 +697,7 @@ impl BoardElement {
                 ) else {
                     continue;
                 };
-                window.paint_quad(fill(cell_bounds, rgba(0x2f6fff30)));
+                window.paint_quad(fill(cell_bounds, rgba(SELECTION_BACKGROUND)));
             } else if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
                 let Some(cell_bounds) = cell_bounds_for_logical_index(
                     bounds,
@@ -711,7 +714,7 @@ impl BoardElement {
                         point(cell_bounds.left() + px(5.0), underline_y),
                         size(px(CELL_SIZE - 10.0), px(2.0)),
                     ),
-                    rgb(0x2f241d),
+                    rgb(TEXT_PRIMARY),
                 ));
             }
         }
@@ -757,7 +760,7 @@ impl BoardElement {
         let run = TextRun {
             len: cell_text.text.len(),
             font: style.font(),
-            color: rgb(0x2f241d).into(),
+            color: rgb(TEXT_PRIMARY).into(),
             background_color: None,
             underline: None,
             strikethrough: None,
@@ -793,7 +796,7 @@ impl BoardElement {
         let run = TextRun {
             len: cell_text.text.len(),
             font: style.font(),
-            color: rgb(0x2f241d).into(),
+            color: rgb(TEXT_PRIMARY).into(),
             background_color: None,
             underline: None,
             strikethrough: None,
@@ -840,7 +843,7 @@ impl BoardElement {
                 point(cell_bounds.left() + px(4.0), cell_bounds.top() + px(3.0)),
                 size(px(CELL_SIZE - 8.0), px(2.0)),
             ),
-            rgb(0x2f241d),
+            rgb(TEXT_PRIMARY),
         ));
     }
 }

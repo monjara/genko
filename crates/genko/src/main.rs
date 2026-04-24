@@ -6,6 +6,8 @@ use board::BoardElement;
 use settings::AppSettings;
 use settings_window::SettingsWindow;
 
+use crate::color::APP_BACKGROUND;
+
 use gpui::{
     App, Bounds, Context, Entity, FocusHandle, Focusable, KeyBinding, Menu, MenuItem,
     ParentElement, Render, Styled, Window, WindowBounds, WindowOptions, actions, div, prelude::*,
@@ -42,7 +44,7 @@ impl Render for GenkoApp {
 
         div()
             .size_full()
-            .bg(rgb(0xebe5d8))
+            .bg(rgb(APP_BACKGROUND))
             .flex()
             .items_center()
             .justify_center()
