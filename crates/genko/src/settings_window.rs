@@ -33,6 +33,18 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn toggle_hanging_punctuation(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx).hanging_punctuation =
+            !AppSettings::global(cx).hanging_punctuation;
+        self.status = "".into();
+        cx.notify();
+    }
+
     fn toggle_rows_auto(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
         // TODO AppSettings内で関数を作成
         AppSettings::global_mut(cx).rows_per_column = AppSettings::global(cx)
@@ -311,6 +323,57 @@ impl SettingsWindow {
             )
     }
 
+    fn render_hanging_punctuation_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let value_label = if AppSettings::global(cx).hanging_punctuation {
+            "有効"
+        } else {
+            "無効"
+        };
+
+        div()
+            .id("settings-hanging-punctuation-toggle")
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .p_3()
+            .border_1()
+            .border_color(rgb(BORDER_MUTED))
+            .rounded_sm()
+            .cursor_pointer()
+            .on_click(cx.listener(Self::toggle_hanging_punctuation))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("ぶら下がり"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(rgb(TEXT_SECONDARY))
+                            .child("行頭の句読点を前のマスへぶら下げます"),
+                    ),
+            )
+            .child(
+                div()
+                    .px_3()
+                    .py_1()
+                    .rounded_sm()
+                    .bg(if AppSettings::global(cx).hanging_punctuation {
+                        rgb(ACCENT_PRIMARY)
+                    } else {
+                        rgb(PANEL_BACKGROUND)
+                    })
+                    .text_color(if AppSettings::global(cx).hanging_punctuation {
+                        rgb(TEXT_INVERSE)
+                    } else {
+                        rgb(TEXT_PRIMARY)
+                    })
+                    .child(value_label),
+            )
+    }
+
     fn render_apply_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("settings-apply")
@@ -351,6 +414,7 @@ impl Render for SettingsWindow {
                     ),
             )
             .child(self.render_grid_toggle(cx))
+            .child(self.render_hanging_punctuation_toggle(cx))
             .child(self.render_vim_mode_toggle(cx))
             .child(self.render_rows_per_column(cx))
             .child(

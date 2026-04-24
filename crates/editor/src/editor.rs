@@ -99,6 +99,8 @@ impl Editor {
 
     pub fn update_viewport_size(&mut self, size: gpui::Size<Pixels>, cx: &App) {
         self.state
+            .update_hanging_punctuation(AppSettings::global(cx).hanging_punctuation);
+        self.state
             .update_visible_columns(visible_columns_for_window_width(size.width));
         if AppSettings::global(cx).rows_per_column.is_none() {
             self.state

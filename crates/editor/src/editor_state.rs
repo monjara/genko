@@ -134,6 +134,17 @@ impl EditorState {
         self.ensure_cursor_visible();
     }
 
+    pub(crate) fn update_hanging_punctuation(&mut self, enabled: bool) {
+        if self.draft.hanging_punctuation() == enabled {
+            return;
+        }
+
+        let cursor_offset = self.cursor_offset();
+        self.draft.set_hanging_punctuation(enabled);
+        self.cursor_cell = self.display_cell_for_byte(cursor_offset);
+        self.ensure_cursor_visible();
+    }
+
     pub(crate) fn visible_cell_capacity(&self) -> usize {
         self.rows_per_column() * self.visible_columns()
     }

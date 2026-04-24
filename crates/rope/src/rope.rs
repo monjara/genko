@@ -17,6 +17,7 @@ pub struct CellText {
 pub struct TextRope {
     root: Option<Box<RopeNode>>,
     rows_per_column: usize,
+    hanging_punctuation: bool,
 }
 
 impl Default for TextRope {
@@ -34,11 +35,16 @@ impl TextRope {
         Self {
             root: None,
             rows_per_column: rows_per_column.max(1),
+            hanging_punctuation: true,
         }
     }
 
     pub fn rows_per_column(&self) -> usize {
         self.rows_per_column
+    }
+
+    pub fn hanging_punctuation(&self) -> bool {
+        self.hanging_punctuation
     }
 
     pub fn set_rows_per_column(&mut self, rows_per_column: usize) {
@@ -49,7 +55,18 @@ impl TextRope {
 
         self.rows_per_column = rows_per_column;
         if let Some(root) = self.root.as_mut() {
-            root.refresh_cell_advances(rows_per_column);
+            root.refresh_cell_advances(rows_per_column, self.hanging_punctuation);
+        }
+    }
+
+    pub fn set_hanging_punctuation(&mut self, enabled: bool) {
+        if self.hanging_punctuation == enabled {
+            return;
+        }
+
+        self.hanging_punctuation = enabled;
+        if let Some(root) = self.root.as_mut() {
+            root.refresh_cell_advances(self.rows_per_column, self.hanging_punctuation);
         }
     }
 
@@ -93,8 +110,9 @@ impl TextRope {
     pub fn from_str_with_rows(text: &str, rows_per_column: usize) -> Self {
         let rows_per_column = rows_per_column.max(1);
         Self {
-            root: RopeNode::from_str(text, rows_per_column),
+            root: RopeNode::from_str(text, rows_per_column, true),
             rows_per_column,
+            hanging_punctuation: true,
         }
     }
 
@@ -107,8 +125,9 @@ impl TextRope {
     fn from_string_with_rows(text: String, rows_per_column: usize) -> Self {
         let rows_per_column = rows_per_column.max(1);
         Self {
-            root: RopeNode::from_string(text, rows_per_column),
+            root: RopeNode::from_string(text, rows_per_column, true),
             rows_per_column,
+            hanging_punctuation: true,
         }
     }
 
@@ -137,6 +156,7 @@ impl TextRope {
                 0,
                 0,
                 self.rows_per_column,
+                self.hanging_punctuation,
                 &mut cells,
             );
         }
@@ -161,16 +181,28 @@ impl TextRope {
         }
 
         let root = self.root.take();
-        let (left, rest) = split_node(root, range.start, self.rows_per_column);
-        let (_, right) = split_node(rest, range.end - range.start, self.rows_per_column);
+        let (left, rest) = split_node(
+            root,
+            range.start,
+            self.rows_per_column,
+            self.hanging_punctuation,
+        );
+        let (_, right) = split_node(
+            rest,
+            range.end - range.start,
+            self.rows_per_column,
+            self.hanging_punctuation,
+        );
         self.root = concat_nodes(
             concat_nodes(
                 left,
-                RopeNode::from_str(text, self.rows_per_column),
+                RopeNode::from_str(text, self.rows_per_column, self.hanging_punctuation),
                 self.rows_per_column,
+                self.hanging_punctuation,
             ),
             right,
             self.rows_per_column,
+            self.hanging_punctuation,
         );
     }
 
@@ -186,14 +218,30 @@ impl TextRope {
             return;
         }
 
-        let inserted = RopeNode::from_string(text, self.rows_per_column);
+        let inserted = RopeNode::from_string(text, self.rows_per_column, self.hanging_punctuation);
         let root = self.root.take();
-        let (left, rest) = split_node(root, range.start, self.rows_per_column);
-        let (_, right) = split_node(rest, range.end - range.start, self.rows_per_column);
+        let (left, rest) = split_node(
+            root,
+            range.start,
+            self.rows_per_column,
+            self.hanging_punctuation,
+        );
+        let (_, right) = split_node(
+            rest,
+            range.end - range.start,
+            self.rows_per_column,
+            self.hanging_punctuation,
+        );
         self.root = concat_nodes(
-            concat_nodes(left, inserted, self.rows_per_column),
+            concat_nodes(
+                left,
+                inserted,
+                self.rows_per_column,
+                self.hanging_punctuation,
+            ),
             right,
             self.rows_per_column,
+            self.hanging_punctuation,
         );
     }
 
@@ -203,7 +251,7 @@ impl TextRope {
         }
 
         if self.root.is_none() {
-            self.root = RopeNode::from_str(text, self.rows_per_column);
+            self.root = RopeNode::from_str(text, self.rows_per_column, self.hanging_punctuation);
             return true;
         }
 
@@ -211,9 +259,9 @@ impl TextRope {
             return false;
         }
 
-        self.root
-            .as_mut()
-            .is_some_and(|root| root.try_append_to_last_leaf(text, self.rows_per_column))
+        self.root.as_mut().is_some_and(|root| {
+            root.try_append_to_last_leaf(text, self.rows_per_column, self.hanging_punctuation)
+        })
     }
 
     pub fn byte_to_utf16(&self, byte_offset: usize) -> usize {
@@ -242,13 +290,24 @@ impl TextRope {
 
     pub fn display_cell_for_byte(&self, byte_offset: usize) -> usize {
         self.root.as_ref().map_or(0, |node| {
-            node.byte_to_display_cell(byte_offset, 0, self.rows_per_column)
+            node.byte_to_display_cell(
+                byte_offset,
+                0,
+                self.rows_per_column,
+                self.hanging_punctuation,
+            )
         })
     }
 
     pub fn byte_offset_for_display_cell(&self, display_cell_index: usize) -> usize {
         self.root.as_ref().map_or(0, |node| {
-            node.display_cell_to_byte(display_cell_index, 0, 0, self.rows_per_column)
+            node.display_cell_to_byte(
+                display_cell_index,
+                0,
+                0,
+                self.rows_per_column,
+                self.hanging_punctuation,
+            )
         })
     }
 
@@ -315,13 +374,14 @@ impl RopeLeafText {
         self,
         byte_offset: usize,
         rows_per_column: usize,
+        hanging_punctuation: bool,
     ) -> (Option<Box<RopeNode>>, Option<Box<RopeNode>>) {
         match self {
             Self::Owned(mut text) => {
                 let right = text.split_off(byte_offset);
                 (
-                    RopeNode::from_string(text, rows_per_column),
-                    RopeNode::from_string(right, rows_per_column),
+                    RopeNode::from_string(text, rows_per_column, hanging_punctuation),
+                    RopeNode::from_string(right, rows_per_column, hanging_punctuation),
                 )
             }
             Self::Shared { source, range } => {
@@ -331,8 +391,14 @@ impl RopeLeafText {
                         source.clone(),
                         range.start..split_offset,
                         rows_per_column,
+                        hanging_punctuation,
                     ),
-                    RopeNode::shared_leaf(source, split_offset..range.end, rows_per_column),
+                    RopeNode::shared_leaf(
+                        source,
+                        split_offset..range.end,
+                        rows_per_column,
+                        hanging_punctuation,
+                    ),
                 )
             }
         }
@@ -340,38 +406,52 @@ impl RopeLeafText {
 }
 
 impl RopeNode {
-    pub fn from_str(text: &str, rows_per_column: usize) -> Option<Box<Self>> {
+    pub fn from_str(
+        text: &str,
+        rows_per_column: usize,
+        hanging_punctuation: bool,
+    ) -> Option<Box<Self>> {
         if text.is_empty() {
             return None;
         }
 
         let chunks = chunk_string(text);
-        build_balanced(chunks, rows_per_column)
+        build_balanced(chunks, rows_per_column, hanging_punctuation)
     }
 
-    fn from_string(text: String, rows_per_column: usize) -> Option<Box<Self>> {
+    fn from_string(
+        text: String,
+        rows_per_column: usize,
+        hanging_punctuation: bool,
+    ) -> Option<Box<Self>> {
         if text.is_empty() {
             return None;
         }
 
         if text.len() <= ROPE_LEAF_BYTES {
-            return Some(Self::leaf(text, rows_per_column));
+            return Some(Self::leaf(text, rows_per_column, hanging_punctuation));
         }
 
         build_balanced_nodes(
-            chunk_shared_string(Arc::new(text), rows_per_column),
+            chunk_shared_string(Arc::new(text), rows_per_column, hanging_punctuation),
             rows_per_column,
+            hanging_punctuation,
         )
     }
 
-    fn leaf(text: String, rows_per_column: usize) -> Box<Self> {
-        Self::leaf_text(RopeLeafText::Owned(text), rows_per_column)
+    fn leaf(text: String, rows_per_column: usize, hanging_punctuation: bool) -> Box<Self> {
+        Self::leaf_text(
+            RopeLeafText::Owned(text),
+            rows_per_column,
+            hanging_punctuation,
+        )
     }
 
     fn shared_leaf(
         source: Arc<String>,
         range: Range<usize>,
         rows_per_column: usize,
+        hanging_punctuation: bool,
     ) -> Option<Box<Self>> {
         if range.is_empty() {
             None
@@ -379,11 +459,16 @@ impl RopeNode {
             Some(Self::leaf_text(
                 RopeLeafText::Shared { source, range },
                 rows_per_column,
+                hanging_punctuation,
             ))
         }
     }
 
-    fn leaf_text(text: RopeLeafText, rows_per_column: usize) -> Box<Self> {
+    fn leaf_text(
+        text: RopeLeafText,
+        rows_per_column: usize,
+        hanging_punctuation: bool,
+    ) -> Box<Self> {
         let (bytes, utf16, graphemes) = {
             let text = text.as_str();
             (
@@ -392,7 +477,12 @@ impl RopeNode {
                 text.graphemes(true).count(),
             )
         };
-        let cell_advances = cell_advances_for_text(text.as_str(), graphemes, rows_per_column);
+        let cell_advances = cell_advances_for_text(
+            text.as_str(),
+            graphemes,
+            rows_per_column,
+            hanging_punctuation,
+        );
         Box::new(Self::Leaf {
             text,
             bytes,
@@ -440,7 +530,12 @@ impl RopeNode {
         }
     }
 
-    fn try_append_to_last_leaf(&mut self, appended_text: &str, rows_per_column: usize) -> bool {
+    fn try_append_to_last_leaf(
+        &mut self,
+        appended_text: &str,
+        rows_per_column: usize,
+        hanging_punctuation: bool,
+    ) -> bool {
         match self {
             Self::Leaf {
                 text: RopeLeafText::Owned(text),
@@ -458,7 +553,8 @@ impl RopeNode {
                 *bytes = text.len();
                 *utf16 = text.encode_utf16().count();
                 *graphemes = text.graphemes(true).count();
-                *cell_advances = cell_advances_for_text(text, *graphemes, rows_per_column);
+                *cell_advances =
+                    cell_advances_for_text(text, *graphemes, rows_per_column, hanging_punctuation);
                 true
             }
             Self::Leaf { .. } => false,
@@ -471,21 +567,26 @@ impl RopeNode {
                 cell_advances,
                 height,
             } => {
-                if !right.try_append_to_last_leaf(appended_text, rows_per_column) {
+                if !right.try_append_to_last_leaf(
+                    appended_text,
+                    rows_per_column,
+                    hanging_punctuation,
+                ) {
                     return false;
                 }
 
                 *bytes = left.bytes() + right.bytes();
                 *utf16 = left.utf16() + right.utf16();
                 *graphemes = left.graphemes() + right.graphemes();
-                *cell_advances = compose_cell_advances(&left, &right, rows_per_column);
+                *cell_advances =
+                    compose_cell_advances(&left, &right, rows_per_column, hanging_punctuation);
                 *height = left.height().max(right.height()) + 1;
                 true
             }
         }
     }
 
-    fn refresh_cell_advances(&mut self, rows_per_column: usize) {
+    fn refresh_cell_advances(&mut self, rows_per_column: usize, hanging_punctuation: bool) {
         match self {
             Self::Leaf {
                 text,
@@ -493,7 +594,12 @@ impl RopeNode {
                 cell_advances,
                 ..
             } => {
-                *cell_advances = cell_advances_for_text(text.as_str(), *graphemes, rows_per_column);
+                *cell_advances = cell_advances_for_text(
+                    text.as_str(),
+                    *graphemes,
+                    rows_per_column,
+                    hanging_punctuation,
+                );
             }
             Self::Branch {
                 left,
@@ -501,9 +607,10 @@ impl RopeNode {
                 cell_advances,
                 ..
             } => {
-                left.refresh_cell_advances(rows_per_column);
-                right.refresh_cell_advances(rows_per_column);
-                *cell_advances = compose_cell_advances(left, right, rows_per_column);
+                left.refresh_cell_advances(rows_per_column, hanging_punctuation);
+                right.refresh_cell_advances(rows_per_column, hanging_punctuation);
+                *cell_advances =
+                    compose_cell_advances(left, right, rows_per_column, hanging_punctuation);
             }
         }
     }
@@ -512,8 +619,14 @@ impl RopeNode {
         cell_index: usize,
         grapheme: &str,
         rows_per_column: usize,
+        hanging_punctuation: bool,
     ) -> usize {
-        if is_leading_attached_punctuation(grapheme, cell_index, rows_per_column) {
+        if is_leading_attached_punctuation(
+            grapheme,
+            cell_index,
+            rows_per_column,
+            hanging_punctuation,
+        ) {
             cell_index
         } else if grapheme == "\n" {
             next_line_cell_index(cell_index, rows_per_column)
@@ -557,6 +670,7 @@ impl RopeNode {
         node_byte_start: usize,
         node_cell_start: usize,
         rows_per_column: usize,
+        hanging_punctuation: bool,
         output: &mut Vec<CellText>,
     ) {
         let node_cell_end =
@@ -571,13 +685,21 @@ impl RopeNode {
                 let mut cell_index = node_cell_start;
                 for (local_byte_start, grapheme) in text.grapheme_indices(true) {
                     if grapheme == "\n" {
-                        cell_index =
-                            Self::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
+                        cell_index = Self::advance_cell_for_grapheme(
+                            cell_index,
+                            grapheme,
+                            rows_per_column,
+                            hanging_punctuation,
+                        );
                         continue;
                     }
 
-                    let attached_to_previous =
-                        is_leading_attached_punctuation(grapheme, cell_index, rows_per_column);
+                    let attached_to_previous = is_leading_attached_punctuation(
+                        grapheme,
+                        cell_index,
+                        rows_per_column,
+                        hanging_punctuation,
+                    );
                     let display_cell_index = if attached_to_previous {
                         cell_index - 1
                     } else {
@@ -594,8 +716,12 @@ impl RopeNode {
                         });
                     }
 
-                    cell_index =
-                        Self::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
+                    cell_index = Self::advance_cell_for_grapheme(
+                        cell_index,
+                        grapheme,
+                        rows_per_column,
+                        hanging_punctuation,
+                    );
                 }
             }
             Self::Branch { left, right, .. } => {
@@ -604,6 +730,7 @@ impl RopeNode {
                     node_byte_start,
                     node_cell_start,
                     rows_per_column,
+                    hanging_punctuation,
                     output,
                 );
                 let right_cell_start =
@@ -613,6 +740,7 @@ impl RopeNode {
                     node_byte_start + left.bytes(),
                     right_cell_start,
                     rows_per_column,
+                    hanging_punctuation,
                     output,
                 );
             }
@@ -699,6 +827,7 @@ impl RopeNode {
         byte_offset: usize,
         node_cell_start: usize,
         rows_per_column: usize,
+        hanging_punctuation: bool,
     ) -> usize {
         match self {
             Self::Leaf { text, bytes, .. } => {
@@ -708,14 +837,23 @@ impl RopeNode {
                         break;
                     }
 
-                    cell_index =
-                        Self::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
+                    cell_index = Self::advance_cell_for_grapheme(
+                        cell_index,
+                        grapheme,
+                        rows_per_column,
+                        hanging_punctuation,
+                    );
                 }
                 cell_index
             }
             Self::Branch { left, right, .. } => {
                 if byte_offset <= left.bytes() {
-                    left.byte_to_display_cell(byte_offset, node_cell_start, rows_per_column)
+                    left.byte_to_display_cell(
+                        byte_offset,
+                        node_cell_start,
+                        rows_per_column,
+                        hanging_punctuation,
+                    )
                 } else {
                     let right_cell_start =
                         node_cell_start + left.cell_advance_from(node_cell_start, rows_per_column);
@@ -723,6 +861,7 @@ impl RopeNode {
                         byte_offset - left.bytes(),
                         right_cell_start,
                         rows_per_column,
+                        hanging_punctuation,
                     )
                 }
             }
@@ -735,13 +874,18 @@ impl RopeNode {
         node_byte_start: usize,
         node_cell_start: usize,
         rows_per_column: usize,
+        hanging_punctuation: bool,
     ) -> usize {
         match self {
             Self::Leaf { text, bytes, .. } => {
                 let mut cell_index = node_cell_start;
                 for (local_byte_start, grapheme) in text.as_str().grapheme_indices(true) {
-                    let next_cell_index =
-                        Self::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
+                    let next_cell_index = Self::advance_cell_for_grapheme(
+                        cell_index,
+                        grapheme,
+                        rows_per_column,
+                        hanging_punctuation,
+                    );
 
                     if grapheme == "\n" {
                         if target_cell_index <= cell_index || target_cell_index < next_cell_index {
@@ -769,6 +913,7 @@ impl RopeNode {
                         node_byte_start,
                         node_cell_start,
                         rows_per_column,
+                        hanging_punctuation,
                     )
                 } else {
                     right.display_cell_to_byte(
@@ -776,6 +921,7 @@ impl RopeNode {
                         node_byte_start + left.bytes(),
                         right_cell_start,
                         rows_per_column,
+                        hanging_punctuation,
                     )
                 }
             }
@@ -799,7 +945,7 @@ impl RopeNode {
                 assert_eq!(*graphemes, text.graphemes(true).count());
                 assert_eq!(
                     *cell_advances,
-                    cell_advances_for_text(text, *graphemes, rows_per_column)
+                    cell_advances_for_text(text, *graphemes, rows_per_column, true)
                 );
                 assert_eq!(*height, 1);
                 1
@@ -824,7 +970,7 @@ impl RopeNode {
                 assert_eq!(*graphemes, left.graphemes() + right.graphemes());
                 assert_eq!(
                     *cell_advances,
-                    compose_cell_advances(left, right, rows_per_column)
+                    compose_cell_advances(left, right, rows_per_column, true)
                 );
                 assert_eq!(*height, left_height.max(right_height) + 1);
                 *height
@@ -851,6 +997,7 @@ fn split_node(
     node: Option<Box<RopeNode>>,
     byte_offset: usize,
     rows_per_column: usize,
+    hanging_punctuation: bool,
 ) -> (Option<Box<RopeNode>>, Option<Box<RopeNode>>) {
     let Some(node) = node else {
         return (None, None);
@@ -867,23 +1014,37 @@ fn split_node(
     match *node {
         RopeNode::Leaf { text, .. } => {
             debug_assert!(text.as_str().is_char_boundary(byte_offset));
-            text.split_at(byte_offset, rows_per_column)
+            text.split_at(byte_offset, rows_per_column, hanging_punctuation)
         }
         RopeNode::Branch { left, right, .. } => {
             let left_len = left.bytes();
             if byte_offset < left_len {
-                let (left_left, left_right) = split_node(Some(left), byte_offset, rows_per_column);
+                let (left_left, left_right) = split_node(
+                    Some(left),
+                    byte_offset,
+                    rows_per_column,
+                    hanging_punctuation,
+                );
                 (
                     left_left,
-                    concat_nodes(left_right, Some(right), rows_per_column),
+                    concat_nodes(
+                        left_right,
+                        Some(right),
+                        rows_per_column,
+                        hanging_punctuation,
+                    ),
                 )
             } else if byte_offset == left_len {
                 (Some(left), Some(right))
             } else {
-                let (right_left, right_right) =
-                    split_node(Some(right), byte_offset - left_len, rows_per_column);
+                let (right_left, right_right) = split_node(
+                    Some(right),
+                    byte_offset - left_len,
+                    rows_per_column,
+                    hanging_punctuation,
+                );
                 (
-                    concat_nodes(Some(left), right_left, rows_per_column),
+                    concat_nodes(Some(left), right_left, rows_per_column, hanging_punctuation),
                     right_right,
                 )
             }
@@ -895,11 +1056,17 @@ fn concat_nodes(
     left: Option<Box<RopeNode>>,
     right: Option<Box<RopeNode>>,
     rows_per_column: usize,
+    hanging_punctuation: bool,
 ) -> Option<Box<RopeNode>> {
     match (left, right) {
         (None, right) => right,
         (left, None) => left,
-        (Some(left), Some(right)) => Some(concat_non_empty(left, right, rows_per_column)),
+        (Some(left), Some(right)) => Some(concat_non_empty(
+            left,
+            right,
+            rows_per_column,
+            hanging_punctuation,
+        )),
     }
 }
 
@@ -907,12 +1074,13 @@ fn concat_non_empty(
     left: Box<RopeNode>,
     right: Box<RopeNode>,
     rows_per_column: usize,
+    hanging_punctuation: bool,
 ) -> Box<RopeNode> {
     if left.bytes() + right.bytes() <= ROPE_LEAF_BYTES {
         let mut text = String::with_capacity(left.bytes() + right.bytes());
         left.push_to_string(&mut text);
         right.push_to_string(&mut text);
-        return RopeNode::leaf(text, rows_per_column);
+        return RopeNode::leaf(text, rows_per_column, hanging_punctuation);
     }
 
     if left.height() > right.height() + 1 {
@@ -924,11 +1092,14 @@ fn concat_non_empty(
             } => {
                 return balance_branch(
                     left_left,
-                    concat_non_empty(left_right, right, rows_per_column),
+                    concat_non_empty(left_right, right, rows_per_column, hanging_punctuation),
                     rows_per_column,
+                    hanging_punctuation,
                 );
             }
-            leaf => return branch_node(Box::new(leaf), right, rows_per_column),
+            leaf => {
+                return branch_node(Box::new(leaf), right, rows_per_column, hanging_punctuation);
+            }
         }
     }
 
@@ -940,22 +1111,24 @@ fn concat_non_empty(
                 ..
             } => {
                 return balance_branch(
-                    concat_non_empty(left, right_left, rows_per_column),
+                    concat_non_empty(left, right_left, rows_per_column, hanging_punctuation),
                     right_right,
                     rows_per_column,
+                    hanging_punctuation,
                 );
             }
-            leaf => return branch_node(left, Box::new(leaf), rows_per_column),
+            leaf => return branch_node(left, Box::new(leaf), rows_per_column, hanging_punctuation),
         }
     }
 
-    branch_node(left, right, rows_per_column)
+    branch_node(left, right, rows_per_column, hanging_punctuation)
 }
 
 fn balance_branch(
     left: Box<RopeNode>,
     right: Box<RopeNode>,
     rows_per_column: usize,
+    hanging_punctuation: bool,
 ) -> Box<RopeNode> {
     if left.height() > right.height() + 1 {
         return match *left {
@@ -967,8 +1140,9 @@ fn balance_branch(
                 if left_left.height() >= left_right.height() {
                     branch_node(
                         left_left,
-                        branch_node(left_right, right, rows_per_column),
+                        branch_node(left_right, right, rows_per_column, hanging_punctuation),
                         rows_per_column,
+                        hanging_punctuation,
                     )
                 } else {
                     match *left_right {
@@ -977,19 +1151,36 @@ fn balance_branch(
                             right: left_right_right,
                             ..
                         } => branch_node(
-                            branch_node(left_left, left_right_left, rows_per_column),
-                            branch_node(left_right_right, right, rows_per_column),
+                            branch_node(
+                                left_left,
+                                left_right_left,
+                                rows_per_column,
+                                hanging_punctuation,
+                            ),
+                            branch_node(
+                                left_right_right,
+                                right,
+                                rows_per_column,
+                                hanging_punctuation,
+                            ),
                             rows_per_column,
+                            hanging_punctuation,
                         ),
                         leaf => branch_node(
                             left_left,
-                            branch_node(Box::new(leaf), right, rows_per_column),
+                            branch_node(
+                                Box::new(leaf),
+                                right,
+                                rows_per_column,
+                                hanging_punctuation,
+                            ),
                             rows_per_column,
+                            hanging_punctuation,
                         ),
                     }
                 }
             }
-            leaf => branch_node(Box::new(leaf), right, rows_per_column),
+            leaf => branch_node(Box::new(leaf), right, rows_per_column, hanging_punctuation),
         };
     }
 
@@ -1002,9 +1193,10 @@ fn balance_branch(
             } => {
                 if right_right.height() >= right_left.height() {
                     branch_node(
-                        branch_node(left, right_left, rows_per_column),
+                        branch_node(left, right_left, rows_per_column, hanging_punctuation),
                         right_right,
                         rows_per_column,
+                        hanging_punctuation,
                     )
                 } else {
                     match *right_left {
@@ -1013,30 +1205,47 @@ fn balance_branch(
                             right: right_left_right,
                             ..
                         } => branch_node(
-                            branch_node(left, right_left_left, rows_per_column),
-                            branch_node(right_left_right, right_right, rows_per_column),
+                            branch_node(
+                                left,
+                                right_left_left,
+                                rows_per_column,
+                                hanging_punctuation,
+                            ),
+                            branch_node(
+                                right_left_right,
+                                right_right,
+                                rows_per_column,
+                                hanging_punctuation,
+                            ),
                             rows_per_column,
+                            hanging_punctuation,
                         ),
                         leaf => branch_node(
-                            branch_node(left, Box::new(leaf), rows_per_column),
+                            branch_node(left, Box::new(leaf), rows_per_column, hanging_punctuation),
                             right_right,
                             rows_per_column,
+                            hanging_punctuation,
                         ),
                     }
                 }
             }
-            leaf => branch_node(left, Box::new(leaf), rows_per_column),
+            leaf => branch_node(left, Box::new(leaf), rows_per_column, hanging_punctuation),
         };
     }
 
-    branch_node(left, right, rows_per_column)
+    branch_node(left, right, rows_per_column, hanging_punctuation)
 }
 
-fn branch_node(left: Box<RopeNode>, right: Box<RopeNode>, rows_per_column: usize) -> Box<RopeNode> {
+fn branch_node(
+    left: Box<RopeNode>,
+    right: Box<RopeNode>,
+    rows_per_column: usize,
+    hanging_punctuation: bool,
+) -> Box<RopeNode> {
     let bytes = left.bytes() + right.bytes();
     let utf16 = left.utf16() + right.utf16();
     let graphemes = left.graphemes() + right.graphemes();
-    let cell_advances = compose_cell_advances(&left, &right, rows_per_column);
+    let cell_advances = compose_cell_advances(&left, &right, rows_per_column, hanging_punctuation);
     let height = left.height().max(right.height()) + 1;
 
     Box::new(RopeNode::Branch {
@@ -1058,8 +1267,12 @@ fn is_leading_attached_punctuation(
     grapheme: &str,
     cell_index: usize,
     rows_per_column: usize,
+    hanging_punctuation: bool,
 ) -> bool {
-    cell_index > 0 && cell_index % rows_per_column == 0 && matches!(grapheme, "。" | "、")
+    hanging_punctuation
+        && cell_index > 0
+        && cell_index % rows_per_column == 0
+        && matches!(grapheme, "。" | "、")
 }
 
 fn filler_text_between_cells(
@@ -1083,7 +1296,12 @@ fn filler_text_between_cells(
     filler
 }
 
-fn cell_advances_for_text(text: &str, graphemes: usize, rows_per_column: usize) -> CellAdvances {
+fn cell_advances_for_text(
+    text: &str,
+    graphemes: usize,
+    rows_per_column: usize,
+    hanging_punctuation: bool,
+) -> CellAdvances {
     if !has_layout_sensitive_grapheme(text) {
         let advances = vec![graphemes; rows_per_column];
         return CellAdvances {
@@ -1093,8 +1311,18 @@ fn cell_advances_for_text(text: &str, graphemes: usize, rows_per_column: usize) 
     }
 
     CellAdvances {
-        at_document_start: cell_advances_for_text_context(text, rows_per_column, false),
-        after_document_start: cell_advances_for_text_context(text, rows_per_column, true),
+        at_document_start: cell_advances_for_text_context(
+            text,
+            rows_per_column,
+            false,
+            hanging_punctuation,
+        ),
+        after_document_start: cell_advances_for_text_context(
+            text,
+            rows_per_column,
+            true,
+            hanging_punctuation,
+        ),
     }
 }
 
@@ -1102,6 +1330,7 @@ fn cell_advances_for_text_context(
     text: &str,
     rows_per_column: usize,
     after_document_start: bool,
+    hanging_punctuation: bool,
 ) -> Vec<usize> {
     let mut advances = vec![0; rows_per_column];
     for start_row in 0..rows_per_column {
@@ -1112,7 +1341,12 @@ fn cell_advances_for_text_context(
         };
         let mut cell_index = start_cell;
         for grapheme in text.graphemes(true) {
-            cell_index = RopeNode::advance_cell_for_grapheme(cell_index, grapheme, rows_per_column);
+            cell_index = RopeNode::advance_cell_for_grapheme(
+                cell_index,
+                grapheme,
+                rows_per_column,
+                hanging_punctuation,
+            );
         }
         advances[start_row] = cell_index - start_cell;
     }
@@ -1128,10 +1362,23 @@ fn compose_cell_advances(
     left: &RopeNode,
     right: &RopeNode,
     rows_per_column: usize,
+    hanging_punctuation: bool,
 ) -> CellAdvances {
     CellAdvances {
-        at_document_start: compose_cell_advances_context(left, right, rows_per_column, false),
-        after_document_start: compose_cell_advances_context(left, right, rows_per_column, true),
+        at_document_start: compose_cell_advances_context(
+            left,
+            right,
+            rows_per_column,
+            false,
+            hanging_punctuation,
+        ),
+        after_document_start: compose_cell_advances_context(
+            left,
+            right,
+            rows_per_column,
+            true,
+            hanging_punctuation,
+        ),
     }
 }
 
@@ -1140,6 +1387,7 @@ fn compose_cell_advances_context(
     right: &RopeNode,
     rows_per_column: usize,
     after_document_start: bool,
+    hanging_punctuation: bool,
 ) -> Vec<usize> {
     let mut advances = vec![0; rows_per_column];
 
@@ -1151,6 +1399,7 @@ fn compose_cell_advances_context(
         };
         let left_advance = left.cell_advance_from(start_cell, rows_per_column);
         let right_cell_start = start_cell + left_advance;
+        let _ = hanging_punctuation;
         let right_advance = right.cell_advance_from(right_cell_start, rows_per_column);
         advances[start_row] = left_advance + right_advance;
     }
@@ -1158,19 +1407,25 @@ fn compose_cell_advances_context(
     advances
 }
 
-fn build_balanced(leaves: Vec<String>, rows_per_column: usize) -> Option<Box<RopeNode>> {
+fn build_balanced(
+    leaves: Vec<String>,
+    rows_per_column: usize,
+    hanging_punctuation: bool,
+) -> Option<Box<RopeNode>> {
     build_balanced_nodes(
         leaves
             .into_iter()
-            .map(|leaf| RopeNode::leaf(leaf, rows_per_column))
+            .map(|leaf| RopeNode::leaf(leaf, rows_per_column, hanging_punctuation))
             .collect(),
         rows_per_column,
+        hanging_punctuation,
     )
 }
 
 fn build_balanced_nodes(
     mut nodes: Vec<Box<RopeNode>>,
     rows_per_column: usize,
+    hanging_punctuation: bool,
 ) -> Option<Box<RopeNode>> {
     while nodes.len() > 1 {
         let mut next_nodes = Vec::with_capacity(nodes.len().div_ceil(2));
@@ -1178,7 +1433,12 @@ fn build_balanced_nodes(
 
         while let Some(left) = iter.next() {
             if let Some(right) = iter.next() {
-                next_nodes.push(concat_non_empty(left, right, rows_per_column));
+                next_nodes.push(concat_non_empty(
+                    left,
+                    right,
+                    rows_per_column,
+                    hanging_punctuation,
+                ));
             } else {
                 next_nodes.push(left);
             }
@@ -1208,16 +1468,23 @@ fn chunk_string(text: &str) -> Vec<String> {
     chunks
 }
 
-fn chunk_shared_string(source: Arc<String>, rows_per_column: usize) -> Vec<Box<RopeNode>> {
+fn chunk_shared_string(
+    source: Arc<String>,
+    rows_per_column: usize,
+    hanging_punctuation: bool,
+) -> Vec<Box<RopeNode>> {
     let mut chunks = Vec::new();
     let mut chunk_start = 0;
     let mut chunk_bytes = 0;
 
     for (byte_offset, grapheme) in source.grapheme_indices(true) {
         if chunk_bytes > 0 && chunk_bytes + grapheme.len() > ROPE_LEAF_BYTES {
-            if let Some(chunk) =
-                RopeNode::shared_leaf(source.clone(), chunk_start..byte_offset, rows_per_column)
-            {
+            if let Some(chunk) = RopeNode::shared_leaf(
+                source.clone(),
+                chunk_start..byte_offset,
+                rows_per_column,
+                hanging_punctuation,
+            ) {
                 chunks.push(chunk);
             }
             chunk_start = byte_offset;
@@ -1228,8 +1495,12 @@ fn chunk_shared_string(source: Arc<String>, rows_per_column: usize) -> Vec<Box<R
     }
 
     if chunk_start < source.len()
-        && let Some(chunk) =
-            RopeNode::shared_leaf(source.clone(), chunk_start..source.len(), rows_per_column)
+        && let Some(chunk) = RopeNode::shared_leaf(
+            source.clone(),
+            chunk_start..source.len(),
+            rows_per_column,
+            hanging_punctuation,
+        )
     {
         chunks.push(chunk);
     }
@@ -1324,6 +1595,18 @@ mod tests {
         assert_eq!(visible[3].logical_index, 2);
         assert_eq!(visible[3].text, "、");
         assert!(visible[3].attached_to_previous);
+    }
+
+    #[test]
+    fn rope_does_not_attach_leading_punctuation_when_disabled() {
+        let mut rope = TextRope::from_str_with_rows("一二三、四", 3);
+        rope.set_hanging_punctuation(false);
+        let visible = rope.visible_cells(0, 4);
+
+        assert_eq!(rope.len_display_cells(), 5);
+        assert_eq!(visible[3].logical_index, 3);
+        assert_eq!(visible[3].text, "、");
+        assert!(!visible[3].attached_to_previous);
     }
 
     #[test]

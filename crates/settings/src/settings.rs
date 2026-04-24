@@ -15,6 +15,7 @@ const SETTINGS_FILE: &str = "settings.json";
 #[serde(default)]
 pub struct AppSettings {
     pub show_grid_lines: bool,
+    pub hanging_punctuation: bool,
     pub rows_per_column: Option<usize>,
     #[serde(rename = "vimMode")]
     pub vim_mode: bool,
@@ -26,6 +27,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             show_grid_lines: true,
+            hanging_punctuation: true,
             rows_per_column: None,
             vim_mode: false,
         }
@@ -75,6 +77,7 @@ impl AppSettings {
     pub fn normalized(&self) -> Self {
         Self {
             show_grid_lines: self.show_grid_lines,
+            hanging_punctuation: self.hanging_punctuation,
             rows_per_column: self
                 .rows_per_column
                 .map(|rows| rows.clamp(MIN_ROWS_PER_COLUMN, MAX_ROWS_PER_COLUMN)),
@@ -147,6 +150,7 @@ mod tests {
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
         assert!(!settings.show_grid_lines);
+        assert!(settings.hanging_punctuation);
         assert_eq!(settings.rows_per_column, Some(24));
         assert!(!settings.vim_mode);
 
@@ -199,6 +203,7 @@ mod tests {
         let settings_path = dir.join("settings.json");
         let settings = AppSettings {
             show_grid_lines: false,
+            hanging_punctuation: false,
             rows_per_column: Some(24),
             vim_mode: true,
         };
@@ -207,6 +212,7 @@ mod tests {
 
         let reloaded = AppSettings::load_from_config_file(Some(settings_path));
         assert!(!reloaded.show_grid_lines);
+        assert!(!reloaded.hanging_punctuation);
         assert_eq!(reloaded.rows_per_column, Some(24));
         assert!(reloaded.vim_mode);
 
@@ -225,6 +231,22 @@ mod tests {
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
         assert!(settings.vim_mode);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loads_hanging_punctuation_from_settings_file() {
+        let dir = test_settings_dir("hanging_punctuation");
+        fs::write(
+            dir.join("settings.json"),
+            r#"{"hanging_punctuation": false}"#,
+        )
+        .unwrap();
+
+        let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
+
+        assert!(!settings.hanging_punctuation);
 
         let _ = fs::remove_dir_all(dir);
     }

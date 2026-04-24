@@ -306,6 +306,11 @@ fn paint_cell_text(
         return;
     }
 
+    if is_corner_punctuation(&cell_text.text) {
+        paint_corner_punctuation(cell_text, cell_bounds, window, cx, true);
+        return;
+    }
+
     let style = window.text_style();
     let font_size = px(21.0);
     let line_height = px(24.0);
@@ -351,6 +356,11 @@ fn paint_attached_punctuation(
         return;
     }
 
+    if is_corner_punctuation(&cell_text.text) {
+        paint_corner_punctuation(cell_text, cell_bounds, window, cx, false);
+        return;
+    }
+
     let style = window.text_style();
     let font_size = px(14.0);
     let line_height = px(16.0);
@@ -387,6 +397,56 @@ fn paint_attached_punctuation(
 
 fn is_vertical_prolonged_sound_mark(text: &str) -> bool {
     text == "ー"
+}
+
+fn is_corner_punctuation(text: &str) -> bool {
+    matches!(text, "。" | "、")
+}
+
+fn paint_corner_punctuation(
+    cell_text: &CellText,
+    cell_bounds: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &mut App,
+    align_top: bool,
+) {
+    let style = window.text_style();
+    let font_size = px(14.0);
+    let line_height = px(16.0);
+    let run = TextRun {
+        len: cell_text.text.len(),
+        font: {
+            let mut font = style.font();
+            font.family = APP_FONT_FAMILY.into();
+            font
+        },
+        color: rgb(TEXT_PRIMARY).into(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let line =
+        window
+            .text_system()
+            .shape_line(cell_text.text.clone().into(), font_size, &[run], None);
+    let text_origin = point(
+        // cell_bounds.right() - line.width - px(1.0),
+        cell_bounds.right() - px(7.0),
+        if align_top {
+            cell_bounds.top() - px(6.0)
+        } else {
+            cell_bounds.bottom() - line_height - px(1.0)
+        },
+    );
+    line.paint(
+        text_origin,
+        line_height,
+        TextAlign::Center,
+        None,
+        window,
+        cx,
+    )
+    .ok();
 }
 
 fn paint_vertical_prolonged_sound_mark(
