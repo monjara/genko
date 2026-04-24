@@ -25,6 +25,8 @@ pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
 pub(crate) const CELL_SIZE: f32 = 28.0;
 pub(crate) const RUBY_GUTTER_SIZE: f32 = 10.0;
+const IME_ANCHOR_WIDTH: f32 = 2.0;
+const IME_ANCHOR_INSET: f32 = 3.0;
 
 pub fn init(cx: &mut App) {
     if AppSettings::global(cx).vim_mode {
@@ -456,13 +458,14 @@ impl Editor {
         } else {
             self.state.display_cell_for_byte(range.start)
         };
-        cell_bounds_for_logical_index(
+        let cell_bounds = cell_bounds_for_logical_index(
             board_bounds,
             logical_index,
             self.state.scroll_column,
             self.state.rows_per_column(),
             self.state.visible_columns(),
-        )
+        )?;
+        Some(ime_anchor_bounds_for_cell(cell_bounds, board_bounds))
     }
 
     fn backspace(&mut self, _: &Backspace, _window: &mut Window, cx: &mut Context<Self>) {
@@ -614,6 +617,25 @@ impl Editor {
             self.scroll_columns_by(whole_columns, cx);
         }
     }
+}
+
+fn ime_anchor_bounds_for_cell(
+    cell_bounds: Bounds<Pixels>,
+    board_bounds: Bounds<Pixels>,
+) -> Bounds<Pixels> {
+    // Prefer the left side of the caret, but switch to the right side near the viewport edge.
+    let left_side = cell_bounds.left() - px(IME_ANCHOR_WIDTH + IME_ANCHOR_INSET);
+    let right_side = cell_bounds.right() + px(IME_ANCHOR_INSET);
+    let left = if left_side >= board_bounds.left() {
+        left_side
+    } else {
+        right_side.min(board_bounds.right() - px(IME_ANCHOR_WIDTH))
+    };
+
+    Bounds::new(
+        gpui::point(left, cell_bounds.top() + px(IME_ANCHOR_INSET)),
+        gpui::size(px(IME_ANCHOR_WIDTH), px(CELL_SIZE - IME_ANCHOR_INSET * 2.0)),
+    )
 }
 
 impl EntityInputHandler for Editor {
