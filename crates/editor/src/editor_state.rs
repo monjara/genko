@@ -104,11 +104,6 @@ impl EditorState {
         self.cell_size * RUBY_GUTTER_RATIO
     }
 
-    pub(crate) fn total_columns(&self) -> usize {
-        let document_columns = self.used_cells().div_ceil(self.rows_per_column()).max(1);
-        document_columns.max(self.cursor_column() + 1)
-    }
-
     pub(crate) fn cursor_offset(&self) -> usize {
         if self.selection_reversed {
             self.selected_range.start
@@ -187,7 +182,10 @@ impl EditorState {
     }
 
     pub(crate) fn max_scroll_column(&self) -> usize {
-        self.total_columns().saturating_sub(self.visible_columns())
+        self.used_cells()
+            .div_ceil(self.rows_per_column())
+            .max(1)
+            .saturating_sub(self.visible_columns())
     }
 
     pub(crate) fn visible_rows(&self) -> usize {
@@ -196,10 +194,6 @@ impl EditorState {
 
     pub(crate) fn max_scroll_row(&self) -> usize {
         self.rows_per_column().saturating_sub(self.visible_rows())
-    }
-
-    pub(crate) fn clamp_scroll_column(&mut self) {
-        self.scroll_column = self.scroll_column.min(self.max_scroll_column());
     }
 
     pub(crate) fn clamp_scroll_row(&mut self) {
@@ -213,7 +207,6 @@ impl EditorState {
         } else if cursor_column >= self.scroll_column + self.visible_columns() {
             self.scroll_column = cursor_column + 1 - self.visible_columns();
         }
-        self.clamp_scroll_column();
 
         let cursor_row = self.cursor_row();
         if cursor_row < self.scroll_row {
