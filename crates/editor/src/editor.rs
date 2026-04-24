@@ -27,6 +27,7 @@ pub(crate) const CELL_SIZE: f32 = 28.0;
 pub(crate) const RUBY_GUTTER_SIZE: f32 = 10.0;
 const IME_ANCHOR_WIDTH: f32 = 2.0;
 const IME_ANCHOR_INSET: f32 = 3.0;
+const IME_CANDIDATE_GAP: f32 = 16.0;
 
 pub fn init(cx: &mut App) {
     if AppSettings::global(cx).vim_mode {
@@ -640,13 +641,27 @@ fn ime_anchor_bounds_for_cell(
     cell_bounds: Bounds<Pixels>,
     board_bounds: Bounds<Pixels>,
 ) -> Bounds<Pixels> {
-    // Prefer the left side of the caret, but switch to the right side near the viewport edge.
-    let left_side = cell_bounds.left() - px(IME_ANCHOR_WIDTH + IME_ANCHOR_INSET);
-    let right_side = cell_bounds.right() + px(IME_ANCHOR_INSET);
-    let left = if left_side >= board_bounds.left() {
-        left_side
-    } else {
-        right_side.min(board_bounds.right() - px(IME_ANCHOR_WIDTH))
+    // Keep some horizontal distance from the caret so IME candidate popups are less likely
+    // to overlap with the current composing column.
+    let horizontal_gap = px(IME_ANCHOR_INSET + IME_CANDIDATE_GAP);
+    let left_side = cell_bounds.left() - px(IME_ANCHOR_WIDTH) - horizontal_gap;
+    let right_side = cell_bounds.right() + horizontal_gap;
+    let can_place_left = left_side >= board_bounds.left();
+    let can_place_right = right_side + px(IME_ANCHOR_WIDTH) <= board_bounds.right();
+
+    let left = match (can_place_left, can_place_right) {
+        (true, true) => {
+            let left_space = cell_bounds.left() - board_bounds.left();
+            let right_space = board_bounds.right() - cell_bounds.right();
+            if left_space >= right_space {
+                left_side
+            } else {
+                right_side
+            }
+        }
+        (true, false) => left_side,
+        (false, true) => right_side,
+        (false, false) => board_bounds.left(),
     };
 
     Bounds::new(
