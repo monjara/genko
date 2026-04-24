@@ -7,9 +7,13 @@ edition = "2024"
 name = "vim"
 path = "src/vim.rs"
 
+[features]
+default = []
+embedded-ipadic = ["lindera/embed-ipadic"]
+
 [dependencies]
 editor = { workspace = true }
 gpui = { workspace = true }
 settings = { workspace = true }
 
-lindera = { version = "2.3.4", features = ["embed-ipadic"] }
+lindera = "2.3.4"

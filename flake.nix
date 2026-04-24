@@ -84,6 +84,7 @@
             packages = devTools;
             inherit nativeBuildInputs buildInputs;
 
+            LINDERA_DICTIONARIES_PATH = ".cache/lindera";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
             RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
           }
