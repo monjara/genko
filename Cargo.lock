@@ -2178,7 +2178,6 @@ name = "genko"
 version = "0.1.0"
 dependencies = [
  "editor",
- "env",
  "gpui",
  "gpui_platform",
  "rope",
