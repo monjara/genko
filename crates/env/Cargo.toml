@@ -1,0 +1,11 @@
+[package]
+name = "env"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "env"
+path = "src/env.rs"
+
+[dependencies]

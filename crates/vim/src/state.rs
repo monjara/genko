@@ -143,7 +143,6 @@ pub(crate) enum RepeatableCommand {
 pub(crate) struct PendingInsert {
     pub(crate) kind: InsertKind,
     pub(crate) change_target: Option<RepeatTarget>,
-    pub(crate) before_text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -153,7 +152,6 @@ pub(crate) struct PendingBlockInsert {
     pub(crate) column_count: usize,
     pub(crate) delete_selection: bool,
     pub(crate) target_cells: Vec<usize>,
-    pub(crate) before_text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

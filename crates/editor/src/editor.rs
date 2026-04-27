@@ -170,6 +170,10 @@ impl Editor {
         self.state.draft.slice(0..self.state.draft.len_bytes())
     }
 
+    pub fn rope(&self) -> &TextRope {
+        &self.state.draft
+    }
+
     pub fn load_text(&mut self, text: &str, cx: &mut Context<Self>) {
         let rows_per_column = self.state.rows_per_column;
         let hanging_punctuation = self.state.draft.hanging_punctuation();
@@ -326,6 +330,22 @@ impl Editor {
         self.state.history.redo_stack.clear();
         cx.notify();
         true
+    }
+
+    pub fn active_transaction_inserted_text(&self) -> Option<String> {
+        self.state
+            .history
+            .active_transaction
+            .as_ref()
+            .map(|transaction| transaction_inserted_text(&transaction.edits))
+    }
+
+    pub fn last_transaction_inserted_text(&self) -> Option<String> {
+        self.state
+            .history
+            .undo_stack
+            .last()
+            .map(|transaction| transaction_inserted_text(&transaction.edits))
     }
 
     pub fn cancel_transaction(&mut self) {
@@ -710,6 +730,55 @@ impl Editor {
             self.scroll_columns_by(whole_columns, cx);
         }
     }
+}
+
+fn transaction_inserted_text(edits: &[EditOperation]) -> String {
+    let mut inserted_edits = edits.iter().filter(|edit| !edit.inserted_text.is_empty());
+    let Some(first_edit) = inserted_edits.next() else {
+        return String::new();
+    };
+
+    let mut region_start = first_edit.start;
+    let mut region = first_edit.removed_text.clone();
+    replace_region_text(
+        &mut region,
+        0..first_edit.removed_text.len(),
+        &first_edit.inserted_text,
+    );
+
+    for edit in inserted_edits {
+        let edit_start = edit.start;
+        let edit_end = edit.start + edit.removed_text.len();
+        if edit_start < region_start {
+            let prefix_len = region_start - edit_start;
+            let prefix = &edit.removed_text[..prefix_len.min(edit.removed_text.len())];
+            region.insert_str(0, prefix);
+            region_start = edit_start;
+        }
+
+        let current_region_end = region_start + region.len();
+        if edit_start > current_region_end {
+            break;
+        }
+
+        if edit_end > current_region_end {
+            let suffix_start = edit
+                .removed_text
+                .len()
+                .saturating_sub(edit_end - current_region_end);
+            region.push_str(&edit.removed_text[suffix_start..]);
+        }
+
+        let local_start = edit_start.saturating_sub(region_start);
+        let local_end = local_start + edit.removed_text.len();
+        replace_region_text(&mut region, local_start..local_end, &edit.inserted_text);
+    }
+
+    region
+}
+
+fn replace_region_text(region: &mut String, range: Range<usize>, replacement: &str) {
+    region.replace_range(range, replacement);
 }
 
 fn ime_anchor_bounds_for_cell(

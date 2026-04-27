@@ -1,9 +1,46 @@
+use rope::TextRope;
+
 use super::*;
+
+fn rope(text: &str) -> TextRope {
+    TextRope::from_str(text)
+}
+
+fn resolve_text_range(
+    text: &str,
+    cursor_byte_offset: usize,
+    modifier: TextObjectModifier,
+    target: TextObjectTarget,
+) -> Option<std::ops::Range<usize>> {
+    resolve_text_object_range(&rope(text), cursor_byte_offset, modifier, target)
+}
+
+fn resolve_motion(text: &str, cursor_byte_offset: usize, motion: MotionKind) -> Option<usize> {
+    resolve_motion_target(&rope(text), cursor_byte_offset, motion)
+}
+
+fn resolve_motion_edit_range(
+    text: &str,
+    cursor_byte_offset: usize,
+    motion: MotionKind,
+    operator: VimOperator,
+) -> Option<std::ops::Range<usize>> {
+    resolve_motion_range(&rope(text), cursor_byte_offset, motion, operator)
+}
+
+fn resolve_repeat_range(
+    text: &str,
+    cursor_byte_offset: usize,
+    target: RepeatTarget,
+    is_change: bool,
+) -> Option<std::ops::Range<usize>> {
+    resolve_repeat_target_range(&rope(text), cursor_byte_offset, target, is_change)
+}
 
 #[test]
 fn inner_word_targets_current_word() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "alpha beta",
             2,
             TextObjectModifier::Inner,
@@ -16,7 +53,7 @@ fn inner_word_targets_current_word() {
 #[test]
 fn inner_word_skips_forward_from_whitespace() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "alpha beta",
             5,
             TextObjectModifier::Inner,
@@ -29,11 +66,11 @@ fn inner_word_skips_forward_from_whitespace() {
 #[test]
 fn around_word_prefers_trailing_spaces() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "alpha   beta",
             1,
             TextObjectModifier::Around,
-            TextObjectTarget::Word
+            TextObjectTarget::Word,
         ),
         Some(0..8)
     );
@@ -42,7 +79,7 @@ fn around_word_prefers_trailing_spaces() {
 #[test]
 fn around_word_uses_leading_spaces_when_no_trailing_spaces() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "alpha",
             2,
             TextObjectModifier::Around,
@@ -51,7 +88,7 @@ fn around_word_uses_leading_spaces_when_no_trailing_spaces() {
         Some(0..5)
     );
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "   alpha",
             4,
             TextObjectModifier::Around,
@@ -64,7 +101,7 @@ fn around_word_uses_leading_spaces_when_no_trailing_spaces() {
 #[test]
 fn big_word_includes_punctuation_until_whitespace() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "foo.bar baz",
             2,
             TextObjectModifier::Inner,
@@ -78,11 +115,11 @@ fn big_word_includes_punctuation_until_whitespace() {
 #[test]
 fn japanese_word_uses_lindera_boundaries() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "関西国際空港限定トートバッグ",
             "関西国際空港".len() + 1,
             TextObjectModifier::Inner,
-            TextObjectTarget::Word
+            TextObjectTarget::Word,
         ),
         Some("関西国際空港".len().."関西国際空港限定".len())
     );
@@ -93,7 +130,7 @@ fn around_japanese_word_expands_whitespace() {
     let text = "関西国際空港 限定 トートバッグ";
     let cursor = text.find("限定").unwrap();
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             text,
             cursor,
             TextObjectModifier::Around,
@@ -106,20 +143,20 @@ fn around_japanese_word_expands_whitespace() {
 #[test]
 fn double_quote_objects_work() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             r#"say "hello world" now"#,
             7,
             TextObjectModifier::Inner,
-            TextObjectTarget::DoubleQuote
+            TextObjectTarget::DoubleQuote,
         ),
         Some(5..16)
     );
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             r#"say "hello world" now"#,
             7,
             TextObjectModifier::Around,
-            TextObjectTarget::DoubleQuote
+            TextObjectTarget::DoubleQuote,
         ),
         Some(4..17)
     );
@@ -128,11 +165,11 @@ fn double_quote_objects_work() {
 #[test]
 fn single_quote_objects_work() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "say 'hello' now",
             7,
             TextObjectModifier::Inner,
-            TextObjectTarget::SingleQuote
+            TextObjectTarget::SingleQuote,
         ),
         Some(5..10)
     );
@@ -141,20 +178,20 @@ fn single_quote_objects_work() {
 #[test]
 fn paren_objects_work() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "call(foo(bar))",
             10,
             TextObjectModifier::Inner,
-            TextObjectTarget::Paren
+            TextObjectTarget::Paren,
         ),
         Some(9..12)
     );
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "call(foo(bar))",
             10,
             TextObjectModifier::Around,
-            TextObjectTarget::Paren
+            TextObjectTarget::Paren,
         ),
         Some(8..13)
     );
@@ -163,20 +200,20 @@ fn paren_objects_work() {
 #[test]
 fn bracket_objects_work() {
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "arr[one[two]]",
             9,
             TextObjectModifier::Inner,
-            TextObjectTarget::Bracket
+            TextObjectTarget::Bracket,
         ),
         Some(8..11)
     );
     assert_eq!(
-        resolve_text_object_range(
+        resolve_text_range(
             "arr[one[two]]",
             9,
             TextObjectModifier::Around,
-            TextObjectTarget::Bracket
+            TextObjectTarget::Bracket,
         ),
         Some(7..12)
     );
@@ -185,11 +222,11 @@ fn bracket_objects_work() {
 #[test]
 fn word_forward_moves_to_next_word_start() {
     assert_eq!(
-        resolve_motion_target("alpha beta gamma", 0, MotionKind::WordForward),
+        resolve_motion("alpha beta gamma", 0, MotionKind::WordForward),
         Some(6)
     );
     assert_eq!(
-        resolve_motion_target("alpha beta gamma", 5, MotionKind::WordForward),
+        resolve_motion("alpha beta gamma", 5, MotionKind::WordForward),
         Some(6)
     );
 }
@@ -197,7 +234,7 @@ fn word_forward_moves_to_next_word_start() {
 #[test]
 fn big_word_forward_skips_until_next_whitespace_boundary() {
     assert_eq!(
-        resolve_motion_target("foo.bar baz", 0, MotionKind::BigWordForward),
+        resolve_motion("foo.bar baz", 0, MotionKind::BigWordForward),
         Some(8)
     );
 }
@@ -205,11 +242,11 @@ fn big_word_forward_skips_until_next_whitespace_boundary() {
 #[test]
 fn word_end_moves_to_current_or_next_word_end() {
     assert_eq!(
-        resolve_motion_target("alpha beta", 1, MotionKind::WordEndForward),
+        resolve_motion("alpha beta", 1, MotionKind::WordEndForward),
         Some(4)
     );
     assert_eq!(
-        resolve_motion_target("alpha beta", 5, MotionKind::WordEndForward),
+        resolve_motion("alpha beta", 5, MotionKind::WordEndForward),
         Some(9)
     );
 }
@@ -219,7 +256,7 @@ fn word_end_moves_to_current_or_next_word_end() {
 fn japanese_word_forward_uses_lindera_boundaries() {
     let text = "関西国際空港限定トートバッグ";
     assert_eq!(
-        resolve_motion_target(text, 0, MotionKind::WordForward),
+        resolve_motion(text, 0, MotionKind::WordForward),
         Some("関西国際空港".len())
     );
 }
@@ -227,7 +264,7 @@ fn japanese_word_forward_uses_lindera_boundaries() {
 #[test]
 fn delete_word_motion_targets_next_word_start() {
     assert_eq!(
-        resolve_motion_range(
+        resolve_motion_edit_range(
             "alpha beta",
             0,
             MotionKind::WordForward,
@@ -240,7 +277,7 @@ fn delete_word_motion_targets_next_word_start() {
 #[test]
 fn change_word_motion_stops_at_current_word_end() {
     assert_eq!(
-        resolve_motion_range(
+        resolve_motion_edit_range(
             "alpha beta",
             0,
             MotionKind::WordForward,
@@ -253,11 +290,11 @@ fn change_word_motion_stops_at_current_word_end() {
 #[test]
 fn end_motion_range_includes_target_character() {
     assert_eq!(
-        resolve_motion_range(
+        resolve_motion_edit_range(
             "alpha beta",
             0,
             MotionKind::WordEndForward,
-            VimOperator::Delete
+            VimOperator::Delete,
         ),
         Some(0..5)
     );
@@ -284,13 +321,7 @@ fn current_column_cell_range_returns_none_for_empty_document() {
 #[test]
 fn resolve_repeat_target_range_ignores_line_targets() {
     assert_eq!(
-        resolve_repeat_target_range("abc", 0, RepeatTarget::Line, false),
+        resolve_repeat_range("abc", 0, RepeatTarget::Line, false),
         None
     );
-}
-
-#[test]
-fn inserted_text_between_handles_multibyte_text() {
-    assert_eq!(inserted_text_between("かな", "かな文字"), "文字");
-    assert_eq!(inserted_text_between("何かな入力", "何wかな入力"), "w");
 }

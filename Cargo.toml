@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   ".",
   "crates/editor",
+  "crates/env",
   "crates/genko",
   "crates/rope",
   "crates/settings",
@@ -28,6 +29,7 @@ serde_json = "1"
 xdg = "3.0.0"
 
 editor = { path = "crates/editor" }
+env = { path = "crates/env" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 theme = { path = "crates/theme" }

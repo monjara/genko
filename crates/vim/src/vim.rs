@@ -61,8 +61,8 @@ use state::{
     RepeatableCommand, TextObjectModifier, TextObjectTarget, VimOperator, VimState, YankRegister,
 };
 use text_objects::{
-    inserted_text_between, next_char_end, resolve_motion_range, resolve_motion_target,
-    resolve_repeat_target_range, resolve_text_object_range,
+    resolve_motion_range, resolve_motion_target, resolve_repeat_target_range,
+    resolve_text_object_range,
 };
 
 pub use state::VimMode;
@@ -113,14 +113,12 @@ impl Vim {
         &mut self,
         kind: InsertKind,
         change_target: Option<RepeatTarget>,
-        before_text: String,
         cx: &mut Context<Self>,
     ) {
         self.pending_block_insert = None;
         self.pending_insert = Some(PendingInsert {
             kind,
             change_target,
-            before_text,
         });
         self.editor.update(cx, |editor, _| {
             editor.begin_transaction();
@@ -142,13 +140,11 @@ impl Vim {
         column_count: usize,
         delete_selection: bool,
         target_cells: Vec<usize>,
-        before_text: String,
         cx: &mut Context<Self>,
     ) {
         self.pending_insert = Some(PendingInsert {
             kind: InsertKind::Insert,
             change_target: None,
-            before_text: before_text.clone(),
         });
         self.pending_block_insert = Some(PendingBlockInsert {
             kind,
@@ -156,7 +152,6 @@ impl Vim {
             column_count,
             delete_selection,
             target_cells,
-            before_text,
         });
         self.editor.update(cx, |editor, _| {
             editor.begin_transaction();
@@ -173,16 +168,14 @@ impl Vim {
     }
 
     fn enter_insert_mode(&mut self, cx: &mut Context<Self>) {
-        let before_text = self.editor.read(cx).snapshot_text();
-        self.start_insert_session(InsertKind::Insert, None, before_text, cx);
+        self.start_insert_session(InsertKind::Insert, None, cx);
     }
 
     fn append(&mut self, cx: &mut Context<Self>) {
         self.editor.update(cx, |editor, cx| {
             editor.move_cursor_by(1, cx);
         });
-        let before_text = self.editor.read(cx).snapshot_text();
-        self.start_insert_session(InsertKind::Append, None, before_text, cx);
+        self.start_insert_session(InsertKind::Append, None, cx);
     }
 
     fn normal_mode(&mut self, cx: &mut Context<Self>) {
@@ -247,12 +240,11 @@ impl Vim {
         let Some(anchor) = self.state.visual_anchor_cell() else {
             return;
         };
-        let (target_cells, before_text, register, delete_ranges, row_count, column_count) = {
+        let (target_cells, register, delete_ranges, row_count, column_count) = {
             let editor = self.editor.read(cx);
             let register = build_block_register(editor, anchor, editor.cursor_cell());
             let target_cells =
                 block_insert_target_cells(editor, anchor, editor.cursor_cell(), kind);
-            let before_text = editor.snapshot_text();
             let delete_ranges = if delete_selection {
                 block_selection_byte_ranges(editor, anchor, editor.cursor_cell())
             } else {
@@ -260,7 +252,6 @@ impl Vim {
             };
             (
                 target_cells,
-                before_text,
                 register.clone(),
                 delete_ranges,
                 register.row_count,
@@ -291,7 +282,6 @@ impl Vim {
             column_count,
             delete_selection,
             target_cells,
-            before_text,
             cx,
         );
     }
@@ -392,7 +382,7 @@ impl Vim {
         };
         let block_register = {
             let editor = self.editor.read(cx);
-            build_block_register(&editor, anchor, editor.cursor_cell())
+            build_block_register(editor, anchor, editor.cursor_cell())
         };
         self.yank_register = YankRegister::BlockWise(block_register);
         self.state.set_mode(VimMode::Normal);
@@ -547,17 +537,18 @@ impl Vim {
     }
 
     fn move_by_motion(&mut self, motion: MotionKind, cx: &mut Context<Self>) {
-        let (text, cursor) = {
+        let (target, cursor) = {
             let editor = self.editor.read(cx);
-            (editor.snapshot_text(), editor.cursor_byte_offset())
+            let cursor = editor.cursor_byte_offset();
+            (resolve_motion_target(editor.rope(), cursor, motion), cursor)
         };
 
         if self.state.pending_operator().is_some() {
-            self.apply_motion(motion, &text, cursor, cx);
+            self.apply_motion(motion, cursor, cx);
             return;
         }
 
-        let Some(target) = resolve_motion_target(&text, cursor, motion) else {
+        let Some(target) = target else {
             return;
         };
 
@@ -584,8 +575,6 @@ impl Vim {
         self.editor.update(cx, |editor, cx| {
             if is_visual {
                 editor.select_cursor_by(delta, cx);
-            } else if is_visual_block {
-                editor.move_cursor_by(delta, cx);
             } else {
                 editor.move_cursor_by(delta, cx);
             }
@@ -612,33 +601,24 @@ impl Vim {
         self.editor.update(cx, |editor, cx| {
             editor.move_cursor_to_display_cell(target_cell, cx);
         });
-        let before_text = self.editor.read(cx).snapshot_text();
-        self.start_insert_session(InsertKind::Insert, None, before_text, cx);
+        self.start_insert_session(InsertKind::Insert, None, cx);
     }
 
-    fn apply_motion(
-        &mut self,
-        motion: MotionKind,
-        text: &str,
-        cursor: usize,
-        cx: &mut Context<Self>,
-    ) {
+    fn apply_motion(&mut self, motion: MotionKind, cursor: usize, cx: &mut Context<Self>) {
         let Some(operator) = self.state.pending_operator() else {
             return;
         };
-        let Some(range) = resolve_motion_range(text, cursor, motion, operator) else {
+        let range = {
+            let editor = self.editor.read(cx);
+            resolve_motion_range(editor.rope(), cursor, motion, operator)
+        };
+        let Some(range) = range else {
             self.state.clear_pending();
             cx.notify();
             return;
         };
 
-        self.apply_operator_to_range(
-            operator,
-            range,
-            Some(RepeatTarget::Motion(motion)),
-            text,
-            cx,
-        );
+        self.apply_operator_to_range(operator, range, Some(RepeatTarget::Motion(motion)), cx);
     }
 
     fn apply_text_object(&mut self, target: TextObjectTarget, cx: &mut Context<Self>) {
@@ -649,12 +629,13 @@ impl Vim {
             return;
         };
 
-        let (text, cursor) = {
+        let range = {
             let editor = self.editor.read(cx);
-            (editor.snapshot_text(), editor.cursor_byte_offset())
+            let cursor = editor.cursor_byte_offset();
+            resolve_text_object_range(editor.rope(), cursor, modifier, target)
         };
 
-        let Some(range) = resolve_text_object_range(&text, cursor, modifier, target) else {
+        let Some(range) = range else {
             self.state.clear_pending();
             cx.notify();
             return;
@@ -664,7 +645,6 @@ impl Vim {
             operator,
             range,
             Some(RepeatTarget::TextObject(modifier, target)),
-            &text,
             cx,
         );
     }
@@ -674,7 +654,6 @@ impl Vim {
         operator: VimOperator,
         range: Range<usize>,
         repeat_target: Option<RepeatTarget>,
-        source_text: &str,
         cx: &mut Context<Self>,
     ) {
         match operator {
@@ -720,7 +699,6 @@ impl Vim {
                         self.pending_insert = Some(PendingInsert {
                             kind: InsertKind::Insert,
                             change_target: repeat_target,
-                            before_text: source_text.to_string(),
                         });
                     }
                     VimOperator::Yank => {}
@@ -759,8 +737,7 @@ impl Vim {
                 ..editor.byte_offset_for_display_cell(cell_range.end)
         };
 
-        let text = self.editor.read(cx).snapshot_text();
-        self.apply_operator_to_range(operator, range, Some(RepeatTarget::Line), &text, cx);
+        self.apply_operator_to_range(operator, range, Some(RepeatTarget::Line), cx);
     }
 
     fn finish_insert_session(&mut self, cx: &mut Context<Self>) {
@@ -768,11 +745,11 @@ impl Vim {
             return;
         };
         let pending_block_insert = self.pending_block_insert.take();
-        let (committed, after_text) = self.editor.update(cx, |editor, cx| {
-            let after_first_text = editor.snapshot_text();
+        let (committed, inserted_text) = self.editor.update(cx, |editor, cx| {
+            let inserted_text = editor
+                .active_transaction_inserted_text()
+                .unwrap_or_default();
             if let Some(pending_block_insert) = &pending_block_insert {
-                let inserted_text =
-                    inserted_text_between(&pending_block_insert.before_text, &after_first_text);
                 if !inserted_text.is_empty() {
                     for &cell_index in pending_block_insert.target_cells.iter().skip(1).rev() {
                         editor.move_cursor_to_display_cell(cell_index, cx);
@@ -783,13 +760,15 @@ impl Vim {
                 editor.collapse_selection_to_cursor_cell(cx);
             }
             let committed = editor.commit_transaction(cx);
-            (committed, editor.snapshot_text())
+            let inserted_text = editor
+                .last_transaction_inserted_text()
+                .unwrap_or(inserted_text);
+            (committed, inserted_text)
         });
         if !committed {
             return;
         }
 
-        let inserted_text = inserted_text_between(&pending_insert.before_text, &after_text);
         self.last_change = if let Some(pending_block_insert) = pending_block_insert {
             if inserted_text.is_empty() {
                 None
@@ -906,13 +885,13 @@ impl Vim {
             let editor = self.editor.read(cx);
             (
                 block_byte_ranges_from_cursor(
-                    &editor,
+                    editor,
                     editor.cursor_cell(),
                     row_count,
                     column_count,
                 ),
                 block_insert_target_cells_from_cursor(
-                    &editor,
+                    editor,
                     editor.cursor_cell(),
                     row_count,
                     BlockInsertKind::Before,
@@ -956,7 +935,7 @@ impl Vim {
     ) {
         let target_cells = {
             let editor = self.editor.read(cx);
-            block_insert_target_cells_from_cursor(&editor, editor.cursor_cell(), row_count, kind)
+            block_insert_target_cells_from_cursor(editor, editor.cursor_cell(), row_count, kind)
         };
         if target_cells.is_empty() || inserted_text.is_empty() {
             return;
@@ -989,9 +968,14 @@ impl Vim {
         inserted_text: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let (text, cursor) = {
+        let resolved_range = {
             let editor = self.editor.read(cx);
-            (editor.snapshot_text(), editor.cursor_byte_offset())
+            resolve_repeat_target_range(
+                editor.rope(),
+                editor.cursor_byte_offset(),
+                target,
+                inserted_text.is_some(),
+            )
         };
         let range = if target == RepeatTarget::Line {
             let (cursor_cell, rows_per_column, used_cells) = {
@@ -1011,9 +995,7 @@ impl Vim {
             editor.byte_offset_for_display_cell(cell_range.start)
                 ..editor.byte_offset_for_display_cell(cell_range.end)
         } else {
-            let Some(range) =
-                resolve_repeat_target_range(&text, cursor, target, inserted_text.is_some())
-            else {
+            let Some(range) = resolved_range else {
                 return;
             };
             range
@@ -1041,7 +1023,7 @@ impl Vim {
                 inserted_text,
             });
         } else {
-            self.apply_operator_to_range(VimOperator::Delete, range, Some(target), &text, cx);
+            self.apply_operator_to_range(VimOperator::Delete, range, Some(target), cx);
         }
     }
 
@@ -1088,10 +1070,9 @@ impl Vim {
         match &self.yank_register {
             YankRegister::Empty => None,
             YankRegister::CharWise(content) => {
-                let text = self.editor.read(cx).snapshot_text();
                 let insertion_offset = match position {
                     PastePosition::Before => cursor_byte_offset,
-                    PastePosition::After => next_char_end(text.as_str(), cursor_byte_offset),
+                    PastePosition::After => self.editor.read(cx).offset_after_cursor(),
                 };
                 Some((insertion_offset, content.clone()))
             }

@@ -9,6 +9,9 @@ args = ["run"]
 command = "cargo"
 args = ["watch", "-x", "run"]
 
+[tasks.watch.env]
+GENKO_DEVELOPMENT_WATCH_MODE = "1"
+
 [tasks.test]
 command = "cargo"
 args = ["test", "--offline", "--all"]

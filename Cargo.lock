@@ -1692,6 +1692,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "env"
+version = "0.1.0"
+
+[[package]]
 name = "equator"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2174,6 +2178,7 @@ name = "genko"
 version = "0.1.0"
 dependencies = [
  "editor",
+ "env",
  "gpui",
  "gpui_platform",
  "rope",
@@ -6909,8 +6914,10 @@ name = "vim"
 version = "0.1.0"
 dependencies = [
  "editor",
+ "env",
  "gpui",
  "lindera",
+ "rope",
  "settings",
 ]
 

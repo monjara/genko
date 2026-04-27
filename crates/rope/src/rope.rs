@@ -333,16 +333,43 @@ impl TextRope {
         offset + filler_len
     }
 
-    fn floor_char_boundary(&self, byte_offset: usize) -> usize {
+    pub fn floor_char_boundary(&self, byte_offset: usize) -> usize {
         self.root
             .as_ref()
             .map_or(0, |node| node.floor_char_boundary(byte_offset))
     }
 
-    fn ceil_char_boundary(&self, byte_offset: usize) -> usize {
+    pub fn ceil_char_boundary(&self, byte_offset: usize) -> usize {
         self.root
             .as_ref()
             .map_or(0, |node| node.ceil_char_boundary(byte_offset))
+    }
+
+    pub fn next_char_boundary(&self, byte_offset: usize) -> usize {
+        let byte_offset = self.ceil_char_boundary(byte_offset.min(self.len_bytes()));
+        if byte_offset >= self.len_bytes() {
+            self.len_bytes()
+        } else {
+            self.ceil_char_boundary(byte_offset + 1)
+        }
+    }
+
+    pub fn previous_char_boundary(&self, byte_offset: usize) -> usize {
+        let byte_offset = self.floor_char_boundary(byte_offset.min(self.len_bytes()));
+        if byte_offset == 0 {
+            0
+        } else {
+            self.floor_char_boundary(byte_offset - 1)
+        }
+    }
+
+    pub fn char_at(&self, byte_offset: usize) -> Option<char> {
+        let start = self.floor_char_boundary(byte_offset.min(self.len_bytes()));
+        if start >= self.len_bytes() {
+            return None;
+        }
+        let end = self.next_char_boundary(start);
+        self.slice(start..end).chars().next()
     }
 }
 
@@ -599,7 +626,7 @@ impl RopeNode {
                 *utf16 = left.utf16() + right.utf16();
                 *graphemes = left.graphemes() + right.graphemes();
                 *cell_advances =
-                    compose_cell_advances(&left, &right, rows_per_column, hanging_punctuation);
+                    compose_cell_advances(left, right, rows_per_column, hanging_punctuation);
                 *height = left.height().max(right.height()) + 1;
                 true
             }
