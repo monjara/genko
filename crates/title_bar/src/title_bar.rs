@@ -1,8 +1,8 @@
 use gpui::{
     AnyElement, App, ClickEvent, Decorations, Hsla, InteractiveElement, IntoElement, ParentElement,
     Pixels, Rgba, SharedString, StatefulInteractiveElement, Styled, TitlebarOptions, Window,
-    WindowButton, WindowButtonLayout, WindowControlArea, WindowDecorations, div, point, prelude::*,
-    px,
+    WindowButton, WindowButtonLayout, WindowControlArea, WindowDecorations, div, point,
+    prelude::FluentBuilder, px,
 };
 use theme::Theme;
 

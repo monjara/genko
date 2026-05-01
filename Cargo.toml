@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   ".",
+  "crates/bottom_bar",
   "crates/editor",
   "crates/env",
   "crates/genko",
@@ -31,6 +32,7 @@ xdg = "3.0.0"
 
 editor = { path = "crates/editor" }
 env = { path = "crates/env" }
+bottom_bar = { path = "crates/bottom_bar" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 title_bar = { path = "crates/title_bar" }

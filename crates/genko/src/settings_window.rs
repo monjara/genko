@@ -704,5 +704,18 @@ impl Render for SettingsWindow {
                             .child(self.render_apply_button(cx)),
                     ),
             )
+        // .child(app_bottom_bar::render(
+        //     Some(
+        //         div()
+        //             .h(px(24.0))
+        //             .text_sm()
+        //             .text_color(Theme::global(cx).text_senodary())
+        //             .child(self.status.clone())
+        //             .into_any_element(),
+        //     ),
+        //     Some(),
+        //     window,
+        //     cx,
+        // ))
     }
 }

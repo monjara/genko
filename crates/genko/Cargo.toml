@@ -8,6 +8,7 @@ name = "genko"
 path = "src/main.rs"
 
 [dependencies]
+bottom_bar = { workspace = true }
 gpui = { workspace = true }
 gpui_platform = { workspace = true }
 rope = { workspace = true }

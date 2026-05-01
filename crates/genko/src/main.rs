@@ -6,10 +6,8 @@ use std::path::{Path, PathBuf};
 use editor::Editor;
 use settings::AppSettings;
 use settings_window::SettingsWindow;
-use vim::Vim;
-
 use theme::{APP_FONT_FAMILY, Theme};
-use title_bar as app_title_bar;
+use vim::Vim;
 
 use gpui::{
     App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
@@ -278,12 +276,6 @@ impl Render for GenkoApp {
                 self.editor.clone().into_element()
             });
 
-        let content = if vim_mode_enabled {
-            content.child(self.vim_mode_status.clone())
-        } else {
-            content
-        };
-
         div()
             .size_full()
             .bg(Theme::global(cx).white())
@@ -296,21 +288,21 @@ impl Render for GenkoApp {
                 Decorations::Server => this,
                 Decorations::Client { tiling } => this
                     .when(!(tiling.top || tiling.right), |this| {
-                        this.rounded_tr(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                        this.rounded_tr(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
                     })
                     .when(!(tiling.top || tiling.left), |this| {
-                        this.rounded_tl(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                        this.rounded_tl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
                     })
                     .when(!(tiling.bottom || tiling.right), |this| {
-                        this.rounded_br(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                        this.rounded_br(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
                     })
                     .when(!(tiling.bottom || tiling.left), |this| {
-                        this.rounded_bl(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                        this.rounded_bl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
                     }),
             })
             .on_action(cx.listener(Self::open_file_action))
             .on_action(cx.listener(Self::save_file_action))
-            .children(app_title_bar::render(self.window_title(), None, window, cx))
+            .children(title_bar::render(self.window_title(), None, window, cx))
             .child(
                 div()
                     .flex_1()
@@ -320,6 +312,12 @@ impl Render for GenkoApp {
                     .justify_center()
                     .child(content),
             )
+            .child(bottom_bar::render(
+                None,
+                vim_mode_enabled.then(|| self.vim_mode_status.clone().into_any_element()),
+                window,
+                cx,
+            ))
     }
 }
 
@@ -338,7 +336,7 @@ fn open_settings_window(cx: &mut App) {
 
     let settings_window = cx
         .open_window(
-            app_title_bar::configure_window_options(WindowOptions {
+            title_bar::configure_window_options(WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 app_id: Some("dev.genko.settings".into()),
                 is_movable: true,
@@ -375,7 +373,7 @@ fn main() {
 
         let window = cx
             .open_window(
-                app_title_bar::configure_window_options(WindowOptions {
+                title_bar::configure_window_options(WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     app_id: Some("dev.genko".into()),
                     is_movable: true,
