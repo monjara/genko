@@ -1,14 +1,15 @@
 use gpui::{
-    AnyElement, App, ClickEvent, Decorations, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Pixels, Rgba, SharedString, StatefulInteractiveElement, Styled, TitlebarOptions, Window,
-    WindowButton, WindowButtonLayout, WindowControlArea, WindowDecorations, div, point,
-    prelude::FluentBuilder, px,
+    AnyElement, App, BoxShadow, ClickEvent, Decorations, Hsla, InteractiveElement, IntoElement,
+    ParentElement, Pixels, Rgba, SharedString, StatefulInteractiveElement, Styled,
+    TitlebarOptions, Window, WindowButton, WindowButtonLayout, WindowControlArea,
+    WindowDecorations, div, point, prelude::FluentBuilder, px,
 };
 use theme::Theme;
 
 const MAC_TRAFFIC_LIGHT_PADDING: f32 = 71.0;
 const SIDE_SLOT_WIDTH: f32 = 160.0;
 pub const CLIENT_SIDE_DECORATION_ROUNDING: Pixels = px(10.0);
+pub const CLIENT_SIDE_SHADOW_SIZE: Pixels = px(10.0);
 
 pub fn configure_window_options(mut options: gpui::WindowOptions) -> gpui::WindowOptions {
     options.titlebar = Some(TitlebarOptions {
@@ -22,7 +23,33 @@ pub fn configure_window_options(mut options: gpui::WindowOptions) -> gpui::Windo
         options.window_decorations = Some(WindowDecorations::Client);
     }
 
+    options.window_background = gpui::WindowBackgroundAppearance::Transparent;
+
     options
+}
+
+pub fn sync_client_window_inset(window: &mut Window) {
+    let inset = match window.window_decorations() {
+        Decorations::Server => px(0.0),
+        Decorations::Client { tiling } if tiling.is_tiled() => px(0.0),
+        Decorations::Client { .. } => CLIENT_SIDE_SHADOW_SIZE,
+    };
+
+    window.set_client_inset(inset);
+}
+
+pub fn client_window_shadow() -> Vec<BoxShadow> {
+    vec![BoxShadow {
+        color: Hsla {
+            h: 0.0,
+            s: 0.0,
+            l: 0.0,
+            a: 0.4,
+        },
+        offset: point(px(0.0), px(0.0)),
+        blur_radius: CLIENT_SIDE_SHADOW_SIZE / 2.0,
+        spread_radius: px(0.0),
+    }]
 }
 
 pub fn render(

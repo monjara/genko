@@ -12,8 +12,8 @@ use vim::Vim;
 use gpui::{
     App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
-    PromptLevel, Render, Styled, Window, WindowBounds, WindowOptions, actions, div, prelude::*, px,
-    rgb, size,
+    PromptLevel, Render, Styled, Window, WindowBounds, WindowDecorations, WindowOptions, actions,
+    div, prelude::*, px, rgb, size, transparent_black,
 };
 
 actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
@@ -247,6 +247,7 @@ impl GenkoApp {
 
 impl Render for GenkoApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        title_bar::sync_client_window_inset(window);
         self.sync_window_title(window);
         let viewport_size = window.viewport_size();
         let vim_mode_enabled = AppSettings::global(cx).vim_mode;
@@ -278,46 +279,70 @@ impl Render for GenkoApp {
 
         div()
             .size_full()
-            .bg(Theme::global(cx).white())
-            .font_family(APP_FONT_FAMILY)
-            .flex()
-            .flex_col()
-            .items_center()
-            .overflow_hidden()
+            .bg(transparent_black())
             .map(|this| match window.window_decorations() {
                 Decorations::Server => this,
                 Decorations::Client { tiling } => this
-                    .when(!(tiling.top || tiling.right), |this| {
-                        this.rounded_tr(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    .when(!tiling.top, |this| {
+                        this.pt(title_bar::CLIENT_SIDE_SHADOW_SIZE)
                     })
-                    .when(!(tiling.top || tiling.left), |this| {
-                        this.rounded_tl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    .when(!tiling.bottom, |this| {
+                        this.pb(title_bar::CLIENT_SIDE_SHADOW_SIZE)
                     })
-                    .when(!(tiling.bottom || tiling.right), |this| {
-                        this.rounded_br(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    .when(!tiling.left, |this| {
+                        this.pl(title_bar::CLIENT_SIDE_SHADOW_SIZE)
                     })
-                    .when(!(tiling.bottom || tiling.left), |this| {
-                        this.rounded_bl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    .when(!tiling.right, |this| {
+                        this.pr(title_bar::CLIENT_SIDE_SHADOW_SIZE)
                     }),
             })
-            .on_action(cx.listener(Self::open_file_action))
-            .on_action(cx.listener(Self::save_file_action))
-            .children(title_bar::render(self.window_title(), None, window, cx))
             .child(
                 div()
-                    .flex_1()
-                    .w_full()
+                    .size_full()
+                    .bg(Theme::global(cx).white())
+                    .font_family(APP_FONT_FAMILY)
                     .flex()
+                    .flex_col()
                     .items_center()
-                    .justify_center()
-                    .child(content),
+                    .overflow_hidden()
+                    .map(|this| match window.window_decorations() {
+                        Decorations::Server => this,
+                        Decorations::Client { tiling } => this
+                            .when(!(tiling.top || tiling.right), |this| {
+                                this.rounded_tr(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                            })
+                            .when(!(tiling.top || tiling.left), |this| {
+                                this.rounded_tl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                            })
+                            .when(!(tiling.bottom || tiling.right), |this| {
+                                this.rounded_br(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                            })
+                            .when(!(tiling.bottom || tiling.left), |this| {
+                                this.rounded_bl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                            })
+                            .when(!tiling.is_tiled(), |this| {
+                                this.shadow(title_bar::client_window_shadow())
+                            }),
+                    })
+                    .on_action(cx.listener(Self::open_file_action))
+                    .on_action(cx.listener(Self::save_file_action))
+                    .children(title_bar::render(self.window_title(), None, window, cx))
+                    .child(
+                        div()
+                            .flex_1()
+                            .w_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(content),
+                    )
+                    .child(bottom_bar::render(
+                        None,
+                        vim_mode_enabled.then(|| self.vim_mode_status.clone().into_any_element()),
+                        window,
+                        cx,
+                    )),
             )
-            .child(bottom_bar::render(
-                None,
-                vim_mode_enabled.then(|| self.vim_mode_status.clone().into_any_element()),
-                window,
-                cx,
-            ))
     }
 }
 
@@ -340,6 +365,7 @@ fn open_settings_window(cx: &mut App) {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 app_id: Some("dev.genko.settings".into()),
                 is_movable: true,
+                window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
             }),
             move |_, cx| cx.new(move |_| SettingsWindow::new()),
@@ -377,6 +403,7 @@ fn main() {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     app_id: Some("dev.genko".into()),
                     is_movable: true,
+                    window_decorations: Some(WindowDecorations::Client),
                     ..Default::default()
                 }),
                 |_, cx| cx.new(GenkoApp::new),
