@@ -8,7 +8,7 @@ use settings::AppSettings;
 use settings_window::SettingsWindow;
 use vim::Vim;
 
-use theme::{APP_BACKGROUND, APP_FONT_FAMILY};
+use theme::{APP_FONT_FAMILY, Theme};
 
 use gpui::{
     App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, InteractiveElement,
@@ -282,7 +282,7 @@ impl Render for GenkoApp {
 
         div()
             .size_full()
-            .bg(rgb(APP_BACKGROUND))
+            .bg(Theme::global(cx).white())
             .font_family(APP_FONT_FAMILY)
             .flex()
             .items_center()
@@ -335,6 +335,7 @@ fn main() {
         .collect();
         let _ = cx.text_system().add_fonts(fonts);
 
+        theme::init(cx);
         settings::init(cx);
         editor::init(cx);
         vim::init(cx);

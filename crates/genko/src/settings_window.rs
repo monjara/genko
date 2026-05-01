@@ -1,14 +1,12 @@
 use gpui::{
     ClickEvent, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px, rgb,
+    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
+
 
 use settings::{AppSettings, ColumnNumberMode};
 
-use theme::{
-    ACCENT_PRIMARY, APP_FONT_FAMILY, BORDER_MUTED, PANEL_BACKGROUND, PAPER_BACKGROUND,
-    TEXT_INVERSE, TEXT_PRIMARY, TEXT_SECONDARY,
-};
+use theme::{APP_FONT_FAMILY, Theme};
 
 pub(crate) struct SettingsWindow {
     status: SharedString,
@@ -208,7 +206,7 @@ impl SettingsWindow {
             .gap_4()
             .p_3()
             .border_1()
-            .border_color(rgb(BORDER_MUTED))
+            .border_color(Theme::global(cx).primary())
             .rounded_sm()
             .child(
                 div()
@@ -219,7 +217,7 @@ impl SettingsWindow {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(TEXT_SECONDARY))
+                            .text_color(Theme::global(cx).text_senodary())
                             .child(format!(
                                 "未指定ならウィンドウの高さに合わせます。固定は{}から{}の範囲です",
                                 AppSettings::min_rows_per_column(),
@@ -242,7 +240,7 @@ impl SettingsWindow {
                             .justify_center()
                             .rounded_sm()
                             .border_1()
-                            .border_color(rgb(BORDER_MUTED))
+                            .border_color(Theme::global(cx).primary())
                             .cursor_pointer()
                             .active(|this| this.opacity(0.85))
                             .child(mode_label)
@@ -258,7 +256,7 @@ impl SettingsWindow {
                             .justify_center()
                             .rounded_sm()
                             .border_1()
-                            .border_color(rgb(BORDER_MUTED))
+                            .border_color(Theme::global(cx).primary())
                             .cursor_pointer()
                             .active(|this| this.opacity(0.85))
                             .child("-")
@@ -272,7 +270,7 @@ impl SettingsWindow {
                             .items_center()
                             .justify_center()
                             .rounded_sm()
-                            .bg(rgb(PANEL_BACKGROUND))
+                            .bg(Theme::global(cx).white())
                             .child(rows_label),
                     )
                     .child(
@@ -285,7 +283,7 @@ impl SettingsWindow {
                             .justify_center()
                             .rounded_sm()
                             .border_1()
-                            .border_color(rgb(BORDER_MUTED))
+                            .border_color(Theme::global(cx).primary())
                             .cursor_pointer()
                             .active(|this| this.opacity(0.85))
                             .child("+")
@@ -302,7 +300,7 @@ impl SettingsWindow {
             .gap_4()
             .p_3()
             .border_1()
-            .border_color(rgb(BORDER_MUTED))
+            .border_color(Theme::global(cx).primary())
             .rounded_sm()
             .child(
                 div()
@@ -317,7 +315,7 @@ impl SettingsWindow {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(TEXT_SECONDARY))
+                            .text_color(Theme::global(cx).text_senodary())
                             .child(format!(
                                 "{}pxから{}pxの範囲で調整します。文字サイズも連動します",
                                 AppSettings::min_cell_size(),
@@ -340,7 +338,7 @@ impl SettingsWindow {
                             .justify_center()
                             .rounded_sm()
                             .border_1()
-                            .border_color(rgb(BORDER_MUTED))
+                            .border_color(Theme::global(cx).primary())
                             .cursor_pointer()
                             .active(|this| this.opacity(0.85))
                             .child("-")
@@ -354,7 +352,7 @@ impl SettingsWindow {
                             .items_center()
                             .justify_center()
                             .rounded_sm()
-                            .bg(rgb(PANEL_BACKGROUND))
+                            .bg(Theme::global(cx).bg_senodary())
                             .child(format!("{}px", AppSettings::global(cx).cell_size)),
                     )
                     .child(
@@ -367,7 +365,7 @@ impl SettingsWindow {
                             .justify_center()
                             .rounded_sm()
                             .border_1()
-                            .border_color(rgb(BORDER_MUTED))
+                            .border_color(Theme::global(cx).primary())
                             .cursor_pointer()
                             .active(|this| this.opacity(0.85))
                             .child("+")
@@ -391,7 +389,7 @@ impl SettingsWindow {
             .gap_4()
             .p_3()
             .border_1()
-            .border_color(rgb(BORDER_MUTED))
+            .border_color(Theme::global(cx).primary())
             .rounded_sm()
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_grid_lines))
@@ -404,7 +402,7 @@ impl SettingsWindow {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(TEXT_SECONDARY))
+                            .text_color(Theme::global(cx).text_senodary())
                             .child("原稿用紙のマス目を表示します"),
                     ),
             )
@@ -414,14 +412,15 @@ impl SettingsWindow {
                     .py_1()
                     .rounded_sm()
                     .bg(if AppSettings::global(cx).show_grid_lines {
-                        rgb(ACCENT_PRIMARY)
+                        Theme::global(cx).primary()
                     } else {
-                        rgb(PANEL_BACKGROUND)
+                        Theme::global(cx).white()
                     })
                     .text_color(if AppSettings::global(cx).show_grid_lines {
-                        rgb(TEXT_INVERSE)
+                        // TODO どこ？
+                        Theme::global(cx).white()
                     } else {
-                        rgb(TEXT_PRIMARY)
+                        Theme::global(cx).primary()
                     })
                     .child(value_label),
             )
@@ -442,7 +441,7 @@ impl SettingsWindow {
             .gap_4()
             .p_3()
             .border_1()
-            .border_color(rgb(BORDER_MUTED))
+            .border_color(Theme::global(cx).primary())
             .rounded_sm()
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_vim_mode))
@@ -455,7 +454,7 @@ impl SettingsWindow {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(TEXT_SECONDARY))
+                            .text_color(Theme::global(cx).text_senodary())
                             .child("Vimの通常モードと挿入モードで編集します"),
                     ),
             )
@@ -465,14 +464,14 @@ impl SettingsWindow {
                     .py_1()
                     .rounded_sm()
                     .bg(if AppSettings::global(cx).vim_mode {
-                        rgb(ACCENT_PRIMARY)
+                        Theme::global(cx).primary()
                     } else {
-                        rgb(PANEL_BACKGROUND)
+                        Theme::global(cx).white()
                     })
                     .text_color(if AppSettings::global(cx).vim_mode {
-                        rgb(TEXT_INVERSE)
+                        Theme::global(cx).white()
                     } else {
-                        rgb(TEXT_PRIMARY)
+                        Theme::global(cx).primary()
                     })
                     .child(value_label),
             )
@@ -493,7 +492,7 @@ impl SettingsWindow {
             .gap_4()
             .p_3()
             .border_1()
-            .border_color(rgb(BORDER_MUTED))
+            .border_color(Theme::global(cx).primary())
             .rounded_sm()
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_hanging_punctuation))
@@ -506,7 +505,7 @@ impl SettingsWindow {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(TEXT_SECONDARY))
+                            .text_color(Theme::global(cx).text_senodary())
                             .child("行頭の句読点を前のマスへぶら下げます"),
                     ),
             )
@@ -516,14 +515,14 @@ impl SettingsWindow {
                     .py_1()
                     .rounded_sm()
                     .bg(if AppSettings::global(cx).hanging_punctuation {
-                        rgb(ACCENT_PRIMARY)
+                        Theme::global(cx).primary()
                     } else {
-                        rgb(PANEL_BACKGROUND)
+                        Theme::global(cx).white()
                     })
                     .text_color(if AppSettings::global(cx).hanging_punctuation {
-                        rgb(TEXT_INVERSE)
+                        Theme::global(cx).white()
                     } else {
-                        rgb(TEXT_PRIMARY)
+                        Theme::global(cx).primary()
                     })
                     .child(value_label),
             )
@@ -549,16 +548,16 @@ impl SettingsWindow {
                 .justify_center()
                 .rounded_sm()
                 .border_1()
-                .border_color(rgb(BORDER_MUTED))
+                .border_color(Theme::global(cx).primary())
                 .bg(if active {
-                    rgb(ACCENT_PRIMARY)
+                    Theme::global(cx).primary()
                 } else {
-                    rgb(PANEL_BACKGROUND)
+                    Theme::global(cx).white()
                 })
                 .text_color(if active {
-                    rgb(TEXT_INVERSE)
+                    Theme::global(cx).white()
                 } else {
-                    rgb(TEXT_PRIMARY)
+                    Theme::global(cx).text_primary()
                 })
                 .cursor_pointer()
                 .active(|this| this.opacity(0.85))
@@ -573,7 +572,7 @@ impl SettingsWindow {
             .gap_4()
             .p_3()
             .border_1()
-            .border_color(rgb(BORDER_MUTED))
+            .border_color(Theme::global(cx).primary())
             .rounded_sm()
             .child(
                 div()
@@ -584,7 +583,7 @@ impl SettingsWindow {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(TEXT_SECONDARY))
+                            .text_color(Theme::global(cx).text_senodary())
                             .child("選択した間隔の列だけ、原稿用紙の上に番号を表示します"),
                     ),
             )
@@ -625,8 +624,8 @@ impl SettingsWindow {
             .id("settings-apply")
             .px_4()
             .py_2()
-            .bg(rgb(ACCENT_PRIMARY))
-            .text_color(rgb(TEXT_INVERSE))
+            .bg(Theme::global(cx).primary())
+            .text_color(Theme::global(cx).white())
             .rounded_sm()
             .cursor_pointer()
             .active(|this| this.opacity(0.85))
@@ -639,13 +638,13 @@ impl Render for SettingsWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
-            .bg(rgb(PAPER_BACKGROUND))
+            .bg(Theme::global(cx).white())
             .font_family(APP_FONT_FAMILY)
             .p_6()
             .flex()
             .flex_col()
             .gap_4()
-            .text_color(rgb(TEXT_PRIMARY))
+            .text_color(Theme::global(cx).text_primary())
             .child(
                 div()
                     .flex()
@@ -655,7 +654,7 @@ impl Render for SettingsWindow {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(rgb(TEXT_SECONDARY))
+                            .text_color(Theme::global(cx).text_senodary())
                             .child("変更はsettings.jsonに保存されます"),
                     ),
             )
@@ -675,7 +674,7 @@ impl Render for SettingsWindow {
                         div()
                             .h(px(24.0))
                             .text_sm()
-                            .text_color(rgb(TEXT_SECONDARY))
+                            .text_color(Theme::global(cx).text_senodary())
                             .child(self.status.clone()),
                     )
                     .child(self.render_apply_button(cx)),

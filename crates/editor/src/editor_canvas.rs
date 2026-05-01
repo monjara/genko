@@ -4,11 +4,11 @@ use std::ops::Range;
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFeatures,
     GlobalElementId, IntoElement, LayoutId, Path, PathBuilder, Pixels, Style, TextAlign, TextRun,
-    Window, fill, point, px, rgb, rgba, size,
+    Window, fill, point, px, size,
 };
 use rope::CellText;
 use settings::{AppSettings, ColumnNumberMode};
-use theme::{APP_FONT_FAMILY, GRID_LINE, PAPER_BACKGROUND, SELECTION_BACKGROUND, TEXT_PRIMARY};
+use theme::{APP_FONT_FAMILY, Theme};
 
 use crate::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor};
 
@@ -171,7 +171,7 @@ impl Element for EditorCanvas {
             ruby_gutter_size,
         } = paint_state;
 
-        paint_paper(bounds, window);
+        paint_paper(bounds, window, cx);
         paint_column_numbers(
             content_bounds,
             column_number_mode,
@@ -196,6 +196,7 @@ impl Element for EditorCanvas {
             cell_size,
             ruby_gutter_size,
             window,
+            cx,
         );
         if show_grid {
             let grid_cache = self.editor.update(cx, |editor, _cx| {
@@ -227,6 +228,7 @@ impl Element for EditorCanvas {
                 ruby_gutter_size,
                 &grid_cache,
                 window,
+                cx,
             );
         }
         paint_text(
@@ -254,13 +256,14 @@ impl Element for EditorCanvas {
                 cell_size,
                 ruby_gutter_size,
                 window,
+                cx,
             );
         }
     }
 }
 
-pub(crate) fn paint_paper(bounds: Bounds<Pixels>, window: &mut Window) {
-    window.paint_quad(fill(bounds, rgb(PAPER_BACKGROUND)));
+pub(crate) fn paint_paper(bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+    window.paint_quad(fill(bounds, Theme::global(cx).bg_primary()));
 }
 
 fn column_number_header_height(mode: ColumnNumberMode, cell_size: f32) -> Pixels {
@@ -305,7 +308,7 @@ fn paint_column_numbers(
                 font.family = APP_FONT_FAMILY.into();
                 font
             },
-            color: rgb(TEXT_PRIMARY).into(),
+            color: Theme::global(cx).text_primary().into(),
             background_color: None,
             underline: None,
             strikethrough: None,
@@ -338,39 +341,41 @@ fn paint_grid(
     ruby_gutter_size: f32,
     grid_cache: &GridPathCache,
     window: &mut Window,
+    cx: &mut App,
 ) {
     let bottom_border_y = bounds.top() + px(visible_rows as f32 * cell_size);
     let right_border_x = bounds.left()
         + board_width_for_columns(visible_columns, cell_size, ruby_gutter_size)
         - px(1.0);
 
+    let grid_line_color = Theme::global(cx).primary();
     window.paint_quad(fill(
         Bounds::new(
             point(bounds.left(), bounds.top()),
             size(bounds.size.width, px(1.0)),
         ),
-        rgb(GRID_LINE),
+        grid_line_color,
     ));
     window.paint_quad(fill(
         Bounds::new(
             point(bounds.left(), bottom_border_y),
             size(bounds.size.width, px(1.0)),
         ),
-        rgb(GRID_LINE),
+        grid_line_color,
     ));
     window.paint_quad(fill(
         Bounds::new(
             point(bounds.left(), bounds.top()),
             size(px(1.0), bounds.size.height),
         ),
-        rgb(GRID_LINE),
+        grid_line_color,
     ));
     window.paint_quad(fill(
         Bounds::new(
             point(right_border_x, bounds.top()),
             size(px(1.0), bounds.size.height),
         ),
-        rgb(GRID_LINE),
+        grid_line_color,
     ));
 
     for column in 0..visible_columns {
@@ -383,22 +388,22 @@ fn paint_grid(
                 point(column_right, bounds.top()),
                 size(px(ruby_gutter_size), px(1.0)),
             ),
-            rgb(GRID_LINE),
+            grid_line_color,
         ));
         window.paint_quad(fill(
             Bounds::new(
                 point(column_right, bottom_border_y),
                 size(px(ruby_gutter_size), px(1.0)),
             ),
-            rgb(GRID_LINE),
+            grid_line_color,
         ));
     }
 
     if let Some(path) = &grid_cache.vertical_dashes {
-        window.paint_path(path.clone(), rgb(GRID_LINE));
+        window.paint_path(path.clone(), grid_line_color);
     }
     if let Some(path) = &grid_cache.horizontal_dashes {
-        window.paint_path(path.clone(), rgb(GRID_LINE));
+        window.paint_path(path.clone(), grid_line_color);
     }
 }
 
@@ -458,6 +463,7 @@ pub(crate) fn paint_selection(
     cell_size: f32,
     ruby_gutter_size: f32,
     window: &mut Window,
+    cx: &mut App,
 ) {
     if let Some(block_selection) = block_selection {
         for logical_index in block_selection_indices(
@@ -478,7 +484,7 @@ pub(crate) fn paint_selection(
             ) else {
                 continue;
             };
-            window.paint_quad(fill(cell_bounds, rgba(SELECTION_BACKGROUND)));
+            window.paint_quad(fill(cell_bounds, Theme::global(cx).bg_senodary()));
         }
     }
 
@@ -497,7 +503,7 @@ pub(crate) fn paint_selection(
             ) else {
                 continue;
             };
-            window.paint_quad(fill(cell_bounds, rgba(SELECTION_BACKGROUND)));
+            window.paint_quad(fill(cell_bounds, Theme::global(cx).bg_senodary()));
         } else if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
             let Some(cell_bounds) = cell_bounds_for_logical_index(
                 bounds,
@@ -521,7 +527,7 @@ pub(crate) fn paint_selection(
                     ),
                     size(px((cell_size * 0.64).round()), px(2.0)),
                 ),
-                rgb(TEXT_PRIMARY),
+                Theme::global(cx).text_senodary(),
             ));
         }
     }
@@ -584,7 +590,7 @@ fn paint_cell_text(
         window,
         &cell_text.text,
         font_size,
-        text_run(&cell_text.text, vertical_text_font(style.font())),
+        text_run(&cell_text.text, vertical_text_font(style.font()), cx),
     );
     let text_origin = point(
         cell_bounds.left() + (px(cell_size) - line.width) / 2.0,
@@ -615,7 +621,7 @@ fn paint_attached_punctuation(
         window,
         &cell_text.text,
         font_size,
-        text_run(&cell_text.text, vertical_text_font(style.font())),
+        text_run(&cell_text.text, vertical_text_font(style.font()), cx),
     );
     let text_origin = point(
         cell_bounds.right() - line.width - px(3.0),
@@ -651,7 +657,7 @@ fn paint_corner_punctuation(
         window,
         &cell_text.text,
         font_size,
-        text_run(&cell_text.text, vertical_text_font(style.font())),
+        text_run(&cell_text.text, vertical_text_font(style.font()), cx),
     );
     let text_origin = point(
         cell_bounds.left() + (px(cell_size) - line.width) / 2.0,
@@ -692,11 +698,11 @@ fn cell_paint_kind(cell_text: &CellText) -> CellPaintKind {
     }
 }
 
-fn text_run(text: &str, font: Font) -> TextRun {
+fn text_run(text: &str, font: Font, cx: &mut App) -> TextRun {
     TextRun {
         len: text.len(),
         font,
-        color: rgb(TEXT_PRIMARY).into(),
+        color: Theme::global(cx).text_primary().into(),
         background_color: None,
         underline: None,
         strikethrough: None,
@@ -734,6 +740,7 @@ pub(crate) fn paint_cursor(
     cell_size: f32,
     ruby_gutter_size: f32,
     window: &mut Window,
+    cx: &mut App,
 ) {
     let Some(cell_bounds) = cell_bounds_for_logical_index(
         bounds,
@@ -753,7 +760,7 @@ pub(crate) fn paint_cursor(
             point(cell_bounds.left() + px(4.0), cell_bounds.top() + px(3.0)),
             size(px(cell_size - 8.0), px(2.0)),
         ),
-        rgb(TEXT_PRIMARY),
+        Theme::global(cx).text_primary(),
     ));
 }
 

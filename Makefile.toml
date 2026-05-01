@@ -1,6 +1,10 @@
 [config]
 default_to_workspace = false
 
+[tasks.check]
+command = "cargo"
+args = ["check"]
+
 [tasks.dev]
 command = "cargo"
 args = ["run"]
