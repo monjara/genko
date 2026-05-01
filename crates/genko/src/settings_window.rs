@@ -1,21 +1,27 @@
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    ClickEvent, Context, Decorations, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    Render, SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::*,
-    px, transparent_black,
+    AppContext, ClickEvent, Context, Decorations, Entity, FontWeight, InteractiveElement,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, transparent_black,
 };
 
 use settings::{AppSettings, ColumnNumberMode};
 
 use theme::{APP_FONT_FAMILY, Theme};
-use title_bar as app_title_bar;
+use title_bar::{self as app_title_bar, TitleBar};
 
 pub(crate) struct SettingsWindow {
+    title_bar: Entity<TitleBar>,
     status: SharedString,
 }
 
 impl SettingsWindow {
-    pub(crate) fn new() -> Self {
-        Self { status: "".into() }
+    pub(crate) fn new(cx: &mut Context<Self>) -> Self {
+        let title_bar = cx.new(|cx| TitleBar::new("設定", cx));
+        Self {
+            title_bar,
+            status: "".into(),
+        }
     }
 
     fn toggle_grid_lines(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -177,15 +183,9 @@ impl SettingsWindow {
         row_settings.column_number_mode = settings.column_number_mode;
         row_settings.show_grid_lines = settings.show_grid_lines;
         row_settings.vim_mode = settings.vim_mode;
-        // let was_vim_mode = self.settings.vim_mode;
-        // old_settings = settings.normalized();
-        // if self.settings.vim_mode != was_vim_mode {
-        // self.vim.reset_for_enabled(self.settings.vim_mode);
-        // }
         if let Some(rows_per_column) = settings.rows_per_column {
             row_settings.rows_per_column = Some(rows_per_column);
         }
-        // self.ensure_cursor_visible();
         cx.notify();
     }
 
@@ -644,10 +644,18 @@ impl Render for SettingsWindow {
             .map(|this| match window.window_decorations() {
                 Decorations::Server => this,
                 Decorations::Client { tiling } => this
-                    .when(!tiling.top, |this| this.pt(app_title_bar::CLIENT_SIDE_SHADOW_SIZE))
-                    .when(!tiling.bottom, |this| this.pb(app_title_bar::CLIENT_SIDE_SHADOW_SIZE))
-                    .when(!tiling.left, |this| this.pl(app_title_bar::CLIENT_SIDE_SHADOW_SIZE))
-                    .when(!tiling.right, |this| this.pr(app_title_bar::CLIENT_SIDE_SHADOW_SIZE)),
+                    .when(!tiling.top, |this| {
+                        this.pt(app_title_bar::CLIENT_SIDE_SHADOW_SIZE)
+                    })
+                    .when(!tiling.bottom, |this| {
+                        this.pb(app_title_bar::CLIENT_SIDE_SHADOW_SIZE)
+                    })
+                    .when(!tiling.left, |this| {
+                        this.pl(app_title_bar::CLIENT_SIDE_SHADOW_SIZE)
+                    })
+                    .when(!tiling.right, |this| {
+                        this.pr(app_title_bar::CLIENT_SIDE_SHADOW_SIZE)
+                    }),
             })
             .child(
                 div()
@@ -677,7 +685,7 @@ impl Render for SettingsWindow {
                                 this.shadow(app_title_bar::client_window_shadow())
                             }),
                     })
-                    .children(app_title_bar::render("Settings", None, window, cx))
+                    .child(self.title_bar.clone())
                     .child(
                         div()
                             .flex_1()
@@ -691,7 +699,12 @@ impl Render for SettingsWindow {
                                     .flex()
                                     .flex_col()
                                     .gap_1()
-                                    .child(div().text_2xl().font_weight(FontWeight::BOLD).child("設定"))
+                                    .child(
+                                        div()
+                                            .text_2xl()
+                                            .font_weight(FontWeight::BOLD)
+                                            .child("設定"),
+                                    )
                                     .child(
                                         div()
                                             .text_sm()

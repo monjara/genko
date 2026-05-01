@@ -1,7 +1,7 @@
 use gpui::{
-    AnyElement, App, BoxShadow, ClickEvent, Decorations, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Rgba, SharedString, StatefulInteractiveElement, Styled,
-    TitlebarOptions, Window, WindowButton, WindowButtonLayout, WindowControlArea,
+    AnyElement, App, BoxShadow, ClickEvent, Context, Decorations, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Pixels, Render, Rgba, SharedString, StatefulInteractiveElement,
+    Styled, TitlebarOptions, Window, WindowButton, WindowButtonLayout, WindowControlArea,
     WindowDecorations, div, point, prelude::FluentBuilder, px,
 };
 use theme::Theme;
@@ -38,6 +38,7 @@ pub fn sync_client_window_inset(window: &mut Window) {
     window.set_client_inset(inset);
 }
 
+// TODO crates fix visibility of this function
 pub fn client_window_shadow() -> Vec<BoxShadow> {
     vec![BoxShadow {
         color: Hsla {
@@ -52,29 +53,7 @@ pub fn client_window_shadow() -> Vec<BoxShadow> {
     }]
 }
 
-pub fn render(
-    title: impl Into<SharedString>,
-    trailing: Option<AnyElement>,
-    window: &mut Window,
-    cx: &App,
-) -> Option<AnyElement> {
-    match PlatformStyle::current() {
-        PlatformStyle::Mac => Some(render_macos_title_bar(title.into(), trailing, window, cx)),
-        PlatformStyle::Linux => {
-            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-            {
-                Some(render_linux_title_bar(title.into(), trailing, window, cx))
-            }
-
-            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
-            {
-                unreachable!("linux title bar is only compiled on linux/freebsd");
-            }
-        }
-        PlatformStyle::Windows => None,
-    }
-}
-
+// TODO crates fix visibility of this function
 pub fn platform_title_bar_height(window: &Window) -> Pixels {
     #[cfg(target_os = "windows")]
     {
@@ -88,253 +67,275 @@ pub fn platform_title_bar_height(window: &Window) -> Pixels {
     }
 }
 
-fn render_macos_title_bar(
-    title: SharedString,
-    trailing: Option<AnyElement>,
-    window: &mut Window,
-    cx: &App,
-) -> AnyElement {
-    let height = platform_title_bar_height(window);
-    let background = title_bar_background(window, cx);
-    let trailing = trailing.unwrap_or_else(spacer);
-
-    div()
-        .id("genko-title-bar-macos")
-        .w_full()
-        .h(height)
-        .bg(background)
-        .border_b_1()
-        .border_color(border_color(cx))
-        .window_control_area(WindowControlArea::Drag)
-        .on_click(|event: &ClickEvent, window, _| {
-            if event.click_count() == 2 {
-                window.titlebar_double_click();
-            }
-        })
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .size_full()
-                .pl(px(MAC_TRAFFIC_LIGHT_PADDING))
-                .pr_3()
-                .child(
-                    div()
-                        .w(px(SIDE_SLOT_WIDTH))
-                        .flex_none()
-                        .text_size(px(12.0))
-                        .text_color(text_color(cx)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .text_center()
-                        .text_size(px(12.0))
-                        .text_color(text_color(cx))
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .w(px(SIDE_SLOT_WIDTH))
-                        .flex_none()
-                        .flex()
-                        .flex_row()
-                        .justify_end()
-                        .items_center()
-                        .children(Some(trailing)),
-                ),
-        )
-        .into_any_element()
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum PlatformStyle {
+    Mac,
+    Linux,
+    Windows,
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-fn render_linux_title_bar(
-    title: SharedString,
-    trailing: Option<AnyElement>,
-    window: &mut Window,
-    cx: &App,
-) -> AnyElement {
-    let height = platform_title_bar_height(window);
-    let background = title_bar_background(window, cx);
-    let button_layout = cx
-        .button_layout()
-        .unwrap_or_else(WindowButtonLayout::linux_default);
-    let left_controls = render_linux_window_controls(button_layout.left, window, cx);
-    let right_controls = render_linux_window_controls(button_layout.right, window, cx);
-    let trailing = trailing.unwrap_or_else(spacer);
-
-    let bar = div()
-        .id("genko-title-bar-linux")
-        .w_full()
-        .h(height)
-        .bg(background)
-        .border_b_1()
-        .border_color(border_color(cx))
-        .window_control_area(WindowControlArea::Drag)
-        .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
-            window.start_window_move();
-        })
-        .on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
-            cx.stop_propagation();
-            window.show_window_menu(event.position);
-        })
-        .on_click(|event: &ClickEvent, window, _| {
-            if event.click_count() == 2 {
-                window.zoom_window();
-            }
-        })
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .size_full()
-                .child(
-                    div()
-                        .w(px(SIDE_SLOT_WIDTH))
-                        .flex_none()
-                        .justify_start()
-                        .children(left_controls),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .px_3()
-                        .text_center()
-                        .text_size(px(12.0))
-                        .text_color(text_color(cx))
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .w(px(SIDE_SLOT_WIDTH))
-                        .flex_none()
-                        .flex()
-                        .flex_row()
-                        .justify_end()
-                        .items_center()
-                        .gap_2()
-                        .children(Some(trailing))
-                        .children(right_controls),
-                ),
-        );
-
-    match window.window_decorations() {
-        Decorations::Server => bar.into_any_element(),
-        Decorations::Client { tiling } => bar
-            .when(!(tiling.top || tiling.right), |bar| {
-                bar.rounded_tr(CLIENT_SIDE_DECORATION_ROUNDING)
-            })
-            .when(!(tiling.top || tiling.left), |bar| {
-                bar.rounded_tl(CLIENT_SIDE_DECORATION_ROUNDING)
-            })
-            .mt(px(-1.0))
-            .mb(px(-1.0))
-            .border_1()
-            .border_color(background)
-            .into_any_element(),
+impl PlatformStyle {
+    fn current() -> Self {
+        if cfg!(target_os = "macos") {
+            Self::Mac
+        } else if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+            Self::Linux
+        } else {
+            Self::Windows
+        }
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-fn render_linux_window_controls(
-    buttons: [Option<WindowButton>; gpui::MAX_BUTTONS_PER_SIDE],
-    window: &Window,
-    cx: &App,
-) -> Option<AnyElement> {
-    let supported_controls = window.window_controls();
-    let rendered_buttons = buttons
-        .into_iter()
-        .flatten()
-        .filter(|button| match button {
-            WindowButton::Minimize => supported_controls.minimize,
-            WindowButton::Maximize => supported_controls.maximize,
-            WindowButton::Close => true,
-        })
-        .map(|button| render_linux_window_button(button, window.is_maximized(), cx))
-        .collect::<Vec<_>>();
+pub struct TitleBar {
+    title: SharedString,
+}
 
-    if rendered_buttons.is_empty() {
-        None
-    } else {
-        Some(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .px_3()
-                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                    cx.stop_propagation();
+impl TitleBar {
+    pub fn new(title: &str, _cx: &mut Context<Self>) -> Self {
+        Self {
+            title: title.into(),
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn render_for_linux(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let height = platform_title_bar_height(window);
+        let background = self.title_bar_background(window, cx);
+        let button_layout = cx
+            .button_layout()
+            .unwrap_or_else(WindowButtonLayout::linux_default);
+        let left_controls = self.render_linux_window_controls(button_layout.left, window, cx);
+        let right_controls = self.render_linux_window_controls(button_layout.right, window, cx);
+
+        let bar = div()
+            .id("genko-title-bar-linux")
+            .w_full()
+            .h(height)
+            .bg(background)
+            .border_b_1()
+            .border_color(border_color(cx))
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+                window.start_window_move();
+            })
+            .on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
+                cx.stop_propagation();
+                window.show_window_menu(event.position);
+            })
+            .on_click(|event: &ClickEvent, window, _| {
+                if event.click_count() == 2 {
+                    window.zoom_window();
+                }
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .size_full()
+                    .child(
+                        div()
+                            .w(px(SIDE_SLOT_WIDTH))
+                            .flex_none()
+                            .justify_start()
+                            .children(left_controls),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .px_3()
+                            .text_center()
+                            .text_size(px(12.0))
+                            .text_color(text_color(cx))
+                            .child(self.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .w(px(SIDE_SLOT_WIDTH))
+                            .flex_none()
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .items_center()
+                            .gap_2()
+                            .children(right_controls),
+                    ),
+            );
+
+        match window.window_decorations() {
+            Decorations::Server => bar.into_any_element(),
+            Decorations::Client { tiling } => bar
+                .when(!(tiling.top || tiling.right), |bar| {
+                    bar.rounded_tr(CLIENT_SIDE_DECORATION_ROUNDING)
                 })
-                .children(rendered_buttons)
+                .when(!(tiling.top || tiling.left), |bar| {
+                    bar.rounded_tl(CLIENT_SIDE_DECORATION_ROUNDING)
+                })
+                .mt(px(-1.0))
+                .mb(px(-1.0))
+                .border_1()
+                .border_color(background)
                 .into_any_element(),
-        )
+        }
     }
-}
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-fn render_linux_window_button(button: WindowButton, is_maximized: bool, cx: &App) -> AnyElement {
-    let label = match button {
-        WindowButton::Minimize => "−",
-        WindowButton::Maximize if is_maximized => "❐",
-        WindowButton::Maximize => "□",
-        WindowButton::Close => "×",
-    };
+    fn render_for_darwin(
+        &mut self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let height = platform_title_bar_height(window);
+        let background = self.title_bar_background(window, cx);
+        div()
+            .id("genko-title-bar-macos")
+            .w_full()
+            .h(height)
+            .bg(background)
+            .border_b_1()
+            .border_color(border_color(cx))
+            .window_control_area(WindowControlArea::Drag)
+            .on_click(|event: &ClickEvent, window, _| {
+                if event.click_count() == 2 {
+                    window.titlebar_double_click();
+                }
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .size_full()
+                    .pl(px(MAC_TRAFFIC_LIGHT_PADDING))
+                    .pr_3()
+                    .child(
+                        div()
+                            .w(px(SIDE_SLOT_WIDTH))
+                            .flex_none()
+                            .text_size(px(12.0))
+                            .text_color(text_color(cx)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_center()
+                            .text_size(px(12.0))
+                            .text_color(text_color(cx))
+                            .child(self.title.clone()),
+                    ),
+            )
+            .into_any_element()
+    }
 
-    let hover_background = if matches!(button, WindowButton::Close) {
-        rgba(232.0, 17.0, 35.0, 255.0)
-    } else {
-        mix(
-            Theme::global(cx).bg_senodary(),
-            Theme::global(cx).white(),
-            0.18,
-        )
-    };
-    let hover_text = if matches!(button, WindowButton::Close) {
-        Hsla::from(Theme::global(cx).white())
-    } else {
-        text_color(cx)
-    };
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn render_linux_window_controls(
+        &self,
+        buttons: [Option<WindowButton>; gpui::MAX_BUTTONS_PER_SIDE],
+        window: &Window,
+        cx: &App,
+    ) -> Option<AnyElement> {
+        let supported_controls = window.window_controls();
+        let rendered_buttons = buttons
+            .into_iter()
+            .flatten()
+            .filter(|button| match button {
+                WindowButton::Minimize => supported_controls.minimize,
+                WindowButton::Maximize => supported_controls.maximize,
+                WindowButton::Close => true,
+            })
+            .map(|button| self.render_linux_window_button(button, window.is_maximized(), cx))
+            .collect::<Vec<_>>();
 
-    div()
-        .id(button.id())
-        .w(px(22.0))
-        .h(px(22.0))
-        .rounded_sm()
-        .flex()
-        .flex_row()
-        .justify_center()
-        .items_center()
-        .text_size(px(12.0))
-        .text_color(text_color(cx))
-        .cursor_pointer()
-        .hover(move |style| style.bg(hover_background).text_color(hover_text))
-        // .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-        //     // cx.stop_propagation();
-        // })
-        .on_click(move |_, window, _| match button {
-            WindowButton::Minimize => window.minimize_window(),
-            WindowButton::Maximize => window.zoom_window(),
-            WindowButton::Close => window.remove_window(),
-        })
-        .child(label)
-        .into_any_element()
-}
+        if rendered_buttons.is_empty() {
+            None
+        } else {
+            Some(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .children(rendered_buttons)
+                    .into_any_element(),
+            )
+        }
+    }
 
-fn title_bar_background(window: &Window, cx: &App) -> Hsla {
-    let active = Theme::global(cx).bg_senodary();
-    let inactive = mix(active, Theme::global(cx).white(), 0.1);
-    let color =
-        if cfg!(any(target_os = "linux", target_os = "freebsd")) && !window.is_window_active() {
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn render_linux_window_button(
+        &self,
+        button: WindowButton,
+        is_maximized: bool,
+        cx: &App,
+    ) -> AnyElement {
+        let label = match button {
+            WindowButton::Minimize => "−",
+            WindowButton::Maximize if is_maximized => "❐",
+            WindowButton::Maximize => "□",
+            WindowButton::Close => "×",
+        };
+
+        let hover_background = if matches!(button, WindowButton::Close) {
+            rgba(232.0, 17.0, 35.0, 255.0)
+        } else {
+            mix(
+                Theme::global(cx).bg_senodary(),
+                Theme::global(cx).white(),
+                0.18,
+            )
+        };
+        let hover_text = if matches!(button, WindowButton::Close) {
+            Hsla::from(Theme::global(cx).white())
+        } else {
+            text_color(cx)
+        };
+
+        div()
+            .id(button.id())
+            .w(px(22.0))
+            .h(px(22.0))
+            .rounded_sm()
+            .flex()
+            .flex_row()
+            .justify_center()
+            .items_center()
+            .text_size(px(12.0))
+            .text_color(text_color(cx))
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover_background).text_color(hover_text))
+            // .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+            //     // cx.stop_propagation();
+            // })
+            .on_click(move |_, window, _| match button {
+                WindowButton::Minimize => window.minimize_window(),
+                WindowButton::Maximize => window.zoom_window(),
+                WindowButton::Close => window.remove_window(),
+            })
+            .child(label)
+            .into_any_element()
+    }
+
+    fn title_bar_background(&self, window: &Window, cx: &App) -> Hsla {
+        let active = Theme::global(cx).bg_senodary();
+        let inactive = mix(active, Theme::global(cx).white(), 0.1);
+        let color = if cfg!(any(target_os = "linux", target_os = "freebsd"))
+            && !window.is_window_active()
+        {
             inactive
         } else {
             active
         };
-    color.into()
+        color.into()
+    }
 }
 
 fn border_color(cx: &App) -> Hsla {
@@ -343,10 +344,6 @@ fn border_color(cx: &App) -> Hsla {
 
 fn text_color(cx: &App) -> Hsla {
     Theme::global(cx).text_primary().into()
-}
-
-fn spacer() -> AnyElement {
-    div().into_any_element()
 }
 
 fn mix(left: Rgba, right: Rgba, ratio: f32) -> Rgba {
@@ -365,21 +362,12 @@ fn rgba(r: f32, g: f32, b: f32, a: f32) -> Rgba {
     Rgba { r, g, b, a }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum PlatformStyle {
-    Mac,
-    Linux,
-    Windows,
-}
-
-impl PlatformStyle {
-    fn current() -> Self {
-        if cfg!(target_os = "macos") {
-            Self::Mac
-        } else if cfg!(any(target_os = "linux", target_os = "freebsd")) {
-            Self::Linux
-        } else {
-            Self::Windows
+impl Render for TitleBar {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        match PlatformStyle::current() {
+            PlatformStyle::Linux => self.render_for_linux(window, cx),
+            PlatformStyle::Mac => self.render_for_darwin(window, cx),
+            PlatformStyle::Windows => div().into_any_element(),
         }
     }
 }

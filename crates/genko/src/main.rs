@@ -9,6 +9,7 @@ use gpui::prelude::FluentBuilder;
 use settings::AppSettings;
 use settings_window::SettingsWindow;
 use theme::{APP_FONT_FAMILY, Theme};
+use title_bar::TitleBar;
 use vim::Vim;
 
 use gpui::{
@@ -23,6 +24,7 @@ actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
 pub(crate) struct GenkoApp {
     editor: Entity<Editor>,
     vim: Entity<Vim>,
+    title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
 
     current_path: Option<PathBuf>,
@@ -43,6 +45,7 @@ impl GenkoApp {
 
         let editor = cx.new(Editor::new);
         let vim = cx.new(|_| Vim::new(editor.clone()));
+        let title_bar = cx.new(|cx| TitleBar::new("Genko".into(), cx));
         let bottom_bar = cx.new(BottomBar::new);
 
         Self {
@@ -51,6 +54,7 @@ impl GenkoApp {
             current_path: None,
             last_viewport_size: None,
             last_vim_mode_enabled: None,
+            title_bar,
             bottom_bar,
         }
     }
@@ -306,7 +310,7 @@ impl Render for GenkoApp {
                     })
                     .on_action(cx.listener(Self::open_file_action))
                     .on_action(cx.listener(Self::save_file_action))
-                    .children(title_bar::render(self.window_title(), None, window, cx))
+                    .child(self.title_bar.clone().into_element())
                     .child(
                         div()
                             .flex_1()
@@ -343,7 +347,7 @@ fn open_settings_window(cx: &mut App) {
                 window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
             }),
-            move |_, cx| cx.new(move |_| SettingsWindow::new()),
+            move |_, cx| cx.new(SettingsWindow::new),
         )
         .unwrap();
 
