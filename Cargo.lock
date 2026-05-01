@@ -642,8 +642,10 @@ name = "bottom_bar"
 version = "0.1.0"
 dependencies = [
  "gpui",
+ "settings",
  "theme",
  "title_bar",
+ "vim",
 ]
 
 [[package]]
@@ -6911,6 +6913,7 @@ dependencies = [
  "lindera",
  "rope",
  "settings",
+ "theme",
 ]
 
 [[package]]

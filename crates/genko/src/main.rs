@@ -3,7 +3,9 @@ mod settings_window;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
+use bottom_bar::BottomBar;
 use editor::Editor;
+use gpui::prelude::FluentBuilder;
 use settings::AppSettings;
 use settings_window::SettingsWindow;
 use theme::{APP_FONT_FAMILY, Theme};
@@ -13,7 +15,7 @@ use gpui::{
     App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
     PromptLevel, Render, Styled, Window, WindowBounds, WindowDecorations, WindowOptions, actions,
-    div, prelude::*, px, rgb, size, transparent_black,
+    div, px, size, transparent_black,
 };
 
 actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
@@ -21,33 +23,11 @@ actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
 pub(crate) struct GenkoApp {
     editor: Entity<Editor>,
     vim: Entity<Vim>,
-    vim_mode_status: Entity<VimModeStatus>,
+    bottom_bar: Entity<BottomBar>,
+
     current_path: Option<PathBuf>,
     last_viewport_size: Option<gpui::Size<gpui::Pixels>>,
     last_vim_mode_enabled: Option<bool>,
-}
-
-struct VimModeStatus {
-    vim: Entity<Vim>,
-}
-
-impl VimModeStatus {
-    fn new(vim: Entity<Vim>, cx: &mut Context<Self>) -> Self {
-        cx.observe(&vim, |_, _, cx| cx.notify()).detach();
-        Self { vim }
-    }
-}
-
-impl Render for VimModeStatus {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .right_auto()
-            .py_1()
-            .text_color(rgb(0x2D2416))
-            .border_1()
-            .rounded_sm()
-            .child(self.vim.read(cx).mode_label())
-    }
 }
 
 impl GenkoApp {
@@ -63,15 +43,15 @@ impl GenkoApp {
 
         let editor = cx.new(Editor::new);
         let vim = cx.new(|_| Vim::new(editor.clone()));
-        let vim_mode_status = cx.new(|cx| VimModeStatus::new(vim.clone(), cx));
+        let bottom_bar = cx.new(BottomBar::new);
 
         Self {
             editor,
             vim,
-            vim_mode_status,
             current_path: None,
             last_viewport_size: None,
             last_vim_mode_enabled: None,
+            bottom_bar,
         }
     }
 
@@ -336,12 +316,7 @@ impl Render for GenkoApp {
                             .justify_center()
                             .child(content),
                     )
-                    .child(bottom_bar::render(
-                        None,
-                        vim_mode_enabled.then(|| self.vim_mode_status.clone().into_any_element()),
-                        window,
-                        cx,
-                    )),
+                    .child(self.bottom_bar.clone().into_element()),
             )
     }
 }

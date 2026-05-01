@@ -10,5 +10,7 @@ path = "src/bottom_bar.rs"
 
 [dependencies]
 gpui = { workspace = true }
+settings = { workspace = true }
 theme = { workspace = true }
 title_bar = { workspace = true }
+vim = { workspace = true }

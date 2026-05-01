@@ -13,6 +13,7 @@ env = { workspace = true }
 gpui = { workspace = true }
 rope = { workspace = true }
 settings = { workspace = true }
+theme = { workspace = true }
 
 lindera = "2.3.4"
 

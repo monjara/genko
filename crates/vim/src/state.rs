@@ -1,3 +1,5 @@
+use gpui::{App, Global};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VimMode {
     Normal,
@@ -44,7 +46,7 @@ pub(crate) fn operator_context(
     }
 }
 
-fn operator_key_context(
+pub(crate) fn operator_key_context(
     operator: VimOperator,
     modifier: Option<TextObjectModifier>,
 ) -> &'static str {
@@ -170,74 +172,36 @@ pub(crate) struct BlockRegister {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct VimState {
-    mode: VimMode,
-    visual_anchor_cell: Option<usize>,
-    pending_operator: Option<VimOperator>,
-    pending_text_object_modifier: Option<TextObjectModifier>,
+pub struct VimState {
+    pub(crate) mode: VimMode,
+}
+
+pub(crate) fn init(cx: &mut App) {
+    cx.set_global::<VimState>(VimState::new());
 }
 
 impl VimState {
+    pub fn global(cx: &App) -> &Self {
+        cx.global::<Self>()
+    }
+
+    pub fn global_mut(cx: &mut App) -> &mut Self {
+        cx.global_mut::<Self>()
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             mode: VimMode::Normal,
-            visual_anchor_cell: None,
-            pending_operator: None,
-            pending_text_object_modifier: None,
         }
     }
 
-    pub(crate) fn mode(&self) -> VimMode {
+    pub fn mode(&self) -> VimMode {
         self.mode
     }
 
-    pub(crate) fn set_mode(&mut self, mode: VimMode) {
+    pub fn set_mode(&mut self, mode: VimMode) {
         self.mode = mode;
     }
-
-    pub(crate) fn visual_anchor_cell(&self) -> Option<usize> {
-        self.visual_anchor_cell
-    }
-
-    pub(crate) fn set_visual_anchor_cell(&mut self, anchor: Option<usize>) {
-        self.visual_anchor_cell = anchor;
-    }
-
-    pub(crate) fn set_pending_operator(&mut self, operator: Option<VimOperator>) {
-        self.pending_operator = operator;
-    }
-
-    pub(crate) fn pending_operator(&self) -> Option<VimOperator> {
-        self.pending_operator
-    }
-
-    pub(crate) fn set_pending_text_object_modifier(
-        &mut self,
-        modifier: Option<TextObjectModifier>,
-    ) {
-        self.pending_text_object_modifier = modifier;
-    }
-
-    pub(crate) fn pending_text_object_modifier(&self) -> Option<TextObjectModifier> {
-        self.pending_text_object_modifier
-    }
-
-    pub(crate) fn clear_pending(&mut self) {
-        self.pending_operator = None;
-        self.pending_text_object_modifier = None;
-    }
-
-    pub(crate) fn key_context(&self) -> &'static str {
-        match (
-            self.mode,
-            self.pending_operator,
-            self.pending_text_object_modifier,
-        ) {
-            (VimMode::Insert, _, _) => "Genko vim_mode=insert",
-            (VimMode::Visual, _, _) => "Genko vim_mode=visual",
-            (VimMode::VisualBlock, _, _) => "Genko vim_mode=visual_block",
-            (VimMode::Normal, None, _) => "Genko vim_mode=normal",
-            (VimMode::Normal, Some(operator), modifier) => operator_key_context(operator, modifier),
-        }
-    }
 }
+
+impl Global for VimState {}

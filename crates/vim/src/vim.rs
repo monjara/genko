@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use editor::Editor;
 use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, InteractiveElement, ParentElement, Render,
-    Window, actions, div,
+    App, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement,
+    Render, Styled, Window, actions, div,
 };
 
 actions!(
@@ -58,51 +58,50 @@ use block::{
 };
 use state::{
     BlockInsertKind, InsertKind, MotionKind, PendingBlockInsert, PendingInsert, RepeatTarget,
-    RepeatableCommand, TextObjectModifier, TextObjectTarget, VimOperator, VimState, YankRegister,
+    RepeatableCommand, TextObjectModifier, TextObjectTarget, VimOperator, YankRegister,
 };
 use text_objects::{
     resolve_motion_range, resolve_motion_target, resolve_repeat_target_range,
     resolve_text_object_range,
 };
 
-pub use state::VimMode;
+pub use state::{VimMode, VimState};
+use theme::Theme;
+
+use crate::state::operator_key_context;
 
 pub fn init(cx: &mut App) {
     bindings::init(cx);
+    state::init(cx);
 }
 
 pub struct Vim {
     editor: Entity<Editor>,
-    state: VimState,
     yank_register: YankRegister,
     last_change: Option<RepeatableCommand>,
+    pending_operator: Option<VimOperator>,
     pending_insert: Option<PendingInsert>,
     pending_block_insert: Option<PendingBlockInsert>,
+    pending_text_object_modifier: Option<TextObjectModifier>,
+    visual_anchor_cell: Option<usize>,
 }
 
 impl Vim {
     pub fn new(editor: Entity<Editor>) -> Self {
         Self {
             editor,
-            state: VimState::new(),
             yank_register: YankRegister::Empty,
             last_change: None,
+            pending_operator: None,
             pending_insert: None,
             pending_block_insert: None,
-        }
-    }
-
-    pub fn mode_label(&self) -> &'static str {
-        match self.state.mode() {
-            VimMode::Normal => "-- NORMAL --",
-            VimMode::Insert => "-- INSERT --",
-            VimMode::Visual => "-- VISUAL --",
-            VimMode::VisualBlock => "-- VISUAL BLOCK --",
+            pending_text_object_modifier: None,
+            visual_anchor_cell: None,
         }
     }
 
     pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {
-        let text_input_enabled = self.state.mode() == VimMode::Insert;
+        let text_input_enabled = VimState::global(cx).mode() == VimMode::Insert;
         self.editor.update(cx, |editor, cx| {
             editor.update_viewport_size(size, cx);
             editor.set_text_input_enabled(text_input_enabled, cx);
@@ -123,9 +122,9 @@ impl Vim {
         self.editor.update(cx, |editor, _| {
             editor.begin_transaction();
         });
-        self.state.set_mode(VimMode::Insert);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Insert);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             editor.set_text_input_enabled(true, cx);
             editor.collapse_selection_to_cursor_offset(cx);
@@ -156,9 +155,9 @@ impl Vim {
         self.editor.update(cx, |editor, _| {
             editor.begin_transaction();
         });
-        self.state.set_mode(VimMode::Insert);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Insert);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             editor.clear_block_selection(cx);
             editor.set_text_input_enabled(true, cx);
@@ -179,10 +178,10 @@ impl Vim {
     }
 
     fn normal_mode(&mut self, cx: &mut Context<Self>) {
-        let leaving_insert = self.state.mode() == VimMode::Insert;
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        let leaving_insert = VimState::global(cx).mode() == VimMode::Insert;
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             editor.clear_block_selection(cx);
             editor.set_text_input_enabled(false, cx);
@@ -196,9 +195,9 @@ impl Vim {
 
     fn visual_mode(&mut self, cx: &mut Context<Self>) {
         let anchor = self.editor.read(cx).cursor_cell();
-        self.state.set_mode(VimMode::Visual);
-        self.state.set_visual_anchor_cell(Some(anchor));
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Visual);
+        self.visual_anchor_cell = Some(anchor);
+        self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             editor.clear_block_selection(cx);
             editor.set_text_input_enabled(false, cx);
@@ -209,9 +208,9 @@ impl Vim {
 
     fn visual_block_mode(&mut self, cx: &mut Context<Self>) {
         let anchor = self.editor.read(cx).cursor_cell();
-        self.state.set_mode(VimMode::VisualBlock);
-        self.state.set_visual_anchor_cell(Some(anchor));
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::VisualBlock);
+        self.visual_anchor_cell = Some(anchor);
+        self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             editor.set_text_input_enabled(false, cx);
             editor.set_block_selection(anchor, anchor, cx);
@@ -237,7 +236,7 @@ impl Vim {
         delete_selection: bool,
         cx: &mut Context<Self>,
     ) {
-        let Some(anchor) = self.state.visual_anchor_cell() else {
+        let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
         let (target_cells, register, delete_ranges, row_count, column_count) = {
@@ -287,9 +286,9 @@ impl Vim {
     }
 
     fn begin_operator(&mut self, operator: VimOperator, cx: &mut Context<Self>) {
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_pending_operator(Some(operator));
-        self.state.set_pending_text_object_modifier(None);
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.set_pending_operator(Some(operator));
+        self.set_pending_text_object_modifier(None);
         self.editor.update(cx, |editor, cx| {
             editor.set_text_input_enabled(false, cx);
         });
@@ -297,21 +296,23 @@ impl Vim {
     }
 
     fn set_text_object_modifier(&mut self, modifier: TextObjectModifier, cx: &mut Context<Self>) {
-        if self.state.pending_operator().is_none() {
+        if self.pending_operator().is_none() {
             return;
         }
-        self.state.set_pending_text_object_modifier(Some(modifier));
+        self.set_pending_text_object_modifier(Some(modifier));
         cx.notify();
     }
 
     fn delete_char(&mut self, cx: &mut Context<Self>) {
-        if self.state.mode() == VimMode::VisualBlock {
+        if VimState::global(cx).mode() == VimMode::VisualBlock {
             self.delete_block_selection(cx);
             return;
         }
         let (range, yanked, repeatable) = {
             let editor = self.editor.read(cx);
-            if self.state.mode() == VimMode::Visual && !editor.selected_byte_range().is_empty() {
+            if VimState::global(cx).mode() == VimMode::Visual
+                && !editor.selected_byte_range().is_empty()
+            {
                 let range = editor.selected_byte_range();
                 let yanked = editor.text_in_range(range.clone());
                 (range, yanked, None)
@@ -331,9 +332,9 @@ impl Vim {
             editor.replace_byte_range(range, "", cx);
         });
         self.last_change = repeatable;
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
@@ -342,7 +343,7 @@ impl Vim {
     }
 
     fn delete_block_selection(&mut self, cx: &mut Context<Self>) {
-        let Some(anchor) = self.state.visual_anchor_cell() else {
+        let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
         let (ranges, block_register) = {
@@ -370,14 +371,14 @@ impl Vim {
             row_count,
             column_count,
         });
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         cx.notify();
     }
 
     fn yank_block_selection(&mut self, cx: &mut Context<Self>) {
-        let Some(anchor) = self.state.visual_anchor_cell() else {
+        let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
         let block_register = {
@@ -385,9 +386,9 @@ impl Vim {
             build_block_register(editor, anchor, editor.cursor_cell())
         };
         self.yank_register = YankRegister::BlockWise(block_register);
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             editor.clear_block_selection(cx);
             editor.set_text_input_enabled(false, cx);
@@ -420,9 +421,9 @@ impl Vim {
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
         });
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.last_change = Some(RepeatableCommand::PasteAfter);
         cx.notify();
     }
@@ -451,9 +452,9 @@ impl Vim {
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
         });
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.last_change = Some(RepeatableCommand::PasteBefore);
         cx.notify();
     }
@@ -491,9 +492,9 @@ impl Vim {
             editor.collapse_selection_to_cursor_cell(cx);
             let _ = editor.commit_transaction(cx);
         });
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.last_change = Some(match position {
             PastePosition::Before => RepeatableCommand::PasteBefore,
             PastePosition::After => RepeatableCommand::PasteAfter,
@@ -504,9 +505,9 @@ impl Vim {
     fn undo(&mut self, cx: &mut Context<Self>) {
         self.pending_insert = None;
         self.pending_block_insert = None;
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             let _ = editor.undo(cx);
             editor.set_text_input_enabled(false, cx);
@@ -518,9 +519,9 @@ impl Vim {
     fn redo(&mut self, cx: &mut Context<Self>) {
         self.pending_insert = None;
         self.pending_block_insert = None;
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             let _ = editor.redo(cx);
             editor.set_text_input_enabled(false, cx);
@@ -543,7 +544,7 @@ impl Vim {
             (resolve_motion_target(editor.rope(), cursor, motion), cursor)
         };
 
-        if self.state.pending_operator().is_some() {
+        if self.pending_operator().is_some() {
             self.apply_motion(motion, cursor, cx);
             return;
         }
@@ -552,12 +553,12 @@ impl Vim {
             return;
         };
 
-        if self.state.mode() == VimMode::Visual {
+        if VimState::global(cx).mode() == VimMode::Visual {
             self.editor.update(cx, |editor, cx| {
                 editor.move_cursor_to_byte_offset(target, cx);
             });
             self.sync_visual_selection_for_current_cursor(cx);
-        } else if self.state.mode() == VimMode::VisualBlock {
+        } else if VimState::global(cx).mode() == VimMode::VisualBlock {
             self.editor.update(cx, |editor, cx| {
                 editor.move_cursor_to_byte_offset(target, cx);
             });
@@ -570,8 +571,8 @@ impl Vim {
     }
 
     fn move_by_cells(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let is_visual = self.state.mode() == VimMode::Visual;
-        let is_visual_block = self.state.mode() == VimMode::VisualBlock;
+        let is_visual = VimState::global(cx).mode() == VimMode::Visual;
+        let is_visual_block = VimState::global(cx).mode() == VimMode::VisualBlock;
         self.editor.update(cx, |editor, cx| {
             if is_visual {
                 editor.select_cursor_by(delta, cx);
@@ -605,7 +606,7 @@ impl Vim {
     }
 
     fn apply_motion(&mut self, motion: MotionKind, cursor: usize, cx: &mut Context<Self>) {
-        let Some(operator) = self.state.pending_operator() else {
+        let Some(operator) = self.pending_operator() else {
             return;
         };
         let range = {
@@ -613,7 +614,7 @@ impl Vim {
             resolve_motion_range(editor.rope(), cursor, motion, operator)
         };
         let Some(range) = range else {
-            self.state.clear_pending();
+            self.clear_pending();
             cx.notify();
             return;
         };
@@ -622,10 +623,10 @@ impl Vim {
     }
 
     fn apply_text_object(&mut self, target: TextObjectTarget, cx: &mut Context<Self>) {
-        let Some(operator) = self.state.pending_operator() else {
+        let Some(operator) = self.pending_operator() else {
             return;
         };
-        let Some(modifier) = self.state.pending_text_object_modifier() else {
+        let Some(modifier) = self.pending_text_object_modifier() else {
             return;
         };
 
@@ -636,7 +637,7 @@ impl Vim {
         };
 
         let Some(range) = range else {
-            self.state.clear_pending();
+            self.clear_pending();
             cx.notify();
             return;
         };
@@ -706,9 +707,9 @@ impl Vim {
             }
         }
 
-        self.state.clear_pending();
-        self.state.set_visual_anchor_cell(None);
-        self.state.set_mode(match operator {
+        self.clear_pending();
+        self.visual_anchor_cell = None;
+        VimState::global_mut(cx).set_mode(match operator {
             VimOperator::Delete => VimMode::Normal,
             VimOperator::Change => VimMode::Insert,
             VimOperator::Yank => VimMode::Normal,
@@ -727,7 +728,7 @@ impl Vim {
         };
         let Some(cell_range) = current_column_cell_range(cursor_cell, rows_per_column, used_cells)
         else {
-            self.state.clear_pending();
+            self.clear_pending();
             cx.notify();
             return;
         };
@@ -864,9 +865,9 @@ impl Vim {
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
         });
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.last_change = Some(RepeatableCommand::BlockDelete {
             row_count,
             column_count,
@@ -915,9 +916,9 @@ impl Vim {
             editor.collapse_selection_to_cursor_cell(cx);
             let _ = editor.commit_transaction(cx);
         });
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.last_change = Some(RepeatableCommand::BlockChange {
             row_count,
             column_count,
@@ -951,9 +952,9 @@ impl Vim {
             editor.collapse_selection_to_cursor_cell(cx);
             let _ = editor.commit_transaction(cx);
         });
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.last_change = Some(RepeatableCommand::BlockInsert {
             kind,
             row_count,
@@ -1015,9 +1016,9 @@ impl Vim {
                 editor.collapse_selection_to_cursor_cell(cx);
                 let _ = editor.commit_transaction(cx);
             });
-            self.state.set_mode(VimMode::Normal);
-            self.state.set_visual_anchor_cell(None);
-            self.state.clear_pending();
+            VimState::global_mut(cx).set_mode(VimMode::Normal);
+            self.visual_anchor_cell = None;
+            self.clear_pending();
             self.last_change = Some(RepeatableCommand::Change {
                 target,
                 inserted_text,
@@ -1051,9 +1052,9 @@ impl Vim {
             editor.collapse_selection_to_cursor_cell(cx);
             let _ = editor.commit_transaction(cx);
         });
-        self.state.set_mode(VimMode::Normal);
-        self.state.set_visual_anchor_cell(None);
-        self.state.clear_pending();
+        VimState::global_mut(cx).set_mode(VimMode::Normal);
+        self.visual_anchor_cell = None;
+        self.clear_pending();
         self.last_change = Some(RepeatableCommand::Insert {
             kind,
             inserted_text,
@@ -1099,7 +1100,7 @@ impl Vim {
     }
 
     fn sync_visual_selection_for_current_cursor(&mut self, cx: &mut Context<Self>) {
-        let Some(anchor) = self.state.visual_anchor_cell() else {
+        let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
         let cursor = self.editor.read(cx).cursor_cell();
@@ -1109,7 +1110,7 @@ impl Vim {
     }
 
     fn sync_block_selection_for_current_cursor(&mut self, cx: &mut Context<Self>) {
-        let Some(anchor) = self.state.visual_anchor_cell() else {
+        let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
         let cursor = self.editor.read(cx).cursor_cell();
@@ -1176,15 +1177,15 @@ impl Vim {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.state.mode() == VimMode::VisualBlock {
+        if VimState::global(cx).mode() == VimMode::VisualBlock {
             self.delete_block_selection(cx);
             return;
         }
-        if self.state.mode() == VimMode::Visual {
+        if VimState::global(cx).mode() == VimMode::Visual {
             self.delete_char(cx);
             return;
         }
-        if self.state.pending_operator() == Some(VimOperator::Delete) {
+        if self.pending_operator() == Some(VimOperator::Delete) {
             self.apply_current_line_operator(VimOperator::Delete, cx);
             return;
         }
@@ -1197,15 +1198,15 @@ impl Vim {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.state.mode() == VimMode::VisualBlock {
+        if VimState::global(cx).mode() == VimMode::VisualBlock {
             self.change_block_selection(cx);
             return;
         }
-        if self.state.pending_operator() == Some(VimOperator::Change) {
+        if self.pending_operator() == Some(VimOperator::Change) {
             self.apply_current_line_operator(VimOperator::Change, cx);
             return;
         }
-        if self.state.mode() == VimMode::Visual {
+        if VimState::global(cx).mode() == VimMode::Visual {
             // return;
         }
         self.begin_operator(VimOperator::Change, cx);
@@ -1217,19 +1218,19 @@ impl Vim {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.state.mode() == VimMode::VisualBlock {
+        if VimState::global(cx).mode() == VimMode::VisualBlock {
             self.yank_block_selection(cx);
             return;
         }
-        if self.state.mode() == VimMode::Visual {
+        if VimState::global(cx).mode() == VimMode::Visual {
             let range = self.editor.read(cx).selected_byte_range();
             if range.is_empty() {
                 return;
             }
             self.yank_register = YankRegister::CharWise(self.editor.read(cx).text_in_range(range));
-            self.state.set_mode(VimMode::Normal);
-            self.state.set_visual_anchor_cell(None);
-            self.state.clear_pending();
+            VimState::global_mut(cx).set_mode(VimMode::Normal);
+            self.visual_anchor_cell = None;
+            self.clear_pending();
             self.editor.update(cx, |editor, cx| {
                 editor.clear_block_selection(cx);
                 editor.set_text_input_enabled(false, cx);
@@ -1238,7 +1239,7 @@ impl Vim {
             cx.notify();
             return;
         }
-        if self.state.pending_operator() == Some(VimOperator::Yank) {
+        if self.pending_operator() == Some(VimOperator::Yank) {
             self.apply_current_line_operator(VimOperator::Yank, cx);
             return;
         }
@@ -1400,13 +1401,48 @@ impl Vim {
     ) {
         self.repeat_last_change(cx);
     }
+
+    fn set_pending_operator(&mut self, operator: Option<VimOperator>) {
+        self.pending_operator = operator;
+    }
+
+    fn pending_operator(&self) -> Option<VimOperator> {
+        self.pending_operator
+    }
+
+    fn set_pending_text_object_modifier(&mut self, modifier: Option<TextObjectModifier>) {
+        self.pending_text_object_modifier = modifier;
+    }
+
+    fn pending_text_object_modifier(&self) -> Option<TextObjectModifier> {
+        self.pending_text_object_modifier
+    }
+
+    fn clear_pending(&mut self) {
+        self.pending_operator = None;
+        self.pending_text_object_modifier = None;
+    }
+
+    fn key_context(&self, cx: &mut Context<Self>) -> &'static str {
+        match (
+            VimState::global(cx).mode,
+            self.pending_operator,
+            self.pending_text_object_modifier,
+        ) {
+            (VimMode::Insert, _, _) => "Genko vim_mode=insert",
+            (VimMode::Visual, _, _) => "Genko vim_mode=visual",
+            (VimMode::VisualBlock, _, _) => "Genko vim_mode=visual_block",
+            (VimMode::Normal, None, _) => "Genko vim_mode=normal",
+            (VimMode::Normal, Some(operator), modifier) => operator_key_context(operator, modifier),
+        }
+    }
 }
 
 impl Render for Vim {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         div()
             .track_focus(&self.editor.focus_handle(cx))
-            .key_context(self.state.key_context())
+            .key_context(self.key_context(cx))
             .on_action(cx.listener(Self::vim_enter_insert_mode))
             .on_action(cx.listener(Self::vim_append))
             .on_action(cx.listener(Self::vim_normal_mode))
@@ -1446,5 +1482,34 @@ impl Render for Vim {
 impl Focusable for Vim {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.editor.focus_handle(cx)
+    }
+}
+
+pub struct VimModeLabel {}
+
+impl VimModeLabel {
+    pub fn new(_cx: &mut Context<Self>) -> Self {
+        Self {}
+    }
+
+    fn mode_label(&self, cx: &mut Context<Self>) -> &'static str {
+        match VimState::global(cx).mode() {
+            VimMode::Normal => "-- NORMAL --",
+            VimMode::Insert => "-- INSERT --",
+            VimMode::Visual => "-- VISUAL --",
+            VimMode::VisualBlock => "-- VISUAL BLOCK --",
+        }
+    }
+}
+
+impl Render for VimModeLabel {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .right_auto()
+            .py_1()
+            .text_color(Theme::global(cx).black())
+            .border_1()
+            .rounded_sm()
+            .child(self.mode_label(cx))
     }
 }

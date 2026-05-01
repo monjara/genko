@@ -1,71 +1,70 @@
 use gpui::{
-    AnyElement, App, Decorations, InteractiveElement, IntoElement, ParentElement, Styled, Window,
-    div, prelude::FluentBuilder, px,
+    App, AppContext, Context, Decorations, Entity, InteractiveElement, IntoElement, ParentElement,
+    Render, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use theme::Theme;
+use vim::VimModeLabel;
 
 const SIDE_SLOT_WIDTH: f32 = 160.0;
 
-pub fn render(
-    leading: Option<AnyElement>,
-    trailing: Option<AnyElement>,
-    window: &Window,
-    cx: &App,
-) -> AnyElement {
-    let height = title_bar::platform_title_bar_height(window);
-    let background = background_color(window, cx);
+pub struct BottomBar {
+    vim_mode_status: Entity<VimModeLabel>,
+}
 
-    let bar = div()
-        .id("genko-bottom-bar")
-        .w_full()
-        .h(height)
-        .bg(background)
-        .border_t_1()
-        .border_color(border_color(cx))
-        .child(
-            div()
-                .size_full()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .px_3()
-                .child(
-                    div()
-                        .w(px(SIDE_SLOT_WIDTH))
-                        .flex_none()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_start()
-                        .children(leading),
-                )
-                .child(
-                    div()
-                        .w(px(SIDE_SLOT_WIDTH))
-                        .flex_none()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_end()
-                        .children(trailing),
-                ),
-        );
+impl BottomBar {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let vim_mode_status = cx.new(VimModeLabel::new);
+        Self { vim_mode_status }
+    }
+}
 
-    match window.window_decorations() {
-        Decorations::Server => bar.into_any_element(),
-        Decorations::Client { tiling } => bar
-            .when(!(tiling.bottom || tiling.right), |bar| {
-                bar.rounded_br(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-            })
-            .when(!(tiling.bottom || tiling.left), |bar| {
-                bar.rounded_bl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-            })
-            .mt(px(-1.0))
-            .mb(px(-1.0))
-            .border_1()
-            .border_color(background)
-            .into_any_element(),
+impl Render for BottomBar {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let height = title_bar::platform_title_bar_height(window);
+        let background = background_color(window, cx);
+
+        let bar = div()
+            .id("genko-bottom-bar")
+            .w_full()
+            .h(height)
+            .bg(background)
+            .border_t_1()
+            .border_color(border_color(cx))
+            .child(
+                div()
+                    .size_full()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_end()
+                    .px_3()
+                    .child(
+                        div()
+                            .w(px(SIDE_SLOT_WIDTH))
+                            .flex_none()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .justify_end()
+                            .child(self.vim_mode_status.clone().into_element()),
+                    ),
+            );
+
+        match window.window_decorations() {
+            Decorations::Server => bar.into_any_element(),
+            Decorations::Client { tiling } => bar
+                .when(!(tiling.bottom || tiling.right), |bar| {
+                    bar.rounded_br(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                })
+                .when(!(tiling.bottom || tiling.left), |bar| {
+                    bar.rounded_bl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                })
+                .mt(px(-1.0))
+                .mb(px(-1.0))
+                .border_1()
+                .border_color(background)
+                .into_any_element(),
+        }
     }
 }
 
