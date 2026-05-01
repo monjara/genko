@@ -7,6 +7,7 @@ members = [
   "crates/genko",
   "crates/rope",
   "crates/settings",
+  "crates/title_bar",
   "crates/theme",
   "crates/vim"
 ]
@@ -32,5 +33,6 @@ editor = { path = "crates/editor" }
 env = { path = "crates/env" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
+title_bar = { path = "crates/title_bar" }
 theme = { path = "crates/theme" }
 vim = { path = "crates/vim" }

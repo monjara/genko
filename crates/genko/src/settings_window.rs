@@ -1,12 +1,12 @@
 use gpui::{
-    ClickEvent, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Render,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    ClickEvent, Context, Decorations, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    Render, SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::*, px,
 };
-
 
 use settings::{AppSettings, ColumnNumberMode};
 
 use theme::{APP_FONT_FAMILY, Theme};
+use title_bar as app_title_bar;
 
 pub(crate) struct SettingsWindow {
     status: SharedString,
@@ -635,49 +635,74 @@ impl SettingsWindow {
 }
 
 impl Render for SettingsWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .bg(Theme::global(cx).white())
             .font_family(APP_FONT_FAMILY)
-            .p_6()
             .flex()
             .flex_col()
-            .gap_4()
             .text_color(Theme::global(cx).text_primary())
+            .overflow_hidden()
+            .map(|this| match window.window_decorations() {
+                Decorations::Server => this,
+                Decorations::Client { tiling } => this
+                    .when(!(tiling.top || tiling.right), |this| {
+                        this.rounded_tr(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    })
+                    .when(!(tiling.top || tiling.left), |this| {
+                        this.rounded_tl(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    })
+                    .when(!(tiling.bottom || tiling.right), |this| {
+                        this.rounded_br(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    })
+                    .when(!(tiling.bottom || tiling.left), |this| {
+                        this.rounded_bl(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    }),
+            })
+            .children(app_title_bar::render("Settings", None, window, cx))
             .child(
                 div()
+                    .flex_1()
+                    .w_full()
+                    .p_6()
                     .flex()
                     .flex_col()
-                    .gap_1()
-                    .child(div().text_2xl().font_weight(FontWeight::BOLD).child("設定"))
+                    .gap_4()
                     .child(
                         div()
-                            .text_sm()
-                            .text_color(Theme::global(cx).text_senodary())
-                            .child("変更はsettings.jsonに保存されます"),
-                    ),
-            )
-            .child(self.render_grid_toggle(cx))
-            .child(self.render_cell_size(cx))
-            .child(self.render_hanging_punctuation_toggle(cx))
-            .child(self.render_column_number_mode(cx))
-            .child(self.render_vim_mode_toggle(cx))
-            .child(self.render_rows_per_column(cx))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(
-                        div()
-                            .h(px(24.0))
-                            .text_sm()
-                            .text_color(Theme::global(cx).text_senodary())
-                            .child(self.status.clone()),
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().text_2xl().font_weight(FontWeight::BOLD).child("設定"))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(Theme::global(cx).text_senodary())
+                                    .child("変更はsettings.jsonに保存されます"),
+                            ),
                     )
-                    .child(self.render_apply_button(cx)),
+                    .child(self.render_grid_toggle(cx))
+                    .child(self.render_cell_size(cx))
+                    .child(self.render_hanging_punctuation_toggle(cx))
+                    .child(self.render_column_number_mode(cx))
+                    .child(self.render_vim_mode_toggle(cx))
+                    .child(self.render_rows_per_column(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .h(px(24.0))
+                                    .text_sm()
+                                    .text_color(Theme::global(cx).text_senodary())
+                                    .child(self.status.clone()),
+                            )
+                            .child(self.render_apply_button(cx)),
+                    ),
             )
     }
 }

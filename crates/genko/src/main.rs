@@ -9,11 +9,13 @@ use settings_window::SettingsWindow;
 use vim::Vim;
 
 use theme::{APP_FONT_FAMILY, Theme};
+use title_bar as app_title_bar;
 
 use gpui::{
-    App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions, PromptLevel, Render,
-    Styled, Window, WindowBounds, WindowOptions, actions, div, px, rgb, size,
+    App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
+    PromptLevel, Render, Styled, Window, WindowBounds, WindowOptions, actions, div, prelude::*, px,
+    rgb, size,
 };
 
 actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
@@ -86,6 +88,7 @@ impl GenkoApp {
         window.set_window_title(&self.window_title());
     }
 
+    // TODO Future
     fn show_error(window: &mut Window, message: &str, detail: String, cx: &mut App) {
         let _ = window.prompt(
             PromptLevel::Warning,
@@ -274,6 +277,7 @@ impl Render for GenkoApp {
             } else {
                 self.editor.clone().into_element()
             });
+
         let content = if vim_mode_enabled {
             content.child(self.vim_mode_status.clone())
         } else {
@@ -285,11 +289,37 @@ impl Render for GenkoApp {
             .bg(Theme::global(cx).white())
             .font_family(APP_FONT_FAMILY)
             .flex()
+            .flex_col()
             .items_center()
-            .justify_center()
+            .overflow_hidden()
+            .map(|this| match window.window_decorations() {
+                Decorations::Server => this,
+                Decorations::Client { tiling } => this
+                    .when(!(tiling.top || tiling.right), |this| {
+                        this.rounded_tr(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    })
+                    .when(!(tiling.top || tiling.left), |this| {
+                        this.rounded_tl(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    })
+                    .when(!(tiling.bottom || tiling.right), |this| {
+                        this.rounded_br(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    })
+                    .when(!(tiling.bottom || tiling.left), |this| {
+                        this.rounded_bl(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
+                    }),
+            })
             .on_action(cx.listener(Self::open_file_action))
             .on_action(cx.listener(Self::save_file_action))
-            .child(content)
+            .children(app_title_bar::render(self.window_title(), None, window, cx))
+            .child(
+                div()
+                    .flex_1()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(content),
+            )
     }
 }
 
@@ -308,11 +338,12 @@ fn open_settings_window(cx: &mut App) {
 
     let settings_window = cx
         .open_window(
-            WindowOptions {
+            app_title_bar::configure_window_options(WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 app_id: Some("dev.genko.settings".into()),
+                is_movable: true,
                 ..Default::default()
-            },
+            }),
             move |_, cx| cx.new(move |_| SettingsWindow::new()),
         )
         .unwrap();
@@ -344,11 +375,12 @@ fn main() {
 
         let window = cx
             .open_window(
-                WindowOptions {
+                app_title_bar::configure_window_options(WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     app_id: Some("dev.genko".into()),
+                    is_movable: true,
                     ..Default::default()
-                },
+                }),
                 |_, cx| cx.new(GenkoApp::new),
             )
             .unwrap();
