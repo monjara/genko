@@ -60,7 +60,17 @@ pub fn render(
 ) -> Option<AnyElement> {
     match PlatformStyle::current() {
         PlatformStyle::Mac => Some(render_macos_title_bar(title.into(), trailing, window, cx)),
-        PlatformStyle::Linux => Some(render_linux_title_bar(title.into(), trailing, window, cx)),
+        PlatformStyle::Linux => {
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+            {
+                Some(render_linux_title_bar(title.into(), trailing, window, cx))
+            }
+
+            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+            {
+                unreachable!("linux title bar is only compiled on linux/freebsd");
+            }
+        }
         PlatformStyle::Windows => None,
     }
 }
@@ -139,6 +149,7 @@ fn render_macos_title_bar(
         .into_any_element()
 }
 
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 fn render_linux_title_bar(
     title: SharedString,
     trailing: Option<AnyElement>,
@@ -228,6 +239,7 @@ fn render_linux_title_bar(
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 fn render_linux_window_controls(
     buttons: [Option<WindowButton>; gpui::MAX_BUTTONS_PER_SIDE],
     window: &Window,
@@ -264,6 +276,7 @@ fn render_linux_window_controls(
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 fn render_linux_window_button(button: WindowButton, is_maximized: bool, cx: &App) -> AnyElement {
     let label = match button {
         WindowButton::Minimize => "−",
