@@ -19,7 +19,6 @@ use gpui::{
 actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
 
 struct GenkoApp {
-    editor: Entity<Editor>,
     vim: Entity<Vim>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
@@ -45,7 +44,6 @@ impl GenkoApp {
         let bottom_bar = cx.new(BottomBar::new);
 
         Self {
-            editor,
             vim,
             current_path: None,
             last_viewport_size: None,
@@ -77,8 +75,7 @@ impl GenkoApp {
     }
 
     fn load_document(&mut self, path: PathBuf, text: String, cx: &mut Context<Self>) {
-        self.editor
-            .update(cx, |editor, cx| editor.load_text(&text, cx));
+        self.vim.update(cx, |vim, cx| vim.load_text(&text, cx));
         self.current_path = Some(path);
         cx.notify();
     }
@@ -166,7 +163,7 @@ impl GenkoApp {
     }
 
     fn save_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let contents = self.editor.read(cx).snapshot_text();
+        let contents = self.vim.read(cx).snapshot_text(cx);
         let window_handle = window.window_handle();
 
         if let Some(path) = self.current_path.clone() {

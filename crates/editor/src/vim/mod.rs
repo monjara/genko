@@ -101,6 +101,14 @@ impl Vim {
         }
     }
 
+    pub fn load_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| editor.load_text(text, cx));
+    }
+
+    pub fn snapshot_text(&self, cx: &App) -> String {
+        self.editor.read(cx).snapshot_text()
+    }
+
     pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {
         let text_input_enabled =
             !AppSettings::global(cx).vim_mode || VimState::global(cx).mode == VimMode::Insert;
