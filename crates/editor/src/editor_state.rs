@@ -5,7 +5,7 @@ use gpui::App;
 use rope::{CellText, TextRope};
 use settings::AppSettings;
 
-use crate::{DEFAULT_VISIBLE_COLUMNS, RUBY_GUTTER_RATIO};
+use crate::editor::{DEFAULT_VISIBLE_COLUMNS, RUBY_GUTTER_RATIO};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EditorViewState {

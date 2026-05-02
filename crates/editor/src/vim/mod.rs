@@ -1,11 +1,11 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement,
-    Render, Styled, Window, actions, div,
+    App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Render, Styled, Window, actions, div,
 };
 use settings::AppSettings;
-use crate::Editor;
+use crate::editor::Editor;
 
 actions!(
     vim,
@@ -88,7 +88,8 @@ pub struct Vim {
 }
 
 impl Vim {
-    pub fn new(editor: Entity<Editor>) -> Self {
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        let editor = cx.new(Editor::new);
         Self {
             editor,
             yank_register: YankRegister::Empty,

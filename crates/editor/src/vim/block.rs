@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::Editor;
+use crate::editor::Editor;
 use super::state::{BlockInsertKind, BlockRegister};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

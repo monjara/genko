@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle, Focusable,
-    MouseButton, MouseDownEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Styled,
-    UTF16Selection, Window, actions, div, prelude::*, px,
+    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
+    ScrollWheelEvent, Styled, UTF16Selection, Window, actions, div, px,
 };
 use rope::{TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
@@ -20,12 +20,6 @@ use crate::{
     },
 };
 
-mod editor_canvas;
-mod editor_state;
-pub mod vim;
-
-pub use vim::{Vim, VimMode, VimModeLabel, VimState};
-
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
 pub(crate) const DEFAULT_CELL_SIZE: f32 = 28.0;
@@ -35,9 +29,7 @@ const IME_ANCHOR_WIDTH: f32 = 2.0;
 const IME_ANCHOR_INSET: f32 = 3.0;
 const IME_CANDIDATE_GAP: f32 = 16.0;
 
-pub fn init(cx: &mut App) {
-    vim::init(cx);
-
+pub(crate) fn init(cx: &mut App) {
     if AppSettings::global(cx).vim_mode {
         return;
     }
@@ -91,7 +83,7 @@ actions!(
     ]
 );
 
-pub struct Editor {
+pub(crate) struct Editor {
     pub(crate) state: EditorState,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
@@ -203,12 +195,6 @@ impl Editor {
         self.state.selected_range.clone()
     }
 
-    pub fn block_selection(&self) -> Option<(usize, usize)> {
-        self.state
-            .block_selection
-            .map(|selection| (selection.anchor_cell, selection.cursor_cell))
-    }
-
     pub fn offset_after_cursor(&self) -> usize {
         self.state.next_boundary(self.state.cursor_offset())
     }
@@ -296,10 +282,6 @@ impl Editor {
         cx.notify();
     }
 
-    pub fn delete_forward_command(&mut self, cx: &mut Context<Self>) {
-        self.delete_forward(cx);
-    }
-
     pub fn replace_byte_range(
         &mut self,
         range: Range<usize>,
@@ -353,10 +335,6 @@ impl Editor {
             .map(|transaction| transaction_inserted_text(&transaction.edits))
     }
 
-    pub fn cancel_transaction(&mut self) {
-        self.state.history.active_transaction = None;
-    }
-
     pub fn undo(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(transaction) = self.state.history.undo_stack.pop() else {
             return false;
@@ -391,10 +369,6 @@ impl Editor {
         self.state.history.undo_stack.push(transaction);
         cx.notify();
         true
-    }
-
-    pub fn has_active_transaction(&self) -> bool {
-        self.state.history.active_transaction.is_some()
     }
 
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {

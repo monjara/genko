@@ -3,18 +3,16 @@ mod font;
 use std::path::{Path, PathBuf};
 
 use bottom_bar::BottomBar;
-use editor::{Editor, Vim};
-use gpui::prelude::FluentBuilder;
-use settings::open_settings_window;
-use theme::{APP_FONT_FAMILY, Theme};
-use title_bar::TitleBar;
-
+use editor::Vim;
 use gpui::{
     App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
     PromptLevel, Render, Styled, Window, WindowBounds, WindowDecorations, WindowOptions, actions,
-    div, px, size, transparent_black,
+    div, prelude::FluentBuilder, px, size, transparent_black,
 };
+use settings::open_settings_window;
+use theme::{APP_FONT_FAMILY, Theme};
+use title_bar::TitleBar;
 
 actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
 
@@ -38,8 +36,7 @@ impl GenkoApp {
             KeyBinding::new("ctrl-s", SaveFile, None),
         ]);
 
-        let editor = cx.new(Editor::new);
-        let vim = cx.new(|_| Vim::new(editor.clone()));
+        let vim = cx.new(Vim::new);
         let title_bar = cx.new(|cx| TitleBar::new("Genko", cx));
         let bottom_bar = cx.new(BottomBar::new);
 

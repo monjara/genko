@@ -6,7 +6,6 @@ publish.workspace = true
 
 [lib]
 name = "editor"
-path = "src/editor.rs"
 
 [dependencies]
 gpui = { workspace = true }

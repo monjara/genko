@@ -10,7 +10,7 @@ use rope::CellText;
 use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, Theme};
 
-use crate::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor};
+use crate::editor::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CellPaintKind {
@@ -925,7 +925,7 @@ mod tests {
     const DEFAULT_ROWS_PER_COLUMN: usize = 16;
     const VISIBLE_COLUMNS: usize = 20;
     const TEST_CELL_SIZE: f32 = 28.0;
-    const TEST_RUBY_GUTTER_SIZE: f32 = TEST_CELL_SIZE * crate::RUBY_GUTTER_RATIO;
+    const TEST_RUBY_GUTTER_SIZE: f32 = TEST_CELL_SIZE * crate::editor::RUBY_GUTTER_RATIO;
 
     #[test]
     fn vertical_flow_starts_at_top_right() {
