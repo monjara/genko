@@ -8,7 +8,7 @@ use lindera::segmenter::Segmenter;
 use lindera::tokenizer::Tokenizer;
 use rope::TextRope;
 
-use crate::state::{MotionKind, RepeatTarget, TextObjectModifier, TextObjectTarget, VimOperator};
+use super::state::{MotionKind, RepeatTarget, TextObjectModifier, TextObjectTarget, VimOperator};
 
 static JAPANESE_TOKENIZER: OnceLock<Result<Tokenizer, String>> = OnceLock::new();
 
@@ -306,7 +306,7 @@ fn load_japanese_dictionary() -> Result<Dictionary, String> {
     #[cfg(not(feature = "embedded-ipadic"))]
     {
         Err(format!(
-            "japanese tokenizer is disabled; enable the `embedded-ipadic` feature or set {path:?}"
+            "japanese tokenizer is disabled; enable the `embedded-ipadic` feature or set LINDERA_DICTIONARY_PATH"
         ))
     }
 }

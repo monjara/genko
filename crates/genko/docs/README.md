@@ -11,7 +11,7 @@
 
 ## 処理の詳細
 1. **起動時初期化**
-   - `settings::init`, `editor::init`, `vim::init` を呼び出し、グローバル設定とキーバインドを準備する。
+   - `settings::init`, `editor::init` を呼び出し、グローバル設定とキーバインドを準備する。
    - メインウィンドウ生成時に `GenkoApp` を構築し、`Editor` と `Vim` を紐づける。
 
 2. **UI と状態同期**

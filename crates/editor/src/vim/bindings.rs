@@ -1,8 +1,8 @@
 use gpui::{App, KeyBinding};
 use settings::AppSettings;
 
-use crate::state::{TextObjectModifier, VimOperator, operator_context};
-use crate::{
+use super::state::{TextObjectModifier, VimOperator, operator_context};
+use super::{
     VimAppend, VimBlockAppendAfter, VimBlockInsertBefore, VimChangeOperator, VimDeleteChar,
     VimDeleteOperator, VimEnterInsertMode, VimMoveBigWordForward, VimMoveDown, VimMoveLeft,
     VimMoveRight, VimMoveUp, VimMoveWordEndForward, VimMoveWordForward, VimNormalMode,

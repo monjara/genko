@@ -3,12 +3,11 @@ mod font;
 use std::path::{Path, PathBuf};
 
 use bottom_bar::BottomBar;
-use editor::Editor;
+use editor::{Editor, Vim};
 use gpui::prelude::FluentBuilder;
-use settings::{AppSettings, open_settings_window};
+use settings::open_settings_window;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
-use vim::Vim;
 
 use gpui::{
     App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
@@ -27,7 +26,6 @@ struct GenkoApp {
 
     current_path: Option<PathBuf>,
     last_viewport_size: Option<gpui::Size<gpui::Pixels>>,
-    last_vim_mode_enabled: Option<bool>,
 }
 
 impl GenkoApp {
@@ -51,7 +49,6 @@ impl GenkoApp {
             vim,
             current_path: None,
             last_viewport_size: None,
-            last_vim_mode_enabled: None,
             title_bar,
             bottom_bar,
         }
@@ -232,33 +229,21 @@ impl Render for GenkoApp {
         title_bar::sync_client_window_inset(window);
         self.sync_window_title(window);
         let viewport_size = window.viewport_size();
-        let vim_mode_enabled = AppSettings::global(cx).vim_mode;
 
-        let needs_viewport_sync = self.last_viewport_size != Some(viewport_size)
-            || self.last_vim_mode_enabled != Some(vim_mode_enabled);
-        if needs_viewport_sync && vim_mode_enabled {
+        let needs_viewport_sync = self.last_viewport_size != Some(viewport_size);
+        if needs_viewport_sync {
             self.vim.update(cx, |vim, cx| {
                 vim.update_viewport_size(viewport_size, cx);
             });
-        } else if needs_viewport_sync {
-            self.editor.update(cx, |editor, cx| {
-                editor.update_viewport_size(viewport_size, cx);
-                editor.set_text_input_enabled(true, cx);
-            });
         }
         self.last_viewport_size = Some(viewport_size);
-        self.last_vim_mode_enabled = Some(vim_mode_enabled);
 
         let content = div()
             .flex()
             .flex_col()
             .gap_2()
             .items_start()
-            .child(if vim_mode_enabled {
-                self.vim.clone().into_element()
-            } else {
-                self.editor.clone().into_element()
-            });
+            .child(self.vim.clone().into_element());
 
         div()
             .size_full()
@@ -326,11 +311,7 @@ impl Render for GenkoApp {
 
 impl Focusable for GenkoApp {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
-        if AppSettings::global(cx).vim_mode {
-            self.vim.focus_handle(cx)
-        } else {
-            self.editor.focus_handle(cx)
-        }
+        self.vim.focus_handle(cx)
     }
 }
 
@@ -340,7 +321,6 @@ fn main() {
         theme::init(cx);
         settings::init(cx);
         editor::init(cx);
-        vim::init(cx);
 
         cx.on_action(|_: &Quit, cx| cx.quit())
             .on_action(|_: &OpenSettings, cx| open_settings_window(cx))

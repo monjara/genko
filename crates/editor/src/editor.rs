@@ -22,6 +22,9 @@ use crate::{
 
 mod editor_canvas;
 mod editor_state;
+pub mod vim;
+
+pub use vim::{Vim, VimMode, VimModeLabel, VimState};
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
@@ -33,6 +36,8 @@ const IME_ANCHOR_INSET: f32 = 3.0;
 const IME_CANDIDATE_GAP: f32 = 16.0;
 
 pub fn init(cx: &mut App) {
+    vim::init(cx);
+
     if AppSettings::global(cx).vim_mode {
         return;
     }

@@ -1,10 +1,11 @@
 use std::ops::Range;
 
-use editor::Editor;
 use gpui::{
     App, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement, ParentElement,
     Render, Styled, Window, actions, div,
 };
+use settings::AppSettings;
+use crate::Editor;
 
 actions!(
     vim,
@@ -68,7 +69,7 @@ use text_objects::{
 pub use state::{VimMode, VimState};
 use theme::Theme;
 
-use crate::state::operator_key_context;
+use self::state::operator_key_context;
 
 pub fn init(cx: &mut App) {
     bindings::init(cx);
@@ -101,9 +102,18 @@ impl Vim {
     }
 
     pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {
-        let text_input_enabled = VimState::global(cx).mode == VimMode::Insert;
+        let text_input_enabled =
+            !AppSettings::global(cx).vim_mode || VimState::global(cx).mode == VimMode::Insert;
         self.editor.update(cx, |editor, cx| {
             editor.update_viewport_size(size, cx);
+            editor.set_text_input_enabled(text_input_enabled, cx);
+        });
+    }
+
+    fn sync_text_input_enabled(&mut self, cx: &mut Context<Self>) {
+        let text_input_enabled =
+            !AppSettings::global(cx).vim_mode || VimState::global(cx).mode == VimMode::Insert;
+        self.editor.update(cx, |editor, cx| {
             editor.set_text_input_enabled(text_input_enabled, cx);
         });
     }
@@ -1437,9 +1447,15 @@ impl Vim {
 
 impl Render for Vim {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        self.sync_text_input_enabled(cx);
+
         div()
             .track_focus(&self.editor.focus_handle(cx))
-            .key_context(self.key_context(cx))
+            .key_context(if AppSettings::global(cx).vim_mode {
+                self.key_context(cx)
+            } else {
+                "Genko"
+            })
             .on_action(cx.listener(Self::vim_enter_insert_mode))
             .on_action(cx.listener(Self::vim_append))
             .on_action(cx.listener(Self::vim_normal_mode))

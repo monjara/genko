@@ -1,8 +1,7 @@
 use std::ops::Range;
 
-use editor::Editor;
-
-use crate::state::{BlockInsertKind, BlockRegister};
+use crate::Editor;
+use super::state::{BlockInsertKind, BlockRegister};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PastePosition {

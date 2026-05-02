@@ -13,3 +13,9 @@ gpui = { workspace = true }
 rope = { workspace = true }
 settings = { workspace = true }
 theme = { workspace = true }
+env = { workspace = true }
+lindera = "2.3.4"
+
+[features]
+default = []
+embedded-ipadic = ["lindera/embed-ipadic"]

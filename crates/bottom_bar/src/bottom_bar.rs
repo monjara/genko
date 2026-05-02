@@ -1,10 +1,10 @@
+use editor::VimModeLabel;
 use gpui::{
     App, AppContext, Context, Decorations, Entity, InteractiveElement, IntoElement, ParentElement,
     Render, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use settings::AppSettings;
 use theme::Theme;
-use vim::VimModeLabel;
 
 const SIDE_SLOT_WIDTH: f32 = 160.0;
 
