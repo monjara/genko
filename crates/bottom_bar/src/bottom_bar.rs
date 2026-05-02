@@ -2,6 +2,7 @@ use gpui::{
     App, AppContext, Context, Decorations, Entity, InteractiveElement, IntoElement, ParentElement,
     Render, Styled, Window, div, prelude::FluentBuilder, px,
 };
+use settings::AppSettings;
 use theme::Theme;
 use vim::VimModeLabel;
 
@@ -38,16 +39,18 @@ impl Render for BottomBar {
                     .items_center()
                     .justify_end()
                     .px_3()
-                    .child(
-                        div()
-                            .w(px(SIDE_SLOT_WIDTH))
-                            .flex_none()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_end()
-                            .child(self.vim_mode_status.clone().into_element()),
-                    ),
+                    .when(AppSettings::global(cx).vim_mode, |this| {
+                        this.child(
+                            div()
+                                .w(px(SIDE_SLOT_WIDTH))
+                                .flex_none()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .justify_end()
+                                .child(self.vim_mode_status.clone().into_element()),
+                        )
+                    }),
             );
 
         match window.window_decorations() {

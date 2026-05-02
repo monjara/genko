@@ -173,7 +173,7 @@ pub(crate) struct BlockRegister {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VimState {
-    pub(crate) mode: VimMode,
+    pub mode: VimMode,
 }
 
 pub(crate) fn init(cx: &mut App) {
@@ -193,14 +193,6 @@ impl VimState {
         Self {
             mode: VimMode::Normal,
         }
-    }
-
-    pub fn mode(&self) -> VimMode {
-        self.mode
-    }
-
-    pub fn set_mode(&mut self, mode: VimMode) {
-        self.mode = mode;
     }
 }
 
