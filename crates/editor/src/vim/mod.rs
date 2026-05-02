@@ -1,11 +1,11 @@
 use std::ops::Range;
 
+use crate::editor::Editor;
 use gpui::{
     App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     ParentElement, Render, Styled, Window, actions, div,
 };
 use settings::AppSettings;
-use crate::editor::Editor;
 
 actions!(
     vim,
@@ -103,7 +103,8 @@ impl Vim {
     }
 
     pub fn load_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.editor.update(cx, |editor, cx| editor.load_text(text, cx));
+        self.editor
+            .update(cx, |editor, cx| editor.load_text(text, cx));
     }
 
     pub fn snapshot_text(&self, cx: &App) -> String {
