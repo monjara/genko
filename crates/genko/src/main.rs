@@ -1,6 +1,6 @@
+mod font;
 mod settings_window;
 
-use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use bottom_bar::BottomBar;
@@ -21,7 +21,7 @@ use gpui::{
 
 actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
 
-pub(crate) struct GenkoApp {
+struct GenkoApp {
     editor: Entity<Editor>,
     vim: Entity<Vim>,
     title_bar: Entity<TitleBar>,
@@ -342,7 +342,7 @@ fn open_settings_window(cx: &mut App) {
         .open_window(
             title_bar::configure_window_options(WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                app_id: Some("dev.genko.settings".into()),
+                app_id: Some("dev.genko".into()),
                 is_movable: true,
                 window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
@@ -361,25 +361,20 @@ fn open_settings_window(cx: &mut App) {
 
 fn main() {
     gpui_platform::application().run(|cx: &mut App| {
-        let fonts = [include_bytes!(
-            "../../../assets/fonts/ZenOldMincho-Regular.ttf"
-        )]
-        .iter()
-        .map(|bytes| Cow::Borrowed(&bytes[..]))
-        .collect();
-        let _ = cx.text_system().add_fonts(fonts);
-
+        font::init(cx);
         theme::init(cx);
         settings::init(cx);
         editor::init(cx);
         vim::init(cx);
 
-        let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
-
         let window = cx
             .open_window(
                 title_bar::configure_window_options(WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                        None,
+                        size(px(1200.0), px(800.0)),
+                        cx,
+                    ))),
                     app_id: Some("dev.genko".into()),
                     is_movable: true,
                     window_decorations: Some(WindowDecorations::Client),
@@ -390,27 +385,26 @@ fn main() {
             .unwrap();
 
         cx.on_action(|_: &Quit, cx| cx.quit())
-            .on_action(|_: &OpenSettings, cx| open_settings_window(cx));
-
-        cx.set_menus(vec![
-            Menu {
-                disabled: false,
-                name: "Genko".into(),
-                items: vec![
-                    MenuItem::action("設定", OpenSettings),
-                    MenuItem::separator(),
-                    MenuItem::action("終了", Quit),
-                ],
-            },
-            Menu {
-                disabled: false,
-                name: "ファイル".into(),
-                items: vec![
-                    MenuItem::action("開く", OpenFile),
-                    MenuItem::action("保存", SaveFile),
-                ],
-            },
-        ]);
+            .on_action(|_: &OpenSettings, cx| open_settings_window(cx))
+            .set_menus(vec![
+                Menu {
+                    disabled: false,
+                    name: "Genko".into(),
+                    items: vec![
+                        MenuItem::action("設定", OpenSettings),
+                        MenuItem::separator(),
+                        MenuItem::action("終了", Quit),
+                    ],
+                },
+                Menu {
+                    disabled: false,
+                    name: "ファイル".into(),
+                    items: vec![
+                        MenuItem::action("開く", OpenFile),
+                        MenuItem::action("保存", SaveFile),
+                    ],
+                },
+            ]);
 
         window
             .update(cx, |view, window, cx| {
