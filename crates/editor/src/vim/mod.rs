@@ -111,16 +111,7 @@ impl Vim {
         self.editor.read(cx).snapshot_text()
     }
 
-    pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {
-        let text_input_enabled =
-            !AppSettings::global(cx).vim_mode || VimState::global(cx).mode == VimMode::Insert;
-        self.editor.update(cx, |editor, cx| {
-            editor.update_viewport_size(size, cx);
-            editor.set_text_input_enabled(text_input_enabled, cx);
-        });
-    }
-
-    fn sync_text_input_enabled(&mut self, cx: &mut Context<Self>) {
+    fn sync_text_input_enabled(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let text_input_enabled =
             !AppSettings::global(cx).vim_mode || VimState::global(cx).mode == VimMode::Insert;
         self.editor.update(cx, |editor, cx| {
@@ -1456,8 +1447,8 @@ impl Vim {
 }
 
 impl Render for Vim {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        self.sync_text_input_enabled(cx);
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        self.sync_text_input_enabled(window, cx);
 
         div()
             .track_focus(&self.editor.focus_handle(cx))

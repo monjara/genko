@@ -22,7 +22,6 @@ struct GenkoApp {
     bottom_bar: Entity<BottomBar>,
 
     current_path: Option<PathBuf>,
-    last_viewport_size: Option<gpui::Size<gpui::Pixels>>,
 }
 
 impl GenkoApp {
@@ -43,7 +42,6 @@ impl GenkoApp {
         Self {
             vim,
             current_path: None,
-            last_viewport_size: None,
             title_bar,
             bottom_bar,
         }
@@ -222,15 +220,6 @@ impl Render for GenkoApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         title_bar::sync_client_window_inset(window);
         self.sync_window_title(window);
-        let viewport_size = window.viewport_size();
-
-        let needs_viewport_sync = self.last_viewport_size != Some(viewport_size);
-        if needs_viewport_sync {
-            self.vim.update(cx, |vim, cx| {
-                vim.update_viewport_size(viewport_size, cx);
-            });
-        }
-        self.last_viewport_size = Some(viewport_size);
 
         let content = div()
             .flex()
@@ -347,6 +336,7 @@ fn main() {
                 ))),
                 app_id: Some("dev.genko".into()),
                 is_movable: true,
+                is_resizable: true,
                 window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
             }),

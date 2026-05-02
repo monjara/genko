@@ -3,7 +3,7 @@ use std::ops::Range;
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle, Focusable,
     InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
-    ScrollWheelEvent, Styled, UTF16Selection, Window, actions, div, px,
+    ScrollWheelEvent, Size, Styled, UTF16Selection, Window, actions, div, px,
 };
 use rope::{TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
@@ -88,45 +88,55 @@ pub(crate) struct Editor {
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) grid_path_cache: Option<GridPathCache>,
+    last_viewport_size: Option<Size<Pixels>>,
 }
 impl Editor {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             state: EditorState::new(cx),
             focus_handle: cx.focus_handle(),
-            last_board_bounds: None,
             grid_path_cache: None,
+            last_board_bounds: None,
+            last_viewport_size: None,
         }
     }
 
-    pub fn update_viewport_size(&mut self, size: gpui::Size<Pixels>, cx: &App) {
-        self.state
-            .update_hanging_punctuation(AppSettings::global(cx).hanging_punctuation);
-        self.state
-            .update_cell_size(AppSettings::global(cx).cell_size as f32);
-        self.state
-            .update_visible_columns(visible_columns_for_window_width(
-                size.width,
-                self.state.cell_size(),
-                self.state.ruby_gutter_size(),
-            ));
-        let content_height = content_height_for_window_height(
-            size.height,
-            AppSettings::global(cx).column_number_mode,
-            self.state.cell_size(),
-        );
-        self.state
-            .update_max_visible_rows(rows_per_column_for_window_height(
-                content_height,
-                self.state.cell_size(),
-            ));
-        if AppSettings::global(cx).rows_per_column.is_none() {
+    pub(crate) fn update_viewport_size(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let size = window.viewport_size();
+        let needs_viewport_sync = self.last_viewport_size != Some(size);
+        if needs_viewport_sync {
             self.state
-                .update_rows_per_column(rows_per_column_for_window_height(
+                .update_hanging_punctuation(AppSettings::global(cx).hanging_punctuation);
+
+            self.state
+                .update_cell_size(AppSettings::global(cx).cell_size as f32);
+
+            self.state
+                .update_visible_columns(visible_columns_for_window_width(
+                    size.width,
+                    self.state.cell_size(),
+                    self.state.ruby_gutter_size(),
+                ));
+
+            let content_height = content_height_for_window_height(
+                size.height,
+                AppSettings::global(cx).column_number_mode,
+                self.state.cell_size(),
+            );
+            self.state
+                .update_max_visible_rows(rows_per_column_for_window_height(
                     content_height,
                     self.state.cell_size(),
                 ));
+            if AppSettings::global(cx).rows_per_column.is_none() {
+                self.state
+                    .update_rows_per_column(rows_per_column_for_window_height(
+                        content_height,
+                        self.state.cell_size(),
+                    ));
+            }
         }
+        self.last_viewport_size = Some(size);
     }
 
     pub fn set_text_input_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
@@ -908,7 +918,9 @@ impl EntityInputHandler for Editor {
 }
 
 impl Render for Editor {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.update_viewport_size(window, cx);
+
         div()
             .track_focus(&self.focus_handle(cx))
             .key_context("Genko")
