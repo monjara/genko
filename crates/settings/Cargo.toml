@@ -12,4 +12,6 @@ path = "src/settings.rs"
 gpui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+theme = { workspace = true }
+title_bar = { workspace = true }
 xdg = { workspace = true }

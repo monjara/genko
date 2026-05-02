@@ -5683,6 +5683,8 @@ dependencies = [
  "gpui",
  "serde",
  "serde_json",
+ "theme",
+ "title_bar",
  "xdg",
 ]
 

@@ -1,13 +1,11 @@
 mod font;
-mod settings_window;
 
 use std::path::{Path, PathBuf};
 
 use bottom_bar::BottomBar;
 use editor::Editor;
 use gpui::prelude::FluentBuilder;
-use settings::AppSettings;
-use settings_window::SettingsWindow;
+use settings::{AppSettings, open_settings_window};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
 use vim::Vim;
@@ -45,7 +43,7 @@ impl GenkoApp {
 
         let editor = cx.new(Editor::new);
         let vim = cx.new(|_| Vim::new(editor.clone()));
-        let title_bar = cx.new(|cx| TitleBar::new("Genko".into(), cx));
+        let title_bar = cx.new(|cx| TitleBar::new("Genko", cx));
         let bottom_bar = cx.new(BottomBar::new);
 
         Self {
@@ -235,6 +233,7 @@ impl Render for GenkoApp {
         self.sync_window_title(window);
         let viewport_size = window.viewport_size();
         let vim_mode_enabled = AppSettings::global(cx).vim_mode;
+
         let needs_viewport_sync = self.last_viewport_size != Some(viewport_size)
             || self.last_vim_mode_enabled != Some(vim_mode_enabled);
         if needs_viewport_sync && vim_mode_enabled {
@@ -333,30 +332,6 @@ impl Focusable for GenkoApp {
             self.editor.focus_handle(cx)
         }
     }
-}
-
-fn open_settings_window(cx: &mut App) {
-    let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
-
-    let settings_window = cx
-        .open_window(
-            title_bar::configure_window_options(WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                app_id: Some("dev.genko".into()),
-                is_movable: true,
-                window_decorations: Some(WindowDecorations::Client),
-                ..Default::default()
-            }),
-            move |_, cx| cx.new(SettingsWindow::new),
-        )
-        .unwrap();
-
-    settings_window
-        .update(cx, |_, window, cx| {
-            window.activate_window();
-            cx.activate(true);
-        })
-        .unwrap();
 }
 
 fn main() {
