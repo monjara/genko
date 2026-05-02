@@ -367,23 +367,6 @@ fn main() {
         editor::init(cx);
         vim::init(cx);
 
-        let window = cx
-            .open_window(
-                title_bar::configure_window_options(WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                        None,
-                        size(px(1200.0), px(800.0)),
-                        cx,
-                    ))),
-                    app_id: Some("dev.genko".into()),
-                    is_movable: true,
-                    window_decorations: Some(WindowDecorations::Client),
-                    ..Default::default()
-                }),
-                |_, cx| cx.new(GenkoApp::new),
-            )
-            .unwrap();
-
         cx.on_action(|_: &Quit, cx| cx.quit())
             .on_action(|_: &OpenSettings, cx| open_settings_window(cx))
             .set_menus(vec![
@@ -406,11 +389,26 @@ fn main() {
                 },
             ]);
 
-        window
-            .update(cx, |view, window, cx| {
+        cx.open_window(
+            title_bar::configure_window_options(WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(1200.0), px(800.0)),
+                    cx,
+                ))),
+                app_id: Some("dev.genko".into()),
+                is_movable: true,
+                window_decorations: Some(WindowDecorations::Client),
+                ..Default::default()
+            }),
+            |_, cx| cx.new(GenkoApp::new),
+        )
+        .and_then(|window| {
+            window.update(cx, |view, window, cx| {
                 window.focus(&view.focus_handle(cx), cx);
                 cx.activate(true);
             })
-            .unwrap();
-    });
+        })
+        .expect("Failed to open main window")
+    })
 }
