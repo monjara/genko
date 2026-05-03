@@ -188,6 +188,21 @@ pub(crate) fn block_paste_operations(
     operations
 }
 
+pub(crate) fn top_right_block_cell(
+    anchor_cell: usize,
+    cursor_cell: usize,
+    rows_per_column: usize,
+) -> usize {
+    let rows_per_column = rows_per_column.max(1);
+    let anchor_row = anchor_cell % rows_per_column;
+    let anchor_column = anchor_cell / rows_per_column;
+    let cursor_row = cursor_cell % rows_per_column;
+    let cursor_column = cursor_cell / rows_per_column;
+    let top_row = anchor_row.min(cursor_row);
+    let right_column = anchor_column.min(cursor_column);
+    right_column * rows_per_column + top_row
+}
+
 fn block_selection_cell_indices(
     anchor_cell: usize,
     cursor_cell: usize,

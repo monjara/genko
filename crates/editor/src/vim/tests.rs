@@ -354,6 +354,18 @@ fn block_paste_operations_keep_columns_separate() {
 }
 
 #[test]
+fn top_right_block_cell_uses_min_column_and_row() {
+    assert_eq!(top_right_block_cell(27, 4, 10), 4);
+    assert_eq!(top_right_block_cell(4, 27, 10), 4);
+}
+
+#[test]
+fn top_right_block_cell_handles_same_column_selection() {
+    assert_eq!(top_right_block_cell(16, 19, 10), 16);
+    assert_eq!(top_right_block_cell(19, 16, 10), 16);
+}
+
+#[test]
 fn resolve_repeat_target_range_ignores_line_targets() {
     assert_eq!(
         resolve_repeat_range("abc", 0, RepeatTarget::Line, false),

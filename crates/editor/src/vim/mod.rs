@@ -56,6 +56,7 @@ use block::{
     PastePosition, block_byte_ranges_from_cursor, block_insert_target_cells,
     block_insert_target_cells_from_cursor, block_paste_operations, block_selection_byte_ranges,
     build_block_register, build_block_register_from_cursor, current_column_cell_range,
+    top_right_block_cell,
 };
 use state::{
     BlockInsertKind, InsertKind, MotionKind, PendingBlockInsert, PendingInsert, RepeatTarget,
@@ -395,9 +396,13 @@ impl Vim {
         let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
-        let block_register = {
+        let (block_register, target_cell) = {
             let editor = self.editor.read(cx);
-            build_block_register(editor, anchor, editor.cursor_cell())
+            let cursor_cell = editor.cursor_cell();
+            (
+                build_block_register(editor, anchor, cursor_cell),
+                top_right_block_cell(anchor, cursor_cell, editor.rows_per_column()),
+            )
         };
         self.yank_register = YankRegister::BlockWise(block_register);
         VimState::global_mut(cx).mode = VimMode::Normal;
@@ -405,6 +410,7 @@ impl Vim {
         self.clear_pending();
         self.editor.update(cx, |editor, cx| {
             editor.clear_block_selection(cx);
+            editor.move_cursor_to_display_cell(target_cell, cx);
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
         });
@@ -1237,7 +1243,15 @@ impl Vim {
             return;
         }
         if VimState::global(cx).mode == VimMode::Visual {
-            let range = self.editor.read(cx).selected_byte_range();
+            let (range, target_cell) = {
+                let editor = self.editor.read(cx);
+                (
+                    editor.selected_byte_range(),
+                    self.visual_anchor_cell
+                        .map(|anchor| anchor.min(editor.cursor_cell()))
+                        .unwrap_or_else(|| editor.cursor_cell()),
+                )
+            };
             if range.is_empty() {
                 return;
             }
@@ -1247,6 +1261,7 @@ impl Vim {
             self.clear_pending();
             self.editor.update(cx, |editor, cx| {
                 editor.clear_block_selection(cx);
+                editor.move_cursor_to_display_cell(target_cell, cx);
                 editor.set_text_input_enabled(false, cx);
                 editor.collapse_selection_to_cursor_cell(cx);
             });
