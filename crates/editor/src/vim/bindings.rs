@@ -1,7 +1,6 @@
 use gpui::{App, KeyBinding};
 use settings::AppSettings;
 
-use super::state::{TextObjectModifier, VimOperator, operator_context};
 use super::{
     VimAppend, VimBlockAppendAfter, VimBlockInsertBefore, VimChangeOperator, VimDeleteChar,
     VimDeleteOperator, VimEnterInsertMode, VimMoveBigWordForward, VimMoveDown, VimMoveLeft,
@@ -12,373 +11,145 @@ use super::{
     VimVisualBlockMode, VimVisualMode, VimYankOperator,
 };
 
-const MODE_NORMAL: &str = "vim_mode == normal";
-const MODE_INSERT: &str = "vim_mode == insert";
-const MODE_VISUAL: &str = "vim_mode == visual";
-const MODE_VISUAL_BLOCK: &str = "vim_mode == visual_block";
-const MODE_ANY_VISUAL: &str =
-    "vim_mode == normal || vim_mode == visual || vim_mode == visual_block";
-
 pub(crate) fn init(cx: &mut App) {
     if !AppSettings::global(cx).vim_mode {
         return;
     }
 
-    macro_rules! kb {
-        ($key:literal, $action:expr, $context:expr) => {
-            KeyBinding::new($key, $action, Some($context))
-        };
-    }
-
     cx.bind_keys([
-        kb!("i", VimEnterInsertMode, MODE_NORMAL),
-        kb!("a", VimAppend, MODE_NORMAL),
-        kb!("escape", VimNormalMode, MODE_INSERT),
-        kb!("escape", VimNormalMode, MODE_VISUAL),
-        kb!("escape", VimNormalMode, MODE_VISUAL_BLOCK),
-        kb!(
+        KeyBinding::new("i", VimEnterInsertMode, Some("vim_mode == normal")),
+        KeyBinding::new("a", VimAppend, Some("vim_mode == normal")),
+        KeyBinding::new(
             "escape",
             VimNormalMode,
-            operator_context(VimOperator::Delete, None)
+            Some(
+                "vim_mode == insert || vim_mode == visual || vim_mode == visual_block || vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank || vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around",
+            ),
         ),
-        kb!(
-            "escape",
-            VimNormalMode,
-            operator_context(VimOperator::Change, None)
-        ),
-        kb!(
-            "escape",
-            VimNormalMode,
-            operator_context(VimOperator::Yank, None)
-        ),
-        kb!(
-            "escape",
-            VimNormalMode,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "escape",
-            VimNormalMode,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "escape",
-            VimNormalMode,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "escape",
-            VimNormalMode,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "escape",
-            VimNormalMode,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "escape",
-            VimNormalMode,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Around))
-        ),
-        kb!("v", VimVisualMode, MODE_NORMAL),
-        kb!("v", VimNormalMode, MODE_VISUAL),
-        kb!("ctrl-v", VimVisualBlockMode, MODE_NORMAL),
-        kb!("ctrl-v", VimNormalMode, MODE_VISUAL_BLOCK),
-        kb!("I", VimBlockInsertBefore, MODE_VISUAL_BLOCK),
-        kb!("A", VimBlockAppendAfter, MODE_VISUAL_BLOCK),
-        kb!("d", VimDeleteOperator, MODE_NORMAL),
-        kb!("d", VimDeleteOperator, MODE_VISUAL),
-        kb!("d", VimDeleteOperator, MODE_VISUAL_BLOCK),
-        kb!("c", VimChangeOperator, MODE_NORMAL),
-        kb!("c", VimChangeOperator, MODE_VISUAL),
-        kb!("c", VimChangeOperator, MODE_VISUAL_BLOCK),
-        kb!("y", VimYankOperator, MODE_NORMAL),
-        kb!("y", VimYankOperator, MODE_VISUAL),
-        kb!("y", VimYankOperator, MODE_VISUAL_BLOCK),
-        kb!("p", VimPasteAfter, MODE_NORMAL),
-        kb!("P", VimPasteBefore, MODE_NORMAL),
-        kb!("u", VimUndo, MODE_NORMAL),
-        kb!("ctrl-r", VimRedo, MODE_NORMAL),
-        kb!(".", VimRepeatLastChange, MODE_NORMAL),
-        kb!("w", VimMoveWordForward, MODE_ANY_VISUAL),
-        kb!("W", VimMoveBigWordForward, MODE_ANY_VISUAL),
-        kb!("e", VimMoveWordEndForward, MODE_ANY_VISUAL),
-        kb!("o", VimOpenNextColumn, MODE_NORMAL),
-        kb!(
+        KeyBinding::new("v", VimVisualMode, Some("vim_mode == normal")),
+        KeyBinding::new("v", VimNormalMode, Some("vim_mode == visual")),
+        KeyBinding::new("ctrl-v", VimVisualBlockMode, Some("vim_mode == normal")),
+        KeyBinding::new("ctrl-v", VimNormalMode, Some("vim_mode == visual_block")),
+        KeyBinding::new("I", VimBlockInsertBefore, Some("vim_mode == visual_block")),
+        KeyBinding::new("A", VimBlockAppendAfter, Some("vim_mode == visual_block")),
+        KeyBinding::new(
             "d",
             VimDeleteOperator,
-            operator_context(VimOperator::Delete, None)
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        kb!(
+        KeyBinding::new(
             "c",
             VimChangeOperator,
-            operator_context(VimOperator::Change, None)
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        kb!(
+        KeyBinding::new(
             "y",
             VimYankOperator,
-            operator_context(VimOperator::Yank, None)
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        kb!(
+        KeyBinding::new("p", VimPasteAfter, Some("vim_mode == normal")),
+        KeyBinding::new("P", VimPasteBefore, Some("vim_mode == normal")),
+        KeyBinding::new("u", VimUndo, Some("vim_mode == normal")),
+        KeyBinding::new("ctrl-r", VimRedo, Some("vim_mode == normal")),
+        KeyBinding::new(".", VimRepeatLastChange, Some("vim_mode == normal")),
+        KeyBinding::new(
             "w",
             VimMoveWordForward,
-            operator_context(VimOperator::Delete, None)
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        kb!(
+        KeyBinding::new(
+            "W",
+            VimMoveBigWordForward,
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
+        ),
+        KeyBinding::new(
+            "e",
+            VimMoveWordEndForward,
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
+        ),
+        KeyBinding::new("o", VimOpenNextColumn, Some("vim_mode == normal")),
+        KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == operator_delete")),
+        KeyBinding::new("c", VimChangeOperator, Some("vim_mode == operator_change")),
+        KeyBinding::new("y", VimYankOperator, Some("vim_mode == operator_yank")),
+        KeyBinding::new(
             "w",
             VimMoveWordForward,
-            operator_context(VimOperator::Change, None)
+            Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        kb!(
-            "w",
-            VimMoveWordForward,
-            operator_context(VimOperator::Yank, None)
-        ),
-        kb!(
+        KeyBinding::new(
             "W",
             VimMoveBigWordForward,
-            operator_context(VimOperator::Delete, None)
+            Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        kb!(
-            "W",
-            VimMoveBigWordForward,
-            operator_context(VimOperator::Change, None)
-        ),
-        kb!(
-            "W",
-            VimMoveBigWordForward,
-            operator_context(VimOperator::Yank, None)
-        ),
-        kb!(
+        KeyBinding::new(
             "e",
             VimMoveWordEndForward,
-            operator_context(VimOperator::Delete, None)
+            Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        kb!(
-            "e",
-            VimMoveWordEndForward,
-            operator_context(VimOperator::Change, None)
-        ),
-        kb!(
-            "e",
-            VimMoveWordEndForward,
-            operator_context(VimOperator::Yank, None)
-        ),
-        kb!(
+        KeyBinding::new(
             "i",
             VimTextObjectInner,
-            operator_context(VimOperator::Delete, None)
+            Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        kb!(
+        KeyBinding::new(
             "a",
             VimTextObjectAround,
-            operator_context(VimOperator::Delete, None)
+            Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        kb!(
-            "i",
-            VimTextObjectInner,
-            operator_context(VimOperator::Change, None)
-        ),
-        kb!(
-            "a",
-            VimTextObjectAround,
-            operator_context(VimOperator::Change, None)
-        ),
-        kb!(
-            "i",
-            VimTextObjectInner,
-            operator_context(VimOperator::Yank, None)
-        ),
-        kb!(
-            "a",
-            VimTextObjectAround,
-            operator_context(VimOperator::Yank, None)
-        ),
-        kb!(
+        KeyBinding::new(
             "w",
             VimTextObjectWord,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Inner))
+            Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        kb!(
-            "w",
-            VimTextObjectWord,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "w",
-            VimTextObjectWord,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "w",
-            VimTextObjectWord,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "w",
-            VimTextObjectWord,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "w",
-            VimTextObjectWord,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Around))
-        ),
-        kb!(
+        KeyBinding::new(
             "W",
             VimTextObjectBigWord,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Inner))
+            Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        kb!(
-            "W",
-            VimTextObjectBigWord,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "W",
-            VimTextObjectBigWord,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "W",
-            VimTextObjectBigWord,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "W",
-            VimTextObjectBigWord,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "W",
-            VimTextObjectBigWord,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Around))
-        ),
-        kb!(
+        KeyBinding::new(
             "\"",
             VimTextObjectDoubleQuote,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Inner))
+            Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        kb!(
-            "\"",
-            VimTextObjectDoubleQuote,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "\"",
-            VimTextObjectDoubleQuote,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "\"",
-            VimTextObjectDoubleQuote,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "\"",
-            VimTextObjectDoubleQuote,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "\"",
-            VimTextObjectDoubleQuote,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Around))
-        ),
-        kb!(
+        KeyBinding::new(
             "'",
             VimTextObjectSingleQuote,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Inner))
+            Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        kb!(
-            "'",
-            VimTextObjectSingleQuote,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "'",
-            VimTextObjectSingleQuote,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "'",
-            VimTextObjectSingleQuote,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "'",
-            VimTextObjectSingleQuote,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "'",
-            VimTextObjectSingleQuote,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Around))
-        ),
-        kb!(
+        KeyBinding::new(
             "(",
             VimTextObjectParen,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Inner))
+            Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        kb!(
-            "(",
-            VimTextObjectParen,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "(",
-            VimTextObjectParen,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "(",
-            VimTextObjectParen,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Around))
-        ),
-        kb!(
-            "(",
-            VimTextObjectParen,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Inner))
-        ),
-        kb!(
-            "(",
-            VimTextObjectParen,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Around))
-        ),
-        kb!(
+        KeyBinding::new(
             "[",
             VimTextObjectBracket,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Inner))
+            Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        kb!(
-            "[",
-            VimTextObjectBracket,
-            operator_context(VimOperator::Delete, Some(TextObjectModifier::Around))
+        KeyBinding::new(
+            "h",
+            VimMoveLeft,
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        kb!(
-            "[",
-            VimTextObjectBracket,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Inner))
+        KeyBinding::new(
+            "j",
+            VimMoveDown,
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        kb!(
-            "[",
-            VimTextObjectBracket,
-            operator_context(VimOperator::Change, Some(TextObjectModifier::Around))
+        KeyBinding::new(
+            "k",
+            VimMoveUp,
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        kb!(
-            "[",
-            VimTextObjectBracket,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Inner))
+        KeyBinding::new(
+            "l",
+            VimMoveRight,
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        kb!(
-            "[",
-            VimTextObjectBracket,
-            operator_context(VimOperator::Yank, Some(TextObjectModifier::Around))
+        KeyBinding::new(
+            "x",
+            VimDeleteChar,
+            Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        kb!("h", VimMoveLeft, MODE_ANY_VISUAL),
-        kb!("j", VimMoveDown, MODE_ANY_VISUAL),
-        kb!("k", VimMoveUp, MODE_ANY_VISUAL),
-        kb!("l", VimMoveRight, MODE_ANY_VISUAL),
-        kb!("x", VimDeleteChar, MODE_ANY_VISUAL),
     ]);
 }

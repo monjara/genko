@@ -21,31 +21,6 @@ pub(crate) enum TextObjectModifier {
     Around,
 }
 
-pub(crate) fn operator_context(
-    operator: VimOperator,
-    modifier: Option<TextObjectModifier>,
-) -> &'static str {
-    match (operator, modifier) {
-        (VimOperator::Delete, None) => "vim_mode == operator_delete",
-        (VimOperator::Change, None) => "vim_mode == operator_change",
-        (VimOperator::Yank, None) => "vim_mode == operator_yank",
-        (VimOperator::Delete, Some(TextObjectModifier::Inner)) => {
-            "vim_mode == operator_delete_inner"
-        }
-        (VimOperator::Delete, Some(TextObjectModifier::Around)) => {
-            "vim_mode == operator_delete_around"
-        }
-        (VimOperator::Change, Some(TextObjectModifier::Inner)) => {
-            "vim_mode == operator_change_inner"
-        }
-        (VimOperator::Change, Some(TextObjectModifier::Around)) => {
-            "vim_mode == operator_change_around"
-        }
-        (VimOperator::Yank, Some(TextObjectModifier::Inner)) => "vim_mode == operator_yank_inner",
-        (VimOperator::Yank, Some(TextObjectModifier::Around)) => "vim_mode == operator_yank_around",
-    }
-}
-
 pub(crate) fn operator_key_context(
     operator: VimOperator,
     modifier: Option<TextObjectModifier>,
@@ -192,7 +167,7 @@ impl VimState {
         cx.global_mut::<Self>()
     }
 
-    pub(crate) fn new() -> Self {
+    fn new() -> Self {
         Self {
             mode: VimMode::Normal,
         }

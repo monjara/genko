@@ -1,7 +1,7 @@
 use std::ops::Range;
 
-use crate::editor::Editor;
 use super::state::{BlockInsertKind, BlockRegister};
+use crate::editor::Editor;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PastePosition {
@@ -181,7 +181,13 @@ pub(crate) fn block_paste_operations(
         let mut text = String::new();
         for row_offset in 0..register.row_count {
             let index = column_offset * register.row_count + row_offset;
-            text.push_str(register.cells.get(index).map(String::as_str).unwrap_or_default());
+            text.push_str(
+                register
+                    .cells
+                    .get(index)
+                    .map(String::as_str)
+                    .unwrap_or_default(),
+            );
         }
         operations.push((base_cell + column_offset * rows_per_column, text));
     }
