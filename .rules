@@ -1,0 +1,199 @@
+# Rust コーディングガイドライン
+
+- コードの**正しさと可読性を最優先**にすること。速度や効率は、特別な指定がない限り二の次。
+- コードの内容を要約するようなコメントは書かない。  
+  コメントは「なぜその書き方をしているのか」が**分かりにくい場合のみ**書く。
+- 新しい論理コンポーネントでない限り、**既存ファイルに実装を追加することを優先**する。小さいファイルを乱立させない。
+- `unwrap()` のように panic する関数は避け、`?` などでエラーを伝播させる。
+- 配列インデックスなど、**範囲外で panic する操作には注意**する。
+- `let _ =` を使ってエラーを無視しないこと。必ず適切に処理する：
+  - 呼び出し元で処理すべきなら `?` で伝播
+  - 無視する場合でも `.log_err()` などで可視化
+  - 独自処理が必要なら `match` や `if let Err(...)`
+  - 例：
+    ❌ let _ = client.request(...).await?;
+    ✅ client.request(...).await?;
+- 非同期処理で失敗する可能性がある場合、**UI層までエラーを伝播してユーザーに意味のあるフィードバックを出す**
+- `mod.rs` は使わない（`src/some_module.rs` を使う）
+- 新しい crate を作るときは `lib.rs` ではなく、`Cargo.toml` の `[lib] path = "...rs"` を使って名前を明示する
+- 明示的に要求されない限り、余計な機能を追加しない
+- 変数名は省略せずフルで書く（例：`q` ではなく `queue`）
+- async内では変数シャドーイングを使い、cloneのスコープを最小化する
+
+---
+
+# テストでのタイマー
+
+- GPUIテストでは `smol::Timer` ではなく **GPUIのexecutorのタイマーを使う**
+  - `cx.background_executor().timer(duration).await`
+- 理由：GPUIのスケジューラと同期されないと `run_until_parked()` が正しく動かない
+
+---
+
+# GPUI
+
+GPUIはUIフレームワークであり、状態管理と並行処理の仕組みも提供する。
+
+---
+
+## Context（コンテキスト）
+
+`cx` として渡されるオブジェクトで、以下にアクセスできる：
+
+- グローバル状態
+- Window
+- Entity
+- システムサービス
+
+種類：
+- App：ルートコンテキスト
+- Context<T>：Entity更新時に使う
+- AsyncApp / AsyncWindowContext：非同期用
+
+---
+
+## Window
+
+Window は以下を扱う：
+
+- フォーカス
+- アクションのdispatch
+- 描画
+- 入力状態
+
+関数引数では window → cx の順で渡される。
+
+---
+
+## Entity（状態管理）
+
+Entity<T> は状態へのハンドル。
+
+主な操作：
+
+- read：読み取り
+- update：更新（Context付き）
+- update_in：Window付き更新
+
+注意：
+- 同時に同じEntityを更新すると panic
+
+---
+
+## WeakEntity
+
+弱参照版。  
+Entityが消えていた場合に安全に失敗できる。
+
+---
+
+## 並行処理
+
+- UIとEntityは単一スレッド（foreground）
+- 非同期処理：
+  - cx.spawn(...) → UIスレッド
+  - cx.background_spawn(...) → 別スレッド
+
+Task<R>として返る：
+
+キャンセル防止方法：
+- awaitする
+- detach()
+- フィールドに保持
+
+---
+
+## Elements（UI）
+
+RenderトレイトでUIを構築：
+
+```rust
+div().border_1().child(self.0.clone())
+```
+
+特徴：
+- Flexboxベース
+- Tailwind風のAPI
+
+条件分岐：
+
+```rust
+.when(condition, |this| ...)
+.when_some(option, |this, value| ...)
+```
+
+---
+
+## 入力イベント
+
+```rust
+.on_click(|event, window, cx| ...)
+```
+
+Entity更新したい場合：
+
+```rust
+.on_click(cx.listener(|this, event, window, cx| ...))
+```
+
+---
+
+## Actions
+
+キーボードやコードから発火：
+
+```rust
+window.dispatch_action(...)
+```
+
+登録：
+
+```rust
+.on_action(...)
+```
+
+---
+
+## Notify
+
+状態変更後：
+
+```rust
+cx.notify();
+```
+
+→ 再描画 & observer呼び出し
+
+---
+
+## Entityイベント
+
+- cx.emit(event) で発火
+- cx.subscribe(...) で購読
+
+---
+
+
+# ルール運用
+
+## 追加するとき
+
+条件：
+1. 非自明
+2. 複数回遭遇
+3. 具体的
+
+---
+
+## NG
+
+- アーキテクチャ説明
+- 一回だけの気づき
+
+---
+
+## フロー
+
+1. パターン発見
+2. レビューで確認
+3. ルール化
