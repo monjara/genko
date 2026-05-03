@@ -101,11 +101,7 @@ impl Editor {
         }
     }
 
-    pub(crate) fn update_viewport_size(
-        &mut self,
-        size: Size<Pixels>,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn update_viewport_size(&mut self, size: Size<Pixels>, cx: &mut Context<Self>) {
         let needs_viewport_sync = self.last_viewport_size != Some(size);
         if needs_viewport_sync {
             self.state

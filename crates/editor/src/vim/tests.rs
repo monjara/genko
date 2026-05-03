@@ -1,6 +1,7 @@
 use rope::TextRope;
 
 use super::*;
+use crate::vim::state::BlockRegister;
 
 fn rope(text: &str) -> TextRope {
     TextRope::from_str(text)
@@ -316,6 +317,40 @@ fn current_column_cell_range_uses_last_non_empty_column_for_end_cursor() {
 fn current_column_cell_range_returns_none_for_empty_document() {
     assert_eq!(current_column_cell_range(0, 4, 0), None);
     assert_eq!(current_column_cell_range(0, 0, 10), None);
+}
+
+#[test]
+fn block_paste_operations_insert_one_string_per_column() {
+    let register = BlockRegister {
+        row_count: 5,
+        column_count: 1,
+        cells: vec![
+            "サ".into(),
+            "ン".into(),
+            "プ".into(),
+            "ル".into(),
+            "".into(),
+        ],
+    };
+
+    assert_eq!(
+        block_paste_operations(8, 24, &register),
+        vec![(8, "サンプル".into())]
+    );
+}
+
+#[test]
+fn block_paste_operations_keep_columns_separate() {
+    let register = BlockRegister {
+        row_count: 2,
+        column_count: 2,
+        cells: vec!["A".into(), "B".into(), "C".into(), "D".into()],
+    };
+
+    assert_eq!(
+        block_paste_operations(3, 10, &register),
+        vec![(3, "AB".into()), (13, "CD".into())]
+    );
 }
 
 #[test]

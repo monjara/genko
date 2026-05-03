@@ -111,11 +111,7 @@ impl Vim {
         self.editor.read(cx).snapshot_text()
     }
 
-    pub fn update_viewport_size(
-        &mut self,
-        size: gpui::Size<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {
         self.editor.update(cx, |editor, cx| {
             editor.update_viewport_size(size, cx);
         });
@@ -480,10 +476,7 @@ impl Vim {
     fn paste_block(&mut self, position: PastePosition, cx: &mut Context<Self>) {
         let (base_cell, rows_per_column, register) = {
             let editor = self.editor.read(cx);
-            let base_cell = match position {
-                PastePosition::Before => editor.cursor_cell(),
-                PastePosition::After => editor.cursor_cell() + editor.rows_per_column(),
-            };
+            let base_cell = editor.cursor_cell();
             let YankRegister::BlockWise(register) = &self.yank_register else {
                 return;
             };
@@ -503,7 +496,10 @@ impl Vim {
                     continue;
                 }
                 editor.move_cursor_to_display_cell(*cell_index, cx);
-                let offset = editor.cursor_byte_offset();
+                let offset = match position {
+                    PastePosition::Before => editor.cursor_byte_offset(),
+                    PastePosition::After => editor.offset_after_cursor(),
+                };
                 editor.replace_byte_range(offset..offset, text, cx);
             }
             editor.set_text_input_enabled(false, cx);

@@ -176,16 +176,14 @@ pub(crate) fn block_paste_operations(
     rows_per_column: usize,
     register: &BlockRegister,
 ) -> Vec<(usize, String)> {
-    let mut operations = Vec::with_capacity(register.cells.len());
+    let mut operations = Vec::with_capacity(register.column_count);
     for column_offset in 0..register.column_count {
+        let mut text = String::new();
         for row_offset in 0..register.row_count {
             let index = column_offset * register.row_count + row_offset;
-            let text = register.cells.get(index).cloned().unwrap_or_default();
-            operations.push((
-                base_cell + column_offset * rows_per_column + row_offset,
-                text,
-            ));
+            text.push_str(register.cells.get(index).map(String::as_str).unwrap_or_default());
         }
+        operations.push((base_cell + column_offset * rows_per_column, text));
     }
     operations
 }
