@@ -8,6 +8,33 @@ use gpui::{
 use rope::BLANK_CELL;
 use settings::AppSettings;
 
+mod bindings;
+mod block;
+mod state;
+#[cfg(test)]
+mod tests;
+mod text_objects;
+
+use block::{
+    PastePosition, block_byte_ranges_from_cursor, block_insert_target_cells,
+    block_insert_target_cells_from_cursor, block_paste_operations, block_selection_byte_ranges,
+    build_block_register, build_block_register_from_cursor, current_column_cell_range,
+    top_right_block_cell,
+};
+use state::{
+    BlockInsertKind, InsertKind, MotionKind, PendingBlockInsert, PendingInsert, RepeatTarget,
+    RepeatableCommand, TextObjectModifier, TextObjectTarget, VimOperator, YankRegister,
+};
+use text_objects::{
+    resolve_motion_range, resolve_motion_target, resolve_repeat_target_range,
+    resolve_text_object_range,
+};
+
+pub use state::{VimMode, VimState};
+use theme::Theme;
+
+use self::state::operator_key_context;
+
 actions!(
     vim,
     [
@@ -45,33 +72,6 @@ actions!(
         VimRepeatLastChange,
     ]
 );
-
-mod bindings;
-mod block;
-mod state;
-#[cfg(test)]
-mod tests;
-mod text_objects;
-
-use block::{
-    PastePosition, block_byte_ranges_from_cursor, block_insert_target_cells,
-    block_insert_target_cells_from_cursor, block_paste_operations, block_selection_byte_ranges,
-    build_block_register, build_block_register_from_cursor, current_column_cell_range,
-    top_right_block_cell,
-};
-use state::{
-    BlockInsertKind, InsertKind, MotionKind, PendingBlockInsert, PendingInsert, RepeatTarget,
-    RepeatableCommand, TextObjectModifier, TextObjectTarget, VimOperator, YankRegister,
-};
-use text_objects::{
-    resolve_motion_range, resolve_motion_target, resolve_repeat_target_range,
-    resolve_text_object_range,
-};
-
-pub use state::{VimMode, VimState};
-use theme::Theme;
-
-use self::state::operator_key_context;
 
 pub fn init(cx: &mut App) {
     bindings::init(cx);
@@ -131,6 +131,7 @@ impl Vim {
         &mut self,
         kind: InsertKind,
         change_target: Option<RepeatTarget>,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.pending_block_insert = None;
@@ -158,6 +159,7 @@ impl Vim {
         column_count: usize,
         delete_selection: bool,
         target_cells: Vec<usize>,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.pending_insert = Some(PendingInsert {
@@ -185,14 +187,14 @@ impl Vim {
         cx.notify();
     }
 
-    fn append(&mut self, cx: &mut Context<Self>) {
+    fn append(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.editor.update(cx, |editor, cx| {
             editor.move_cursor_by(1, cx);
         });
-        self.start_insert_session(InsertKind::Append, None, cx);
+        self.start_insert_session(InsertKind::Append, None, window, cx);
     }
 
-    fn normal_mode(&mut self, cx: &mut Context<Self>) {
+    fn normal_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // TODO 処理フローを見直す
         let leaving_insert = VimState::global(cx).mode == VimMode::Insert;
         VimState::global_mut(cx).mode = VimMode::Normal;
@@ -204,12 +206,12 @@ impl Vim {
             editor.collapse_selection_to_cursor_cell(cx);
         });
         if leaving_insert {
-            self.finish_insert_session(cx);
+            self.finish_insert_session(window, cx);
         }
         cx.notify();
     }
 
-    fn visual_mode(&mut self, cx: &mut Context<Self>) {
+    fn visual_mode(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let anchor = self.editor.read(cx).cursor_cell();
         VimState::global_mut(cx).mode = VimMode::Visual;
         self.visual_anchor_cell = Some(anchor);
@@ -222,7 +224,7 @@ impl Vim {
         cx.notify();
     }
 
-    fn visual_block_mode(&mut self, cx: &mut Context<Self>) {
+    fn visual_block_mode(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let anchor = self.editor.read(cx).cursor_cell();
         VimState::global_mut(cx).mode = VimMode::VisualBlock;
         self.visual_anchor_cell = Some(anchor);
@@ -234,22 +236,23 @@ impl Vim {
         cx.notify();
     }
 
-    fn block_insert_before(&mut self, cx: &mut Context<Self>) {
-        self.start_block_insert_from_selection(BlockInsertKind::Before, false, cx);
+    fn block_insert_before(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_block_insert_from_selection(BlockInsertKind::Before, false, window, cx);
     }
 
-    fn block_append_after(&mut self, cx: &mut Context<Self>) {
-        self.start_block_insert_from_selection(BlockInsertKind::After, false, cx);
+    fn block_append_after(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_block_insert_from_selection(BlockInsertKind::After, false, window, cx);
     }
 
-    fn change_block_selection(&mut self, cx: &mut Context<Self>) {
-        self.start_block_insert_from_selection(BlockInsertKind::Before, true, cx);
+    fn change_block_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_block_insert_from_selection(BlockInsertKind::Before, true, window, cx);
     }
 
     fn start_block_insert_from_selection(
         &mut self,
         kind: BlockInsertKind,
         delete_selection: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(anchor) = self.visual_anchor_cell else {
@@ -297,11 +300,17 @@ impl Vim {
             column_count,
             delete_selection,
             target_cells,
+            window,
             cx,
         );
     }
 
-    fn begin_operator(&mut self, operator: VimOperator, cx: &mut Context<Self>) {
+    fn begin_operator(
+        &mut self,
+        operator: VimOperator,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         VimState::global_mut(cx).mode = VimMode::Normal;
         self.set_pending_operator(Some(operator));
         self.set_pending_text_object_modifier(None);
@@ -311,7 +320,12 @@ impl Vim {
         cx.notify();
     }
 
-    fn set_text_object_modifier(&mut self, modifier: TextObjectModifier, cx: &mut Context<Self>) {
+    fn set_text_object_modifier(
+        &mut self,
+        modifier: TextObjectModifier,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.pending_operator().is_none() {
             return;
         }
@@ -319,9 +333,9 @@ impl Vim {
         cx.notify();
     }
 
-    fn delete_char(&mut self, cx: &mut Context<Self>) {
+    fn delete_char(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if VimState::global(cx).mode == VimMode::VisualBlock {
-            self.delete_block_selection(cx);
+            self.delete_block_selection(window, cx);
             return;
         }
         let (range, yanked, repeatable) = {
@@ -358,7 +372,7 @@ impl Vim {
         cx.notify();
     }
 
-    fn delete_block_selection(&mut self, cx: &mut Context<Self>) {
+    fn delete_block_selection(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
@@ -393,7 +407,7 @@ impl Vim {
         cx.notify();
     }
 
-    fn yank_block_selection(&mut self, cx: &mut Context<Self>) {
+    fn yank_block_selection(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
@@ -418,9 +432,9 @@ impl Vim {
         cx.notify();
     }
 
-    fn paste_after(&mut self, cx: &mut Context<Self>) {
+    fn paste_after(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(self.yank_register, YankRegister::BlockWise(_)) {
-            self.paste_block(PastePosition::After, cx);
+            self.paste_block(PastePosition::After, window, cx);
             return;
         }
         if let Some((insertion_offset, target_cell, inserted_text)) =
@@ -469,9 +483,9 @@ impl Vim {
         cx.notify();
     }
 
-    fn paste_before(&mut self, cx: &mut Context<Self>) {
+    fn paste_before(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(self.yank_register, YankRegister::BlockWise(_)) {
-            self.paste_block(PastePosition::Before, cx);
+            self.paste_block(PastePosition::Before, window, cx);
             return;
         }
         if let Some((insertion_offset, target_cell, inserted_text)) =
@@ -520,7 +534,12 @@ impl Vim {
         cx.notify();
     }
 
-    fn paste_block(&mut self, position: PastePosition, cx: &mut Context<Self>) {
+    fn paste_block(
+        &mut self,
+        position: PastePosition,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let (base_cell, rows_per_column, register) = {
             let editor = self.editor.read(cx);
             let base_cell = editor.cursor_cell();
@@ -563,7 +582,7 @@ impl Vim {
         cx.notify();
     }
 
-    fn undo(&mut self, cx: &mut Context<Self>) {
+    fn undo(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.pending_insert = None;
         self.pending_block_insert = None;
         VimState::global_mut(cx).mode = VimMode::Normal;
@@ -577,7 +596,7 @@ impl Vim {
         cx.notify();
     }
 
-    fn redo(&mut self, cx: &mut Context<Self>) {
+    fn redo(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.pending_insert = None;
         self.pending_block_insert = None;
         VimState::global_mut(cx).mode = VimMode::Normal;
@@ -591,14 +610,14 @@ impl Vim {
         cx.notify();
     }
 
-    fn repeat_last_change(&mut self, cx: &mut Context<Self>) {
+    fn repeat_last_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(command) = self.last_change.clone() else {
             return;
         };
-        self.execute_repeatable_command(command, cx);
+        self.execute_repeatable_command(command, window, cx);
     }
 
-    fn move_by_motion(&mut self, motion: MotionKind, cx: &mut Context<Self>) {
+    fn move_by_motion(&mut self, motion: MotionKind, window: &mut Window, cx: &mut Context<Self>) {
         let (target, cursor) = {
             let editor = self.editor.read(cx);
             let cursor = editor.cursor_byte_offset();
@@ -606,7 +625,7 @@ impl Vim {
         };
 
         if self.pending_operator().is_some() {
-            self.apply_motion(motion, cursor, cx);
+            self.apply_motion(motion, cursor, window, cx);
             return;
         }
 
@@ -618,12 +637,12 @@ impl Vim {
             self.editor.update(cx, |editor, cx| {
                 editor.move_cursor_to_byte_offset(target, cx);
             });
-            self.sync_visual_selection_for_current_cursor(cx);
+            self.sync_visual_selection_for_current_cursor(window, cx);
         } else if VimState::global(cx).mode == VimMode::VisualBlock {
             self.editor.update(cx, |editor, cx| {
                 editor.move_cursor_to_byte_offset(target, cx);
             });
-            self.sync_block_selection_for_current_cursor(cx);
+            self.sync_block_selection_for_current_cursor(window, cx);
         } else {
             self.editor.update(cx, |editor, cx| {
                 editor.move_cursor_to_byte_offset(target, cx);
@@ -631,7 +650,7 @@ impl Vim {
         }
     }
 
-    fn move_by_cells(&mut self, delta: isize, cx: &mut Context<Self>) {
+    fn move_by_cells(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
         let is_visual = VimState::global(cx).mode == VimMode::Visual;
         let is_visual_block = VimState::global(cx).mode == VimMode::VisualBlock;
         self.editor.update(cx, |editor, cx| {
@@ -642,11 +661,11 @@ impl Vim {
             }
         });
         if is_visual_block {
-            self.sync_block_selection_for_current_cursor(cx);
+            self.sync_block_selection_for_current_cursor(window, cx);
         }
     }
 
-    fn open_next_column(&mut self, cx: &mut Context<Self>) {
+    fn open_next_column(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let target_cell = {
             let editor = self.editor.read(cx);
             let rows_per_column = editor.rows_per_column();
@@ -663,10 +682,16 @@ impl Vim {
         self.editor.update(cx, |editor, cx| {
             editor.move_cursor_to_display_cell(target_cell, cx);
         });
-        self.start_insert_session(InsertKind::Insert, None, cx);
+        self.start_insert_session(InsertKind::Insert, None, window, cx);
     }
 
-    fn apply_motion(&mut self, motion: MotionKind, cursor: usize, cx: &mut Context<Self>) {
+    fn apply_motion(
+        &mut self,
+        motion: MotionKind,
+        cursor: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(operator) = self.pending_operator() else {
             return;
         };
@@ -680,10 +705,21 @@ impl Vim {
             return;
         };
 
-        self.apply_operator_to_range(operator, range, Some(RepeatTarget::Motion(motion)), cx);
+        self.apply_operator_to_range(
+            operator,
+            range,
+            Some(RepeatTarget::Motion(motion)),
+            window,
+            cx,
+        );
     }
 
-    fn apply_text_object(&mut self, target: TextObjectTarget, cx: &mut Context<Self>) {
+    fn apply_text_object(
+        &mut self,
+        target: TextObjectTarget,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(operator) = self.pending_operator() else {
             return;
         };
@@ -707,6 +743,7 @@ impl Vim {
             operator,
             range,
             Some(RepeatTarget::TextObject(modifier, target)),
+            window,
             cx,
         );
     }
@@ -716,6 +753,7 @@ impl Vim {
         operator: VimOperator,
         range: Range<usize>,
         repeat_target: Option<RepeatTarget>,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match operator {
@@ -810,7 +848,12 @@ impl Vim {
         cx.notify();
     }
 
-    fn apply_current_line_operator(&mut self, operator: VimOperator, cx: &mut Context<Self>) {
+    fn apply_current_line_operator(
+        &mut self,
+        operator: VimOperator,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let (cursor_cell, rows_per_column, used_cells) = {
             let editor = self.editor.read(cx);
             (
@@ -831,10 +874,10 @@ impl Vim {
                 ..editor.byte_offset_for_display_cell(cell_range.end)
         };
 
-        self.apply_operator_to_range(operator, range, Some(RepeatTarget::Line), cx);
+        self.apply_operator_to_range(operator, range, Some(RepeatTarget::Line), window, cx);
     }
 
-    fn finish_insert_session(&mut self, cx: &mut Context<Self>) {
+    fn finish_insert_session(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(pending_insert) = self.pending_insert.take() else {
             return;
         };
@@ -894,34 +937,41 @@ impl Vim {
         };
     }
 
-    fn execute_repeatable_command(&mut self, command: RepeatableCommand, cx: &mut Context<Self>) {
+    fn execute_repeatable_command(
+        &mut self,
+        command: RepeatableCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match command {
-            RepeatableCommand::DeleteChar => self.delete_char(cx),
-            RepeatableCommand::Delete(target) => self.execute_repeat_target(target, None, cx),
+            RepeatableCommand::DeleteChar => self.delete_char(window, cx),
+            RepeatableCommand::Delete(target) => {
+                self.execute_repeat_target(target, None, window, cx)
+            }
             RepeatableCommand::BlockDelete {
                 row_count,
                 column_count,
-            } => self.execute_block_delete(row_count, column_count, cx),
+            } => self.execute_block_delete(row_count, column_count, window, cx),
             RepeatableCommand::Change {
                 target,
                 inserted_text,
-            } => self.execute_repeat_target(target, Some(inserted_text), cx),
+            } => self.execute_repeat_target(target, Some(inserted_text), window, cx),
             RepeatableCommand::BlockChange {
                 row_count,
                 column_count,
                 inserted_text,
-            } => self.execute_block_change(row_count, column_count, inserted_text, cx),
-            RepeatableCommand::PasteAfter => self.paste_after(cx),
-            RepeatableCommand::PasteBefore => self.paste_before(cx),
+            } => self.execute_block_change(row_count, column_count, inserted_text, window, cx),
+            RepeatableCommand::PasteAfter => self.paste_after(window, cx),
+            RepeatableCommand::PasteBefore => self.paste_before(window, cx),
             RepeatableCommand::Insert {
                 kind,
                 inserted_text,
-            } => self.execute_repeat_insert(kind, inserted_text, cx),
+            } => self.execute_repeat_insert(kind, inserted_text, window, cx),
             RepeatableCommand::BlockInsert {
                 kind,
                 row_count,
                 inserted_text,
-            } => self.execute_block_insert(kind, row_count, inserted_text, cx),
+            } => self.execute_block_insert(kind, row_count, inserted_text, window, cx),
         }
     }
 
@@ -929,6 +979,7 @@ impl Vim {
         &mut self,
         row_count: usize,
         column_count: usize,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let (ranges, block_register) = {
@@ -973,6 +1024,7 @@ impl Vim {
         row_count: usize,
         column_count: usize,
         inserted_text: String,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let (ranges, target_cells) = {
@@ -1025,6 +1077,7 @@ impl Vim {
         kind: BlockInsertKind,
         row_count: usize,
         inserted_text: String,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let target_cells = {
@@ -1060,6 +1113,7 @@ impl Vim {
         &mut self,
         target: RepeatTarget,
         inserted_text: Option<String>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let resolved_range = {
@@ -1117,7 +1171,7 @@ impl Vim {
                 inserted_text,
             });
         } else {
-            self.apply_operator_to_range(VimOperator::Delete, range, Some(target), cx);
+            self.apply_operator_to_range(VimOperator::Delete, range, Some(target), window, cx);
         }
     }
 
@@ -1125,6 +1179,7 @@ impl Vim {
         &mut self,
         kind: InsertKind,
         inserted_text: String,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if inserted_text.is_empty() {
@@ -1228,7 +1283,11 @@ impl Vim {
         Some((insertion_offset, target_cell, inserted_text))
     }
 
-    fn sync_visual_selection_for_current_cursor(&mut self, cx: &mut Context<Self>) {
+    fn sync_visual_selection_for_current_cursor(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
@@ -1238,7 +1297,11 @@ impl Vim {
         });
     }
 
-    fn sync_block_selection_for_current_cursor(&mut self, cx: &mut Context<Self>) {
+    fn sync_block_selection_for_current_cursor(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(anchor) = self.visual_anchor_cell else {
             return;
         };
@@ -1251,104 +1314,104 @@ impl Vim {
     fn vim_enter_insert_mode(
         &mut self,
         _: &VimEnterInsertMode,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.start_insert_session(InsertKind::Insert, None, cx);
+        self.start_insert_session(InsertKind::Insert, None, window, cx);
     }
 
-    fn vim_append(&mut self, _: &VimAppend, _window: &mut Window, cx: &mut Context<Self>) {
-        self.append(cx);
+    fn vim_append(&mut self, _: &VimAppend, window: &mut Window, cx: &mut Context<Self>) {
+        self.append(window, cx);
     }
 
-    fn vim_normal_mode(&mut self, _: &VimNormalMode, _window: &mut Window, cx: &mut Context<Self>) {
-        self.normal_mode(cx);
+    fn vim_normal_mode(&mut self, _: &VimNormalMode, window: &mut Window, cx: &mut Context<Self>) {
+        self.normal_mode(window, cx);
     }
 
-    fn vim_visual_mode(&mut self, _: &VimVisualMode, _window: &mut Window, cx: &mut Context<Self>) {
-        self.visual_mode(cx);
+    fn vim_visual_mode(&mut self, _: &VimVisualMode, window: &mut Window, cx: &mut Context<Self>) {
+        self.visual_mode(window, cx);
     }
 
     fn vim_visual_block_mode(
         &mut self,
         _: &VimVisualBlockMode,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.visual_block_mode(cx);
+        self.visual_block_mode(window, cx);
     }
 
     fn vim_block_insert_before(
         &mut self,
         _: &VimBlockInsertBefore,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.block_insert_before(cx);
+        self.block_insert_before(window, cx);
     }
 
     fn vim_block_append_after(
         &mut self,
         _: &VimBlockAppendAfter,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.block_append_after(cx);
+        self.block_append_after(window, cx);
     }
 
-    fn vim_delete_char(&mut self, _: &VimDeleteChar, _window: &mut Window, cx: &mut Context<Self>) {
-        self.delete_char(cx);
+    fn vim_delete_char(&mut self, _: &VimDeleteChar, window: &mut Window, cx: &mut Context<Self>) {
+        self.delete_char(window, cx);
     }
 
     fn vim_delete_operator(
         &mut self,
         _: &VimDeleteOperator,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if VimState::global(cx).mode == VimMode::VisualBlock {
-            self.delete_block_selection(cx);
+            self.delete_block_selection(window, cx);
             return;
         }
         if VimState::global(cx).mode == VimMode::Visual {
-            self.delete_char(cx);
+            self.delete_char(window, cx);
             return;
         }
         if self.pending_operator() == Some(VimOperator::Delete) {
-            self.apply_current_line_operator(VimOperator::Delete, cx);
+            self.apply_current_line_operator(VimOperator::Delete, window, cx);
             return;
         }
-        self.begin_operator(VimOperator::Delete, cx);
+        self.begin_operator(VimOperator::Delete, window, cx);
     }
 
     fn vim_change_operator(
         &mut self,
         _: &VimChangeOperator,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if VimState::global(cx).mode == VimMode::VisualBlock {
-            self.change_block_selection(cx);
+            self.change_block_selection(window, cx);
             return;
         }
         if self.pending_operator() == Some(VimOperator::Change) {
-            self.apply_current_line_operator(VimOperator::Change, cx);
+            self.apply_current_line_operator(VimOperator::Change, window, cx);
             return;
         }
         if VimState::global(cx).mode == VimMode::Visual {
             // return;
         }
-        self.begin_operator(VimOperator::Change, cx);
+        self.begin_operator(VimOperator::Change, window, cx);
     }
 
     fn vim_yank_operator(
         &mut self,
         _: &VimYankOperator,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if VimState::global(cx).mode == VimMode::VisualBlock {
-            self.yank_block_selection(cx);
+            self.yank_block_selection(window, cx);
             return;
         }
         if VimState::global(cx).mode == VimMode::Visual {
@@ -1378,166 +1441,166 @@ impl Vim {
             return;
         }
         if self.pending_operator() == Some(VimOperator::Yank) {
-            self.apply_current_line_operator(VimOperator::Yank, cx);
+            self.apply_current_line_operator(VimOperator::Yank, window, cx);
             return;
         }
-        self.begin_operator(VimOperator::Yank, cx);
+        self.begin_operator(VimOperator::Yank, window, cx);
     }
 
     fn vim_text_object_inner(
         &mut self,
         _: &VimTextObjectInner,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_text_object_modifier(TextObjectModifier::Inner, cx);
+        self.set_text_object_modifier(TextObjectModifier::Inner, window, cx);
     }
 
     fn vim_text_object_around(
         &mut self,
         _: &VimTextObjectAround,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_text_object_modifier(TextObjectModifier::Around, cx);
+        self.set_text_object_modifier(TextObjectModifier::Around, window, cx);
     }
 
     fn vim_text_object_word(
         &mut self,
         _: &VimTextObjectWord,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.apply_text_object(TextObjectTarget::Word, cx);
+        self.apply_text_object(TextObjectTarget::Word, window, cx);
     }
 
     fn vim_text_object_big_word(
         &mut self,
         _: &VimTextObjectBigWord,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.apply_text_object(TextObjectTarget::BigWord, cx);
+        self.apply_text_object(TextObjectTarget::BigWord, window, cx);
     }
 
     fn vim_text_object_double_quote(
         &mut self,
         _: &VimTextObjectDoubleQuote,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.apply_text_object(TextObjectTarget::DoubleQuote, cx);
+        self.apply_text_object(TextObjectTarget::DoubleQuote, window, cx);
     }
 
     fn vim_text_object_single_quote(
         &mut self,
         _: &VimTextObjectSingleQuote,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.apply_text_object(TextObjectTarget::SingleQuote, cx);
+        self.apply_text_object(TextObjectTarget::SingleQuote, window, cx);
     }
 
     fn vim_text_object_paren(
         &mut self,
         _: &VimTextObjectParen,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.apply_text_object(TextObjectTarget::Paren, cx);
+        self.apply_text_object(TextObjectTarget::Paren, window, cx);
     }
 
     fn vim_text_object_bracket(
         &mut self,
         _: &VimTextObjectBracket,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.apply_text_object(TextObjectTarget::Bracket, cx);
+        self.apply_text_object(TextObjectTarget::Bracket, window, cx);
     }
 
     fn vim_move_word_forward(
         &mut self,
         _: &VimMoveWordForward,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_by_motion(MotionKind::WordForward, cx);
+        self.move_by_motion(MotionKind::WordForward, window, cx);
     }
 
     fn vim_move_big_word_forward(
         &mut self,
         _: &VimMoveBigWordForward,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_by_motion(MotionKind::BigWordForward, cx);
+        self.move_by_motion(MotionKind::BigWordForward, window, cx);
     }
 
     fn vim_move_word_end_forward(
         &mut self,
         _: &VimMoveWordEndForward,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_by_motion(MotionKind::WordEndForward, cx);
+        self.move_by_motion(MotionKind::WordEndForward, window, cx);
     }
 
-    fn vim_move_left(&mut self, _: &VimMoveLeft, _window: &mut Window, cx: &mut Context<Self>) {
+    fn vim_move_left(&mut self, _: &VimMoveLeft, window: &mut Window, cx: &mut Context<Self>) {
         let rows_per_column = self.editor.read(cx).rows_per_column() as isize;
-        self.move_by_cells(rows_per_column, cx);
+        self.move_by_cells(rows_per_column, window, cx);
     }
 
-    fn vim_move_down(&mut self, _: &VimMoveDown, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_by_cells(1, cx);
+    fn vim_move_down(&mut self, _: &VimMoveDown, window: &mut Window, cx: &mut Context<Self>) {
+        self.move_by_cells(1, window, cx);
     }
 
-    fn vim_move_up(&mut self, _: &VimMoveUp, _window: &mut Window, cx: &mut Context<Self>) {
-        self.move_by_cells(-1, cx);
+    fn vim_move_up(&mut self, _: &VimMoveUp, window: &mut Window, cx: &mut Context<Self>) {
+        self.move_by_cells(-1, window, cx);
     }
 
-    fn vim_move_right(&mut self, _: &VimMoveRight, _window: &mut Window, cx: &mut Context<Self>) {
+    fn vim_move_right(&mut self, _: &VimMoveRight, window: &mut Window, cx: &mut Context<Self>) {
         let rows_per_column = self.editor.read(cx).rows_per_column() as isize;
-        self.move_by_cells(-rows_per_column, cx);
+        self.move_by_cells(-rows_per_column, window, cx);
     }
 
-    fn vim_paste_after(&mut self, _: &VimPasteAfter, _window: &mut Window, cx: &mut Context<Self>) {
-        self.paste_after(cx);
+    fn vim_paste_after(&mut self, _: &VimPasteAfter, window: &mut Window, cx: &mut Context<Self>) {
+        self.paste_after(window, cx);
     }
 
     fn vim_paste_before(
         &mut self,
         _: &VimPasteBefore,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.paste_before(cx);
+        self.paste_before(window, cx);
     }
 
     fn vim_open_next_column(
         &mut self,
         _: &VimOpenNextColumn,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open_next_column(cx);
+        self.open_next_column(window, cx);
     }
 
-    fn vim_undo(&mut self, _: &VimUndo, _window: &mut Window, cx: &mut Context<Self>) {
-        self.undo(cx);
+    fn vim_undo(&mut self, _: &VimUndo, window: &mut Window, cx: &mut Context<Self>) {
+        self.undo(window, cx);
     }
 
-    fn vim_redo(&mut self, _: &VimRedo, _window: &mut Window, cx: &mut Context<Self>) {
-        self.redo(cx);
+    fn vim_redo(&mut self, _: &VimRedo, window: &mut Window, cx: &mut Context<Self>) {
+        self.redo(window, cx);
     }
 
     fn vim_repeat_last_change(
         &mut self,
         _: &VimRepeatLastChange,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.repeat_last_change(cx);
+        self.repeat_last_change(window, cx);
     }
 
     fn set_pending_operator(&mut self, operator: Option<VimOperator>) {
@@ -1561,7 +1624,7 @@ impl Vim {
         self.pending_text_object_modifier = None;
     }
 
-    fn key_context(&self, cx: &mut Context<Self>) -> &'static str {
+    fn key_context(&self, _window: &mut Window, cx: &mut Context<Self>) -> &'static str {
         match (
             VimState::global(cx).mode,
             self.pending_operator,
@@ -1583,7 +1646,7 @@ impl Render for Vim {
         div()
             .track_focus(&self.editor.focus_handle(cx))
             .key_context(if AppSettings::global(cx).vim_mode {
-                self.key_context(cx)
+                self.key_context(window, cx)
             } else {
                 "Genko vim_mode=disabled"
             })

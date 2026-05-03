@@ -25,8 +25,8 @@ struct GenkoApp {
     workspace: Entity<Workspace>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
-    _subscriptions: Vec<Subscription>,
     window_handle: Option<gpui::AnyWindowHandle>,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl GenkoApp {
