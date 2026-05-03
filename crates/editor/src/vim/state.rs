@@ -160,7 +160,10 @@ pub(crate) struct PendingBlockInsert {
 pub(crate) enum YankRegister {
     Empty,
     CharWise(String),
-    LineWise(String),
+    LineWise {
+        content: String,
+        leading_rows: usize,
+    },
     BlockWise(BlockRegister),
 }
 

@@ -5,6 +5,7 @@ use gpui::{
     App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
     ParentElement, Render, Styled, Window, actions, div,
 };
+use rope::BLANK_CELL;
 use settings::AppSettings;
 
 actions!(
@@ -422,6 +423,26 @@ impl Vim {
             self.paste_block(PastePosition::After, cx);
             return;
         }
+        if let Some((insertion_offset, target_cell, inserted_text)) =
+            self.resolve_linewise_paste(PastePosition::After, cx)
+        {
+            self.editor.update(cx, |editor, cx| {
+                editor.replace_byte_range(
+                    insertion_offset..insertion_offset,
+                    inserted_text.as_str(),
+                    cx,
+                );
+                editor.move_cursor_to_display_cell(target_cell, cx);
+                editor.set_text_input_enabled(false, cx);
+                editor.collapse_selection_to_cursor_cell(cx);
+            });
+            VimState::global_mut(cx).mode = VimMode::Normal;
+            self.visual_anchor_cell = None;
+            self.clear_pending();
+            self.last_change = Some(RepeatableCommand::PasteAfter);
+            cx.notify();
+            return;
+        }
         let cursor = {
             let editor = self.editor.read(cx);
             editor.cursor_byte_offset()
@@ -451,6 +472,26 @@ impl Vim {
     fn paste_before(&mut self, cx: &mut Context<Self>) {
         if matches!(self.yank_register, YankRegister::BlockWise(_)) {
             self.paste_block(PastePosition::Before, cx);
+            return;
+        }
+        if let Some((insertion_offset, target_cell, inserted_text)) =
+            self.resolve_linewise_paste(PastePosition::Before, cx)
+        {
+            self.editor.update(cx, |editor, cx| {
+                editor.replace_byte_range(
+                    insertion_offset..insertion_offset,
+                    inserted_text.as_str(),
+                    cx,
+                );
+                editor.move_cursor_to_display_cell(target_cell, cx);
+                editor.set_text_input_enabled(false, cx);
+                editor.collapse_selection_to_cursor_cell(cx);
+            });
+            VimState::global_mut(cx).mode = VimMode::Normal;
+            self.visual_anchor_cell = None;
+            self.clear_pending();
+            self.last_change = Some(RepeatableCommand::PasteBefore);
+            cx.notify();
             return;
         }
         let cursor = {
@@ -679,9 +720,25 @@ impl Vim {
     ) {
         match operator {
             VimOperator::Yank => {
-                let yanked = self.editor.read(cx).text_in_range(range);
+                let yanked = self.editor.read(cx).text_in_range(range.clone());
                 self.yank_register = if repeat_target == Some(RepeatTarget::Line) {
-                    YankRegister::LineWise(yanked)
+                    let editor = self.editor.read(cx);
+                    let cell_range = current_column_cell_range(
+                        editor.cursor_cell(),
+                        editor.rows_per_column(),
+                        editor.used_cells(),
+                    );
+                    let leading_rows = if let Some(cell_range) = cell_range {
+                        editor
+                            .display_cell_for_byte(range.start)
+                            .saturating_sub(cell_range.start)
+                    } else {
+                        0
+                    };
+                    YankRegister::LineWise {
+                        content: yanked,
+                        leading_rows,
+                    }
                 } else {
                     YankRegister::CharWise(yanked)
                 };
@@ -689,7 +746,23 @@ impl Vim {
             VimOperator::Delete | VimOperator::Change => {
                 if repeat_target == Some(RepeatTarget::Line) {
                     let yanked = self.editor.read(cx).text_in_range(range.clone());
-                    self.yank_register = YankRegister::LineWise(yanked);
+                    let editor = self.editor.read(cx);
+                    let cell_range = current_column_cell_range(
+                        editor.cursor_cell(),
+                        editor.rows_per_column(),
+                        editor.used_cells(),
+                    );
+                    let leading_rows = if let Some(cell_range) = cell_range {
+                        editor
+                            .display_cell_for_byte(range.start)
+                            .saturating_sub(cell_range.start)
+                    } else {
+                        0
+                    };
+                    self.yank_register = YankRegister::LineWise {
+                        content: yanked,
+                        leading_rows,
+                    };
                 }
                 if operator == VimOperator::Change {
                     self.editor.update(cx, |editor, _| {
@@ -1097,26 +1170,62 @@ impl Vim {
                 };
                 Some((insertion_offset, content.clone()))
             }
-            YankRegister::LineWise(content) => {
-                let editor = self.editor.read(cx);
-                let cell_range = current_column_cell_range(
-                    editor.cursor_cell(),
-                    editor.rows_per_column(),
-                    editor.used_cells(),
-                );
-                let insertion_offset = match (position, cell_range) {
-                    (_, None) => 0,
-                    (PastePosition::Before, Some(cell_range)) => {
-                        editor.byte_offset_for_display_cell(cell_range.start)
-                    }
-                    (PastePosition::After, Some(cell_range)) => {
-                        editor.byte_offset_for_display_cell(cell_range.end)
-                    }
-                };
-                Some((insertion_offset, content.clone()))
-            }
+            YankRegister::LineWise { .. } => None,
             YankRegister::BlockWise(_) => None,
         }
+    }
+
+    fn resolve_linewise_paste(
+        &self,
+        position: PastePosition,
+        cx: &App,
+    ) -> Option<(usize, usize, String)> {
+        println!("Resolving linewise paste for position: {:?}", position);
+        let YankRegister::LineWise {
+            content,
+            leading_rows,
+        } = &self.yank_register
+        else {
+            return None;
+        };
+        println!(
+            "Linewise paste content: '{}', leading_rows: {}",
+            content, leading_rows
+        );
+        let editor = self.editor.read(cx);
+        let cell_range = current_column_cell_range(
+            editor.cursor_cell(),
+            editor.rows_per_column(),
+            editor.used_cells(),
+        );
+        println!("Current cell range: {:?}", cell_range);
+        let row_size = editor.rows_per_column();
+        println!("Row size: {}", row_size);
+        let target_row = editor.cursor_cell().saturating_sub(
+            cell_range
+                .as_ref()
+                .map(|range| (range.start % row_size + 1) * row_size)
+                .unwrap_or_default(),
+        );
+        println!("Target row for paste: {}", target_row);
+        let (target_column_start, insertion_offset) = match (position, cell_range) {
+            (_, None) => (0, 0),
+            (PastePosition::Before, Some(cell_range)) => (
+                cell_range.start,
+                editor.byte_offset_for_display_cell(cell_range.start),
+            ),
+            (PastePosition::After, Some(cell_range)) => (
+                cell_range.end,
+                editor.byte_offset_for_display_cell(cell_range.end),
+            ),
+        };
+        let inserted_text = format!(
+            "{}{}",
+            BLANK_CELL.to_string().repeat(*leading_rows),
+            content
+        );
+        let target_cell = target_column_start + target_row;
+        Some((insertion_offset, target_cell, inserted_text))
     }
 
     fn sync_visual_selection_for_current_cursor(&mut self, cx: &mut Context<Self>) {
@@ -1476,7 +1585,7 @@ impl Render for Vim {
             .key_context(if AppSettings::global(cx).vim_mode {
                 self.key_context(cx)
             } else {
-                "Genko"
+                "Genko vim_mode=disabled"
             })
             .on_action(cx.listener(Self::vim_enter_insert_mode))
             .on_action(cx.listener(Self::vim_append))

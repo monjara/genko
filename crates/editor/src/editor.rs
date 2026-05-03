@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Render,
-    ScrollWheelEvent, Size, Styled, UTF16Selection, Window, actions, div, px,
+    InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
+    Pixels, Render, ScrollWheelEvent, Size, Styled, UTF16Selection, Window, actions, div, px,
 };
 use rope::{TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
@@ -30,32 +30,31 @@ const IME_ANCHOR_INSET: f32 = 3.0;
 const IME_CANDIDATE_GAP: f32 = 16.0;
 
 pub(crate) fn init(cx: &mut App) {
-    if AppSettings::global(cx).vim_mode {
-        return;
-    }
+    const EDITOR_CONTEXT: Option<&str> = Some("vim_mode == insert || vim_mode == disabled");
+
     cx.bind_keys([
-        gpui::KeyBinding::new("backspace", Backspace, None),
-        gpui::KeyBinding::new("delete", Delete, None),
-        gpui::KeyBinding::new("up", Up, None),
-        gpui::KeyBinding::new("down", Down, None),
-        gpui::KeyBinding::new("left", Left, None),
-        gpui::KeyBinding::new("right", Right, None),
-        gpui::KeyBinding::new("shift-up", SelectUp, None),
-        gpui::KeyBinding::new("shift-down", SelectDown, None),
-        gpui::KeyBinding::new("shift-left", SelectLeft, None),
-        gpui::KeyBinding::new("shift-right", SelectRight, None),
-        gpui::KeyBinding::new("cmd-a", SelectAll, None),
-        gpui::KeyBinding::new("ctrl-a", SelectAll, None),
-        gpui::KeyBinding::new("cmd-v", Paste, None),
-        gpui::KeyBinding::new("ctrl-v", Paste, None),
-        gpui::KeyBinding::new("cmd-c", Copy, None),
-        gpui::KeyBinding::new("ctrl-c", Copy, None),
-        gpui::KeyBinding::new("cmd-x", Cut, None),
-        gpui::KeyBinding::new("ctrl-x", Cut, None),
-        gpui::KeyBinding::new("enter", Enter, None),
-        gpui::KeyBinding::new("home", Home, None),
-        gpui::KeyBinding::new("end", End, None),
-        gpui::KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, None),
+        KeyBinding::new("backspace", Backspace, EDITOR_CONTEXT),
+        KeyBinding::new("delete", Delete, EDITOR_CONTEXT),
+        KeyBinding::new("up", Up, EDITOR_CONTEXT),
+        KeyBinding::new("down", Down, EDITOR_CONTEXT),
+        KeyBinding::new("left", Left, EDITOR_CONTEXT),
+        KeyBinding::new("right", Right, EDITOR_CONTEXT),
+        KeyBinding::new("shift-up", SelectUp, EDITOR_CONTEXT),
+        KeyBinding::new("shift-down", SelectDown, EDITOR_CONTEXT),
+        KeyBinding::new("shift-left", SelectLeft, EDITOR_CONTEXT),
+        KeyBinding::new("shift-right", SelectRight, EDITOR_CONTEXT),
+        KeyBinding::new("cmd-a", SelectAll, EDITOR_CONTEXT),
+        KeyBinding::new("ctrl-a", SelectAll, EDITOR_CONTEXT),
+        KeyBinding::new("cmd-v", Paste, EDITOR_CONTEXT),
+        KeyBinding::new("ctrl-v", Paste, EDITOR_CONTEXT),
+        KeyBinding::new("cmd-c", Copy, EDITOR_CONTEXT),
+        KeyBinding::new("ctrl-c", Copy, EDITOR_CONTEXT),
+        KeyBinding::new("cmd-x", Cut, EDITOR_CONTEXT),
+        KeyBinding::new("ctrl-x", Cut, EDITOR_CONTEXT),
+        KeyBinding::new("enter", Enter, EDITOR_CONTEXT),
+        KeyBinding::new("home", Home, EDITOR_CONTEXT),
+        KeyBinding::new("end", End, EDITOR_CONTEXT),
+        KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, EDITOR_CONTEXT),
     ]);
 }
 
@@ -170,6 +169,10 @@ impl Editor {
 
     pub fn byte_offset_for_display_cell(&self, display_cell_index: usize) -> usize {
         self.state.byte_offset_for_display_cell(display_cell_index)
+    }
+
+    pub fn display_cell_for_byte(&self, byte_offset: usize) -> usize {
+        self.state.display_cell_for_byte(byte_offset)
     }
 
     pub fn snapshot_text(&self) -> String {
@@ -566,6 +569,7 @@ impl Editor {
     }
 
     fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
+        println!("asdfadsf");
         self.delete_forward(cx);
         invalidate_ime_position(window);
     }
