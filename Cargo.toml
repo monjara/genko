@@ -9,7 +9,8 @@ members = [
   "crates/rope",
   "crates/settings",
   "crates/title_bar",
-  "crates/theme"
+  "crates/theme",
+  "crates/workspace"
 ]
 default-members = ["crates/genko"]
 
@@ -36,3 +37,4 @@ rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 title_bar = { path = "crates/title_bar" }
 theme = { path = "crates/theme" }
+workspace = { path = "crates/workspace" }

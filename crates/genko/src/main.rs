@@ -5,23 +5,26 @@ use std::path::{Path, PathBuf};
 use bottom_bar::BottomBar;
 use editor::Vim;
 use gpui::{
-    App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
+    AnyElement, App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
-    PromptLevel, Render, Styled, Window, WindowBounds, WindowDecorations, WindowOptions, actions,
-    div, prelude::FluentBuilder, px, size, transparent_black,
+    PromptLevel, Render, StatefulInteractiveElement, Styled, Window, WindowBounds,
+    WindowDecorations, WindowOptions, actions, div, prelude::FluentBuilder, px, size,
+    transparent_black,
 };
 use settings::open_settings_window;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
+use workspace::{ToggleWorkspacePane, WorkspaceEntry, WorkspaceState, scan_workspace_entries};
 
-actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
+actions!(genko, [OpenSettings, OpenFile, OpenFolder, SaveFile, Quit]);
+
+const WORKSPACE_PANE_WIDTH: f32 = 280.0;
 
 struct GenkoApp {
     vim: Entity<Vim>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
-
-    current_path: Option<PathBuf>,
+    workspace: WorkspaceState,
 }
 
 impl GenkoApp {
@@ -31,6 +34,8 @@ impl GenkoApp {
         cx.bind_keys([
             KeyBinding::new("cmd-o", OpenFile, None),
             KeyBinding::new("ctrl-o", OpenFile, None),
+            KeyBinding::new("cmd-shift-o", OpenFolder, None),
+            KeyBinding::new("ctrl-shift-o", OpenFolder, None),
             KeyBinding::new("cmd-s", SaveFile, None),
             KeyBinding::new("ctrl-s", SaveFile, None),
         ]);
@@ -41,14 +46,14 @@ impl GenkoApp {
 
         Self {
             vim,
-            current_path: None,
+            workspace: WorkspaceState::new(),
             title_bar,
             bottom_bar,
         }
     }
 
     fn window_title(&self) -> String {
-        match &self.current_path {
+        match self.workspace.active_file() {
             Some(path) => format!("Genko - {}", path.display()),
             None => "Genko".to_string(),
         }
@@ -71,7 +76,13 @@ impl GenkoApp {
 
     fn load_document(&mut self, path: PathBuf, text: String, cx: &mut Context<Self>) {
         self.vim.update(cx, |vim, cx| vim.load_text(&text, cx));
-        self.current_path = Some(path);
+        self.workspace.open_file(path);
+        cx.notify();
+    }
+
+    fn open_standalone_document(&mut self, path: PathBuf, text: String, cx: &mut Context<Self>) {
+        self.vim.update(cx, |vim, cx| vim.load_text(&text, cx));
+        self.workspace.open_file_without_root(path);
         cx.notify();
     }
 
@@ -92,7 +103,7 @@ impl GenkoApp {
             match result {
                 Ok(path) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.current_path = Some(path);
+                        this.workspace.open_file(path);
                         cx.notify();
                     });
                 }
@@ -100,6 +111,75 @@ impl GenkoApp {
                     let detail = error.to_string();
                     let _ = cx.update_window(window_handle, |_, window, cx| {
                         Self::show_error(window, "ファイルを保存できませんでした", detail, cx);
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn open_document_path(
+        &mut self,
+        path: PathBuf,
+        preserve_workspace: bool,
+        window_handle: gpui::AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            let path_for_read = path.clone();
+            let result = cx
+                .background_spawn(async move {
+                    std::fs::read_to_string(&path_for_read).map(|text| (path_for_read, text))
+                })
+                .await;
+
+            match result {
+                Ok((path, text)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        if preserve_workspace {
+                            this.load_document(path, text, cx);
+                        } else {
+                            this.open_standalone_document(path, text, cx);
+                        }
+                    });
+                }
+                Err(error) => {
+                    let detail = error.to_string();
+                    let _ = cx.update_window(window_handle, |_, window, cx| {
+                        Self::show_error(window, "ファイルを開けませんでした", detail, cx);
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn open_workspace_root(
+        &mut self,
+        root_dir: PathBuf,
+        window_handle: gpui::AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            let root_for_scan = root_dir.clone();
+            let result = cx
+                .background_spawn(async move {
+                    scan_workspace_entries(root_for_scan.as_path())
+                        .map(|entries| (root_for_scan, entries))
+                })
+                .await;
+
+            match result {
+                Ok((root_dir, entries)) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.workspace.open_root(root_dir, entries);
+                        cx.notify();
+                    });
+                }
+                Err(error) => {
+                    let detail = error.to_string();
+                    let _ = cx.update_window(window_handle, |_, window, cx| {
+                        Self::show_error(window, "フォルダを開けませんでした", detail, cx);
                     });
                 }
             }
@@ -134,25 +214,44 @@ impl GenkoApp {
             }) else {
                 return;
             };
+            let _ = this.update(cx, |this, cx| {
+                this.open_document_path(path, false, window_handle, cx);
+            });
+        })
+        .detach();
+    }
 
-            let path_for_read = path.clone();
-            let result = cx
-                .background_spawn(async move {
-                    std::fs::read_to_string(&path_for_read).map(|text| (path_for_read, text))
-                })
-                .await;
+    fn open_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let picker = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("フォルダを開く".into()),
+        });
+        let window_handle = window.window_handle();
 
-            match result {
-                Ok((path, text)) => {
-                    let _ = this.update(cx, |this, cx| this.load_document(path, text, cx));
-                }
+        cx.spawn(async move |this, cx| {
+            let Ok(result) = picker.await else {
+                return;
+            };
+
+            let Some(path) = (match result {
+                Ok(Some(mut paths)) => paths.pop(),
+                Ok(None) => None,
                 Err(error) => {
                     let detail = error.to_string();
                     let _ = cx.update_window(window_handle, |_, window, cx| {
-                        Self::show_error(window, "ファイルを開けませんでした", detail, cx);
+                        Self::show_error(window, "フォルダ選択を開けませんでした", detail, cx);
                     });
+                    None
                 }
-            }
+            }) else {
+                return;
+            };
+
+            let _ = this.update(cx, |this, cx| {
+                this.open_workspace_root(path, window_handle, cx);
+            });
         })
         .detach();
     }
@@ -161,23 +260,20 @@ impl GenkoApp {
         let contents = self.vim.read(cx).snapshot_text(cx);
         let window_handle = window.window_handle();
 
-        if let Some(path) = self.current_path.clone() {
+        if let Some(path) = self.workspace.active_file().map(Path::to_path_buf) {
             self.save_document_to_path(path, contents, window_handle, cx);
             return;
         }
 
         let initial_directory = self
-            .current_path
-            .as_deref()
-            .and_then(Path::parent)
+            .workspace
+            .suggested_save_directory()
             .map(Path::to_path_buf)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
         let suggested_name = self
-            .current_path
-            .as_deref()
-            .and_then(Path::file_name)
-            .and_then(|name| name.to_str())
+            .workspace
+            .suggested_file_name()
             .unwrap_or("untitled.txt")
             .to_string();
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
@@ -211,8 +307,175 @@ impl GenkoApp {
         self.open_file(window, cx);
     }
 
+    fn open_folder_action(&mut self, _: &OpenFolder, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_folder(window, cx);
+    }
+
     fn save_file_action(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
         self.save_file(window, cx);
+    }
+
+    fn toggle_workspace_pane_action(
+        &mut self,
+        _: &ToggleWorkspacePane,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.workspace.toggle_pane();
+        cx.notify();
+    }
+
+    fn render_workspace_entry(
+        &self,
+        entry: &WorkspaceEntry,
+        app: Entity<Self>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let path = entry.path().to_path_buf();
+        let is_active = self.workspace.active_file() == Some(path.as_path());
+        let is_dir = entry.is_dir();
+        let label = if is_dir {
+            format!("{} /", entry.name())
+        } else {
+            entry.name().to_string()
+        };
+        let indent = px(12.0 * entry.depth() as f32 + 12.0);
+        let entry_id = format!("workspace-entry-{}", path.display());
+
+        div()
+            .id(entry_id)
+            .w_full()
+            .h(px(28.0))
+            .pl(indent)
+            .pr_3()
+            .flex()
+            .items_center()
+            .rounded_sm()
+            .bg(if is_active {
+                Theme::global(cx).primary()
+            } else {
+                Theme::global(cx).bg_senodary()
+            })
+            .text_color(if is_active {
+                Theme::global(cx).white()
+            } else if is_dir {
+                Theme::global(cx).text_senodary()
+            } else {
+                Theme::global(cx).text_primary()
+            })
+            .cursor_pointer()
+            .child(label)
+            .on_click(move |_, window: &mut Window, cx: &mut App| {
+                if is_dir {
+                    return;
+                }
+
+                let window_handle = window.window_handle();
+                let _ = app.update(cx, |app, cx| {
+                    app.open_document_path(path.clone(), true, window_handle, cx);
+                });
+            })
+            .into_any_element()
+    }
+
+    fn render_workspace_pane(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let app = cx.entity();
+        let open_file_app = app.clone();
+        let open_folder_app = app.clone();
+        let root_label = self
+            .workspace
+            .root_dir()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .unwrap_or("未選択");
+        let root_label = root_label.to_string();
+        let entry_elements = self
+            .workspace
+            .entries()
+            .iter()
+            .map(|entry| self.render_workspace_entry(entry, app.clone(), cx))
+            .collect::<Vec<_>>();
+
+        div()
+            .w(px(WORKSPACE_PANE_WIDTH))
+            .h_full()
+            .flex_none()
+            .bg(Theme::global(cx).bg_senodary())
+            .border_r_1()
+            .border_color(Theme::global(cx).senodary())
+            .child(
+                div()
+                    .w_full()
+                    .p_4()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(div().font_weight(gpui::FontWeight::BOLD).child("Workspace"))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(Theme::global(cx).text_senodary())
+                                    .child(root_label),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("workspace-open-file-button")
+                                    .px_3()
+                                    .h(px(32.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_sm()
+                                    .border_1()
+                                    .border_color(Theme::global(cx).primary())
+                                    .bg(Theme::global(cx).white())
+                                    .cursor_pointer()
+                                    .child("ファイル")
+                                    .on_click(move |_, window: &mut Window, cx: &mut App| {
+                                        let _ = open_file_app
+                                            .update(cx, |app, cx| app.open_file(window, cx));
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .id("workspace-open-folder-button")
+                                    .px_3()
+                                    .h(px(32.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_sm()
+                                    .border_1()
+                                    .border_color(Theme::global(cx).primary())
+                                    .bg(Theme::global(cx).white())
+                                    .cursor_pointer()
+                                    .child("フォルダ")
+                                    .on_click(move |_, window: &mut Window, cx: &mut App| {
+                                        let _ = open_folder_app
+                                            .update(cx, |app, cx| app.open_folder(window, cx));
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .children(entry_elements),
+                    ),
+            )
     }
 }
 
@@ -220,13 +483,17 @@ impl Render for GenkoApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         title_bar::sync_client_window_inset(window);
         self.sync_window_title(window);
+        let bar_height = title_bar::platform_title_bar_height(window);
+        let mut editor_viewport_size = window.viewport_size();
+        if self.workspace.is_pane_visible() {
+            editor_viewport_size.width -= px(WORKSPACE_PANE_WIDTH);
+        }
+        editor_viewport_size.height -= bar_height * 2.0;
+        self.vim.update(cx, |vim, cx| {
+            vim.update_viewport_size(editor_viewport_size, cx);
+        });
 
-        let content = div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .items_start()
-            .child(self.vim.clone().into_element());
+        let content = self.vim.clone().into_element();
 
         div()
             .size_full()
@@ -276,16 +543,27 @@ impl Render for GenkoApp {
                             }),
                     })
                     .on_action(cx.listener(Self::open_file_action))
+                    .on_action(cx.listener(Self::open_folder_action))
                     .on_action(cx.listener(Self::save_file_action))
+                    .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .child(self.title_bar.clone().into_element())
                     .child(
                         div()
                             .flex_1()
                             .w_full()
                             .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(content),
+                            .when(self.workspace.is_pane_visible(), |this| {
+                                this.child(self.render_workspace_pane(cx))
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(content),
+                            ),
                     )
                     .child(self.bottom_bar.clone().into_element()),
             )
@@ -322,6 +600,7 @@ fn main() {
                     name: "ファイル".into(),
                     items: vec![
                         MenuItem::action("開く", OpenFile),
+                        MenuItem::action("フォルダを開く", OpenFolder),
                         MenuItem::action("保存", SaveFile),
                     ],
                 },

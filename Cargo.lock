@@ -646,6 +646,7 @@ dependencies = [
  "settings",
  "theme",
  "title_bar",
+ "workspace",
 ]
 
 [[package]]
@@ -2180,6 +2181,7 @@ dependencies = [
  "settings",
  "theme",
  "title_bar",
+ "workspace",
  "xdg",
 ]
 
@@ -7987,6 +7989,13 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser",
+]
+
+[[package]]
+name = "workspace"
+version = "0.1.0"
+dependencies = [
+ "gpui",
 ]
 
 [[package]]

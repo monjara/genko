@@ -47,7 +47,7 @@ pub(crate) struct GridPathCache {
 }
 
 pub(crate) struct EditorCanvas {
-    pub(crate) editor: Entity<Editor>,
+    editor: Entity<Editor>,
 }
 
 impl EditorCanvas {
@@ -262,7 +262,7 @@ impl Element for EditorCanvas {
     }
 }
 
-pub(crate) fn paint_paper(bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+fn paint_paper(bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
     window.paint_quad(fill(bounds, Theme::global(cx).bg_primary()));
 }
 
@@ -449,7 +449,7 @@ fn build_grid_path_cache(
     }
 }
 
-pub(crate) fn paint_selection(
+fn paint_selection(
     visible_text: &[CellText],
     selected_range: &Range<usize>,
     marked_range: Option<&Range<usize>>,
@@ -533,7 +533,7 @@ pub(crate) fn paint_selection(
     }
 }
 
-pub(crate) fn paint_text(
+fn paint_text(
     visible_text: &[CellText],
     bounds: Bounds<Pixels>,
     scroll_column: usize,
@@ -729,7 +729,7 @@ fn text_layout_hash(text: &str) -> u64 {
     hasher.finish()
 }
 
-pub(crate) fn paint_cursor(
+fn paint_cursor(
     cursor_index: usize,
     bounds: Bounds<Pixels>,
     scroll_column: usize,
@@ -768,7 +768,7 @@ fn ranges_overlap(left: &Range<usize>, right: &Range<usize>) -> bool {
     left.start < right.end && right.start < left.end
 }
 
-pub(crate) fn block_selection_indices(
+fn block_selection_indices(
     anchor_cell: usize,
     cursor_cell: usize,
     rows_per_column: usize,
@@ -788,7 +788,7 @@ pub(crate) fn block_selection_indices(
     })
 }
 
-pub(crate) fn row_column_for_logical_index(
+fn row_column_for_logical_index(
     logical_index: usize,
     first_visible_column: usize,
     rows_per_column: usize,
@@ -873,7 +873,7 @@ pub(crate) fn logical_index_for_point(
     Some((first_visible_column + column_from_right) * rows_per_column + first_visible_row + row)
 }
 
-pub(crate) fn board_width_for_columns(
+fn board_width_for_columns(
     visible_columns: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
@@ -885,7 +885,7 @@ pub(crate) fn board_width_for_columns(
     px(visible_columns as f32 * (cell_size + ruby_gutter_size))
 }
 
-pub(crate) fn board_x_for_visible_column(
+fn board_x_for_visible_column(
     board_left: Pixels,
     column: usize,
     cell_size: f32,

@@ -101,8 +101,11 @@ impl Editor {
         }
     }
 
-    pub(crate) fn update_viewport_size(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let size = window.viewport_size();
+    pub(crate) fn update_viewport_size(
+        &mut self,
+        size: Size<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         let needs_viewport_sync = self.last_viewport_size != Some(size);
         if needs_viewport_sync {
             self.state
@@ -918,9 +921,7 @@ impl EntityInputHandler for Editor {
 }
 
 impl Render for Editor {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.update_viewport_size(window, cx);
-
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .track_focus(&self.focus_handle(cx))
             .key_context("Genko")
