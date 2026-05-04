@@ -31,10 +31,10 @@ struct GenkoApp {
 
 impl GenkoApp {
     fn new(cx: &mut Context<Self>) -> Self {
-        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-        cx.bind_keys([KeyBinding::new("ctrl-b", ToggleWorkspacePane, None)]);
-        cx.bind_keys([KeyBinding::new("ctrl-,", OpenSettings, None)]);
         cx.bind_keys([
+            KeyBinding::new("cmd-q", Quit, None),
+            KeyBinding::new("ctrl-b", ToggleWorkspacePane, None),
+            KeyBinding::new("ctrl-,", OpenSettings, None),
             KeyBinding::new("cmd-o", OpenFile, None),
             KeyBinding::new("ctrl-o", OpenFile, None),
             KeyBinding::new("cmd-shift-o", OpenFolder, None),
@@ -86,14 +86,14 @@ impl GenkoApp {
         );
     }
 
-    fn load_document(&mut self, path: PathBuf, text: String, cx: &mut Context<Self>) {
-        self.vim.update(cx, |vim, cx| vim.load_text(&text, cx));
+    fn load_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
+        self.vim.update(cx, |vim, cx| vim.load_text(text, cx));
         self.workspace
             .update(cx, |workspace, cx| workspace.open_file(path, cx));
     }
 
-    fn open_standalone_document(&mut self, path: PathBuf, text: String, cx: &mut Context<Self>) {
-        self.vim.update(cx, |vim, cx| vim.load_text(&text, cx));
+    fn open_standalone_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
+        self.vim.update(cx, |vim, cx| vim.load_text(text, cx));
         self.workspace.update(cx, |workspace, cx| {
             workspace.open_file_without_root(path, cx)
         });
@@ -150,9 +150,9 @@ impl GenkoApp {
                 Ok((path, text)) => {
                     let _ = this.update(cx, |this, cx| {
                         if preserve_workspace {
-                            this.load_document(path, text, cx);
+                            this.load_document(path, &text, cx);
                         } else {
-                            this.open_standalone_document(path, text, cx);
+                            this.open_standalone_document(path, &text, cx);
                         }
                     });
                 }

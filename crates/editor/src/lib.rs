@@ -1,6 +1,5 @@
 mod editor;
 mod editor_canvas;
-mod editor_state;
 pub mod vim;
 
 pub use vim::{Vim, VimMode, VimModeLabel, VimState};

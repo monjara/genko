@@ -1,23 +1,17 @@
 use std::ops::Range;
+use std::sync::Arc;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
     Pixels, Render, ScrollWheelEvent, Size, Styled, UTF16Selection, Window, actions, div, px,
 };
-use rope::{TextRope, utf16_to_byte_in_text};
+use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
-use crate::{
-    editor_canvas::{
-        EditorCanvas, GridPathCache, cell_bounds_for_logical_index,
-        content_height_for_window_height, logical_index_for_point,
-        rows_per_column_for_window_height, visible_columns_for_window_width,
-    },
-    editor_state::{
-        BlockSelection, EditOperation, EditTransaction, EditorHistory, EditorState,
-        PendingTransaction,
-    },
+use crate::editor_canvas::{
+    EditorCanvas, GridPathCache, cell_bounds_for_logical_index, content_height_for_window_height,
+    logical_index_for_point, rows_per_column_for_window_height, visible_columns_for_window_width,
 };
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
@@ -88,8 +82,77 @@ actions!(
     ]
 );
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EditorViewState {
+    pub(crate) selected_range: Range<usize>,
+    pub(crate) selection_reversed: bool,
+    pub(crate) cursor_cell: usize,
+    pub(crate) marked_range: Option<Range<usize>>,
+    pub(crate) scroll_column: usize,
+    pub(crate) scroll_row: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BlockSelection {
+    pub(crate) anchor_cell: usize,
+    pub(crate) cursor_cell: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EditOperation {
+    pub(crate) start: usize,
+    pub(crate) removed_text: String,
+    pub(crate) inserted_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EditTransaction {
+    pub(crate) before: EditorViewState,
+    pub(crate) after: EditorViewState,
+    pub(crate) edits: Vec<EditOperation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingTransaction {
+    pub(crate) before: EditorViewState,
+    pub(crate) edits: Vec<EditOperation>,
+}
+
+#[derive(Default)]
+pub(crate) struct EditorHistory {
+    pub(crate) undo_stack: Vec<EditTransaction>,
+    pub(crate) redo_stack: Vec<EditTransaction>,
+    pub(crate) active_transaction: Option<PendingTransaction>,
+}
+
+#[derive(Clone)]
+struct VisibleTextCache {
+    draft_revision: u64,
+    scroll_column: usize,
+    scroll_row: usize,
+    visible_columns: usize,
+    visible_rows: usize,
+    cells: Arc<[CellText]>,
+}
+
 pub(crate) struct Editor {
-    pub(crate) state: EditorState,
+    pub(crate) draft: TextRope,
+    pub(crate) draft_revision: u64,
+    pub(crate) cell_size: f32,
+    pub(crate) rows_per_column: usize,
+    pub(crate) selected_range: Range<usize>,
+    pub(crate) selection_reversed: bool,
+    pub(crate) cursor_cell: usize,
+    pub(crate) marked_range: Option<Range<usize>>,
+    pub(crate) block_selection: Option<BlockSelection>,
+    pub(crate) scroll_column: usize,
+    pub(crate) scroll_row: usize,
+    pub(crate) scroll_remainder_columns: f32,
+    pub(crate) visible_columns: usize,
+    pub(crate) max_visible_rows: usize,
+    pub(crate) text_input_enabled: bool,
+    pub(crate) history: EditorHistory,
+    visible_text_cache: Option<VisibleTextCache>,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) grid_path_cache: Option<GridPathCache>,
@@ -97,8 +160,28 @@ pub(crate) struct Editor {
 }
 impl Editor {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        let rows_per_column = AppSettings::global(cx)
+            .rows_per_column
+            .unwrap_or_else(AppSettings::default_rows_per_column);
+
         Self {
-            state: EditorState::new(cx),
+            draft: TextRope::new_with_rows(rows_per_column),
+            draft_revision: 0,
+            cell_size: AppSettings::global(cx).cell_size as f32,
+            rows_per_column,
+            selected_range: 0..0,
+            selection_reversed: false,
+            cursor_cell: 0,
+            marked_range: None,
+            block_selection: None,
+            scroll_column: 0,
+            scroll_row: 0,
+            scroll_remainder_columns: 0.0,
+            visible_columns: DEFAULT_VISIBLE_COLUMNS,
+            max_visible_rows: rows_per_column,
+            text_input_enabled: true,
+            history: EditorHistory::default(),
+            visible_text_cache: None,
             focus_handle: cx.focus_handle(),
             grid_path_cache: None,
             last_board_bounds: None,
@@ -106,119 +189,346 @@ impl Editor {
         }
     }
 
+    pub fn used_cells(&self) -> usize {
+        self.draft.len_display_cells()
+    }
+
+    pub(crate) fn cell_size(&self) -> f32 {
+        self.cell_size
+    }
+
+    pub(crate) fn ruby_gutter_size(&self) -> f32 {
+        self.cell_size * RUBY_GUTTER_RATIO
+    }
+
+    pub(crate) fn cursor_offset(&self) -> usize {
+        if self.selection_reversed {
+            self.selected_range.start
+        } else {
+            self.selected_range.end
+        }
+    }
+
+    pub(crate) fn visible_text(&mut self) -> Arc<[CellText]> {
+        let visible_rows = self.visible_rows();
+        if let Some(cache) = &self.visible_text_cache
+            && cache.draft_revision == self.draft_revision
+            && cache.scroll_column == self.scroll_column
+            && cache.scroll_row == self.scroll_row
+            && cache.visible_columns == self.visible_columns
+            && cache.visible_rows == visible_rows
+        {
+            return cache.cells.clone();
+        }
+
+        let mut cells = Vec::with_capacity(visible_rows * self.visible_columns());
+        for column in self.scroll_column..self.scroll_column + self.visible_columns() {
+            let start_index = column * self.rows_per_column() + self.scroll_row;
+            cells.extend(self.draft.visible_cells(start_index, visible_rows));
+        }
+        let cells: Arc<[CellText]> = cells.into();
+        self.visible_text_cache = Some(VisibleTextCache {
+            draft_revision: self.draft_revision,
+            scroll_column: self.scroll_column,
+            scroll_row: self.scroll_row,
+            visible_columns: self.visible_columns,
+            visible_rows,
+            cells: cells.clone(),
+        });
+        cells
+    }
+
+    pub(crate) fn visible_columns(&self) -> usize {
+        self.visible_columns
+    }
+
+    pub(crate) fn update_visible_columns(&mut self, visible_columns: usize) {
+        self.visible_columns = visible_columns.max(1);
+        self.ensure_cursor_visible();
+    }
+
+    pub(crate) fn update_max_visible_rows(&mut self, visible_rows: usize) {
+        self.max_visible_rows = visible_rows.clamp(1, self.rows_per_column());
+        self.ensure_cursor_visible();
+    }
+
+    pub(crate) fn update_rows_per_column(&mut self, rows_per_column: usize) {
+        let rows_per_column = rows_per_column.clamp(1, AppSettings::max_rows_per_column());
+        if self.rows_per_column == rows_per_column {
+            return;
+        }
+
+        let cursor_offset = self.cursor_offset();
+        self.rows_per_column = rows_per_column;
+        self.draft.set_rows_per_column(rows_per_column);
+        self.bump_draft_revision();
+        self.cursor_cell = self.display_cell_for_byte(cursor_offset);
+        self.ensure_cursor_visible();
+    }
+
+    pub(crate) fn update_cell_size(&mut self, cell_size: f32) {
+        let cell_size = cell_size.max(1.0);
+        if (self.cell_size - cell_size).abs() < f32::EPSILON {
+            return;
+        }
+
+        self.cell_size = cell_size;
+    }
+
+    pub(crate) fn update_hanging_punctuation(&mut self, enabled: bool) {
+        if self.draft.hanging_punctuation() == enabled {
+            return;
+        }
+
+        let cursor_offset = self.cursor_offset();
+        self.draft.set_hanging_punctuation(enabled);
+        self.bump_draft_revision();
+        self.cursor_cell = self.display_cell_for_byte(cursor_offset);
+        self.ensure_cursor_visible();
+    }
+
+    pub(crate) fn cursor_column(&self) -> usize {
+        self.cursor_cell / self.rows_per_column()
+    }
+
+    pub(crate) fn cursor_row(&self) -> usize {
+        self.cursor_cell % self.rows_per_column()
+    }
+
+    pub(crate) fn max_scroll_column(&self) -> usize {
+        self.used_cells()
+            .div_ceil(self.rows_per_column())
+            .max(1)
+            .saturating_sub(self.visible_columns())
+    }
+
+    pub(crate) fn visible_rows(&self) -> usize {
+        self.max_visible_rows.min(self.rows_per_column()).max(1)
+    }
+
+    pub(crate) fn max_scroll_row(&self) -> usize {
+        self.rows_per_column().saturating_sub(self.visible_rows())
+    }
+
+    pub(crate) fn clamp_scroll_row(&mut self) {
+        self.scroll_row = self.scroll_row.min(self.max_scroll_row());
+    }
+
+    pub(crate) fn ensure_cursor_visible(&mut self) {
+        let cursor_column = self.cursor_column();
+        if cursor_column < self.scroll_column {
+            self.scroll_column = cursor_column;
+        } else if cursor_column >= self.scroll_column + self.visible_columns() {
+            self.scroll_column = cursor_column + 1 - self.visible_columns();
+        }
+
+        let cursor_row = self.cursor_row();
+        if cursor_row < self.scroll_row {
+            self.scroll_row = cursor_row;
+        } else if cursor_row >= self.scroll_row + self.visible_rows() {
+            self.scroll_row = cursor_row + 1 - self.visible_rows();
+        }
+        self.clamp_scroll_row();
+    }
+
+    pub(crate) fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
+        self.draft.byte_to_utf16(range.start)..self.draft.byte_to_utf16(range.end)
+    }
+
+    pub(crate) fn range_from_utf16(&self, range_utf16: &Range<usize>) -> Range<usize> {
+        self.draft.utf16_to_byte(range_utf16.start)..self.draft.utf16_to_byte(range_utf16.end)
+    }
+
+    pub(crate) fn display_cell_for_byte(&self, byte_offset: usize) -> usize {
+        self.draft.display_cell_for_byte(byte_offset)
+    }
+
+    pub(crate) fn previous_boundary(&self, offset: usize) -> usize {
+        let grapheme_index = self.draft.grapheme_index_for_byte(offset);
+        if grapheme_index == 0 {
+            0
+        } else {
+            self.draft
+                .byte_offset_for_grapheme_index(grapheme_index - 1)
+        }
+    }
+
+    pub(crate) fn next_boundary(&self, offset: usize) -> usize {
+        self.draft
+            .byte_offset_for_grapheme_index(self.draft.grapheme_index_for_byte(offset) + 1)
+    }
+
+    pub(crate) fn materialize_cursor_cell_for_insert(
+        &mut self,
+        range: Range<usize>,
+    ) -> Range<usize> {
+        if !range.is_empty() {
+            return range;
+        }
+
+        let offset = self.draft.materialize_display_cell(self.cursor_cell);
+        self.bump_draft_revision();
+        offset..offset
+    }
+
+    pub(crate) fn editing_range(&self, range_utf16: Option<Range<usize>>) -> Range<usize> {
+        range_utf16
+            .as_ref()
+            .map(|range| self.range_from_utf16(range))
+            .or_else(|| self.marked_range.clone())
+            .unwrap_or_else(|| self.selected_range.clone())
+    }
+
+    pub fn byte_offset_for_display_cell(&self, display_cell_index: usize) -> usize {
+        self.draft.byte_offset_for_display_cell(display_cell_index)
+    }
+
+    pub(crate) fn set_cursor_from_offset(&mut self, cursor_offset: usize) {
+        self.selected_range = cursor_offset..cursor_offset;
+        self.selection_reversed = false;
+        self.cursor_cell = self.display_cell_for_byte(cursor_offset);
+        self.marked_range = None;
+        self.block_selection = None;
+        self.ensure_cursor_visible();
+    }
+
+    pub(crate) fn selected_utf16_selection(&self) -> UTF16Selection {
+        UTF16Selection {
+            range: self.range_to_utf16(&self.selected_range),
+            reversed: self.selection_reversed,
+        }
+    }
+
+    pub(crate) fn marked_range_utf16(&self) -> Option<Range<usize>> {
+        self.marked_range
+            .as_ref()
+            .map(|range| self.range_to_utf16(range))
+    }
+
+    pub(crate) fn view_state(&self) -> EditorViewState {
+        EditorViewState {
+            selected_range: self.selected_range.clone(),
+            selection_reversed: self.selection_reversed,
+            cursor_cell: self.cursor_cell,
+            marked_range: self.marked_range.clone(),
+            scroll_column: self.scroll_column,
+            scroll_row: self.scroll_row,
+        }
+    }
+
+    pub(crate) fn restore_view_state(&mut self, state: EditorViewState) {
+        self.selected_range = state.selected_range;
+        self.selection_reversed = state.selection_reversed;
+        self.cursor_cell = state.cursor_cell;
+        self.marked_range = state.marked_range;
+        self.block_selection = None;
+        self.scroll_column = state.scroll_column.min(self.max_scroll_column());
+        self.scroll_row = state.scroll_row.min(self.max_scroll_row());
+        self.scroll_remainder_columns = 0.0;
+        self.ensure_cursor_visible();
+    }
+
+    pub(crate) fn bump_draft_revision(&mut self) {
+        self.draft_revision = self.draft_revision.wrapping_add(1);
+        self.visible_text_cache = None;
+    }
+
     pub(crate) fn update_viewport_size(&mut self, size: Size<Pixels>, cx: &mut Context<Self>) {
         let needs_viewport_sync = self.last_viewport_size != Some(size);
         if needs_viewport_sync {
-            self.state
-                .update_hanging_punctuation(AppSettings::global(cx).hanging_punctuation);
+            self.update_hanging_punctuation(AppSettings::global(cx).hanging_punctuation);
 
-            self.state
-                .update_cell_size(AppSettings::global(cx).cell_size as f32);
+            self.update_cell_size(AppSettings::global(cx).cell_size as f32);
 
-            self.state
-                .update_visible_columns(visible_columns_for_window_width(
-                    size.width,
-                    self.state.cell_size(),
-                    self.state.ruby_gutter_size(),
-                ));
+            self.update_visible_columns(visible_columns_for_window_width(
+                size.width,
+                self.cell_size(),
+                self.ruby_gutter_size(),
+            ));
 
             let content_height = content_height_for_window_height(
                 size.height,
                 AppSettings::global(cx).column_number_mode,
-                self.state.cell_size(),
+                self.cell_size(),
             );
-            self.state
-                .update_max_visible_rows(rows_per_column_for_window_height(
-                    content_height,
-                    self.state.cell_size(),
-                ));
+            self.update_max_visible_rows(rows_per_column_for_window_height(
+                content_height,
+                self.cell_size(),
+            ));
             if AppSettings::global(cx).rows_per_column.is_none() {
-                self.state
-                    .update_rows_per_column(rows_per_column_for_window_height(
-                        content_height,
-                        self.state.cell_size(),
-                    ));
+                self.update_rows_per_column(rows_per_column_for_window_height(
+                    content_height,
+                    self.cell_size(),
+                ));
             }
         }
         self.last_viewport_size = Some(size);
     }
 
     pub fn set_text_input_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        if self.state.text_input_enabled == enabled {
+        if self.text_input_enabled == enabled {
             return;
         }
 
-        self.state.text_input_enabled = enabled;
+        self.text_input_enabled = enabled;
         if enabled {
-            let cursor_offset = self.state.cursor_offset();
-            self.state.selected_range = cursor_offset..cursor_offset;
-            self.state.selection_reversed = false;
+            let cursor_offset = self.cursor_offset();
+            self.selected_range = cursor_offset..cursor_offset;
+            self.selection_reversed = false;
         }
         cx.notify();
     }
 
     pub fn cursor_cell(&self) -> usize {
-        self.state.cursor_cell
+        self.cursor_cell
     }
 
     pub fn cursor_byte_offset(&self) -> usize {
-        self.state.cursor_offset()
+        self.cursor_offset()
     }
 
     pub fn rows_per_column(&self) -> usize {
-        self.state.rows_per_column()
-    }
-
-    pub fn used_cells(&self) -> usize {
-        self.state.used_cells()
-    }
-
-    pub fn byte_offset_for_display_cell(&self, display_cell_index: usize) -> usize {
-        self.state.byte_offset_for_display_cell(display_cell_index)
-    }
-
-    pub fn display_cell_for_byte(&self, byte_offset: usize) -> usize {
-        self.state.display_cell_for_byte(byte_offset)
+        self.rows_per_column
     }
 
     pub fn snapshot_text(&self) -> String {
-        self.state.draft.slice(0..self.state.draft.len_bytes())
+        self.draft.slice(0..self.draft.len_bytes())
     }
 
     pub fn rope(&self) -> &TextRope {
-        &self.state.draft
+        &self.draft
     }
 
     pub fn load_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        let rows_per_column = self.state.rows_per_column;
-        let hanging_punctuation = self.state.draft.hanging_punctuation();
+        let rows_per_column = self.rows_per_column;
+        let hanging_punctuation = self.draft.hanging_punctuation();
         let mut draft = TextRope::from_str_with_rows(text, rows_per_column);
         draft.set_hanging_punctuation(hanging_punctuation);
 
-        self.state.draft = draft;
-        self.state.bump_draft_revision();
-        self.state.history = EditorHistory::default();
-        self.state.scroll_column = 0;
-        self.state.scroll_row = 0;
-        self.state.scroll_remainder_columns = 0.0;
-        self.state.set_cursor_from_offset(0);
+        self.draft = draft;
+        self.bump_draft_revision();
+        self.history = EditorHistory::default();
+        self.scroll_column = 0;
+        self.scroll_row = 0;
+        self.scroll_remainder_columns = 0.0;
+        self.set_cursor_from_offset(0);
         cx.notify();
     }
 
     pub fn text_in_range(&self, range: Range<usize>) -> String {
-        self.state.draft.slice(range)
+        self.draft.slice(range)
     }
 
     pub fn selected_byte_range(&self) -> Range<usize> {
-        self.state.selected_range.clone()
+        self.selected_range.clone()
     }
 
     pub fn offset_after_cursor(&self) -> usize {
-        self.state.next_boundary(self.state.cursor_offset())
+        self.next_boundary(self.cursor_offset())
     }
 
     pub fn move_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let target = self.state.cursor_cell.saturating_add_signed(delta);
+        let target = self.cursor_cell.saturating_add_signed(delta);
         self.move_to_display_cell(target, cx);
     }
 
@@ -227,12 +537,12 @@ impl Editor {
     }
 
     pub fn move_cursor_to_byte_offset(&mut self, byte_offset: usize, cx: &mut Context<Self>) {
-        let cell_index = self.state.display_cell_for_byte(byte_offset);
+        let cell_index = self.display_cell_for_byte(byte_offset);
         self.move_to_display_cell(cell_index, cx);
     }
 
     pub fn select_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let target = self.state.cursor_cell.saturating_add_signed(delta);
+        let target = self.cursor_cell.saturating_add_signed(delta);
         self.select_to_display_cell(target, cx);
     }
 
@@ -244,16 +554,15 @@ impl Editor {
     ) {
         let start_cell = anchor_cell.min(cursor_cell);
         let end_cell = anchor_cell.max(cursor_cell);
-        let start = self.state.draft.byte_offset_for_display_cell(start_cell);
+        let start = self.draft.byte_offset_for_display_cell(start_cell);
         let end = self
-            .state
-            .next_boundary(self.state.draft.byte_offset_for_display_cell(end_cell))
+            .next_boundary(self.draft.byte_offset_for_display_cell(end_cell))
             .max(start);
-        self.state.selected_range = start..end;
-        self.state.selection_reversed = cursor_cell < anchor_cell;
-        self.state.cursor_cell = cursor_cell;
-        self.state.block_selection = None;
-        self.state.ensure_cursor_visible();
+        self.selected_range = start..end;
+        self.selection_reversed = cursor_cell < anchor_cell;
+        self.cursor_cell = cursor_cell;
+        self.block_selection = None;
+        self.ensure_cursor_visible();
         cx.notify();
     }
 
@@ -263,40 +572,38 @@ impl Editor {
         cursor_cell: usize,
         cx: &mut Context<Self>,
     ) {
-        let cursor_offset = self.state.byte_offset_for_display_cell(cursor_cell);
-        self.state.selected_range = cursor_offset..cursor_offset;
-        self.state.selection_reversed = false;
-        self.state.cursor_cell = cursor_cell;
-        self.state.marked_range = None;
-        self.state.block_selection = Some(BlockSelection {
+        let cursor_offset = self.byte_offset_for_display_cell(cursor_cell);
+        self.selected_range = cursor_offset..cursor_offset;
+        self.selection_reversed = false;
+        self.cursor_cell = cursor_cell;
+        self.marked_range = None;
+        self.block_selection = Some(BlockSelection {
             anchor_cell,
             cursor_cell,
         });
-        self.state.ensure_cursor_visible();
+        self.ensure_cursor_visible();
         cx.notify();
     }
 
     pub fn clear_block_selection(&mut self, cx: &mut Context<Self>) {
-        if self.state.block_selection.take().is_some() {
+        if self.block_selection.take().is_some() {
             cx.notify();
         }
     }
 
     pub fn collapse_selection_to_cursor_offset(&mut self, cx: &mut Context<Self>) {
-        let cursor_offset = self.state.cursor_offset();
-        self.state.selected_range = cursor_offset..cursor_offset;
-        self.state.selection_reversed = false;
-        self.state.marked_range = None;
-        self.state.block_selection = None;
-        self.state.ensure_cursor_visible();
+        let cursor_offset = self.cursor_offset();
+        self.selected_range = cursor_offset..cursor_offset;
+        self.selection_reversed = false;
+        self.marked_range = None;
+        self.block_selection = None;
+        self.ensure_cursor_visible();
         cx.notify();
     }
 
     pub fn collapse_selection_to_cursor_cell(&mut self, cx: &mut Context<Self>) {
-        let cursor_offset = self
-            .state
-            .byte_offset_for_display_cell(self.state.cursor_cell);
-        self.state.set_cursor_from_offset(cursor_offset);
+        let cursor_offset = self.byte_offset_for_display_cell(self.cursor_cell);
+        self.set_cursor_from_offset(cursor_offset);
         cx.notify();
     }
 
@@ -310,124 +617,121 @@ impl Editor {
     }
 
     pub fn begin_transaction(&mut self) {
-        if self.state.history.active_transaction.is_none() {
-            self.state.history.active_transaction = Some(PendingTransaction {
-                before: self.state.view_state(),
+        if self.history.active_transaction.is_none() {
+            self.history.active_transaction = Some(PendingTransaction {
+                before: self.view_state(),
                 edits: Vec::new(),
             });
         }
     }
 
     pub fn commit_transaction(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(pending) = self.state.history.active_transaction.take() else {
+        let Some(pending) = self.history.active_transaction.take() else {
             return false;
         };
-        let after = self.state.view_state();
+        let after = self.view_state();
         if pending.edits.is_empty() && pending.before == after {
             return false;
         }
 
-        self.state.history.undo_stack.push(EditTransaction {
+        self.history.undo_stack.push(EditTransaction {
             before: pending.before,
             after,
             edits: pending.edits,
         });
-        self.state.history.redo_stack.clear();
+        self.history.redo_stack.clear();
         cx.notify();
         true
     }
 
     pub fn active_transaction_inserted_text(&self) -> Option<String> {
-        self.state
-            .history
+        self.history
             .active_transaction
             .as_ref()
             .map(|transaction| transaction_inserted_text(&transaction.edits))
     }
 
     pub fn last_transaction_inserted_text(&self) -> Option<String> {
-        self.state
-            .history
+        self.history
             .undo_stack
             .last()
             .map(|transaction| transaction_inserted_text(&transaction.edits))
     }
 
     pub fn undo(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(transaction) = self.state.history.undo_stack.pop() else {
+        let Some(transaction) = self.history.undo_stack.pop() else {
             return false;
         };
         for edit in transaction.edits.iter().rev() {
             let inserted_end = edit.start + edit.inserted_text.len();
-            self.state.draft.replace_range(
+            self.draft.replace_range(
                 inserted_end.saturating_sub(edit.inserted_text.len())..inserted_end,
                 &edit.removed_text,
             );
         }
-        self.state.bump_draft_revision();
-        self.state.restore_view_state(transaction.before.clone());
-        self.state.history.redo_stack.push(transaction);
+        self.bump_draft_revision();
+        self.restore_view_state(transaction.before.clone());
+        self.history.redo_stack.push(transaction);
         cx.notify();
         true
     }
 
     pub fn redo(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(transaction) = self.state.history.redo_stack.pop() else {
+        let Some(transaction) = self.history.redo_stack.pop() else {
             return false;
         };
         for edit in &transaction.edits {
             let removed_end = edit.start + edit.removed_text.len();
-            self.state.draft.replace_range(
+            self.draft.replace_range(
                 removed_end.saturating_sub(edit.removed_text.len())..removed_end,
                 &edit.inserted_text,
             );
         }
-        self.state.bump_draft_revision();
-        self.state.restore_view_state(transaction.after.clone());
-        self.state.history.undo_stack.push(transaction);
+        self.bump_draft_revision();
+        self.restore_view_state(transaction.after.clone());
+        self.history.undo_stack.push(transaction);
         cx.notify();
         true
     }
 
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
-        let offset = self.state.byte_offset_for_display_cell(cell_index);
-        if self.state.cursor_cell == cell_index
-            && self.state.selected_range.start == offset
-            && self.state.selected_range.end == offset
-            && !self.state.selection_reversed
-            && self.state.block_selection.is_none()
+        let offset = self.byte_offset_for_display_cell(cell_index);
+        if self.cursor_cell == cell_index
+            && self.selected_range.start == offset
+            && self.selected_range.end == offset
+            && !self.selection_reversed
+            && self.block_selection.is_none()
         {
             return;
         }
-        self.state.selected_range = offset..offset;
-        self.state.selection_reversed = false;
-        self.state.cursor_cell = cell_index;
-        self.state.block_selection = None;
-        self.state.ensure_cursor_visible();
+        self.selected_range = offset..offset;
+        self.selection_reversed = false;
+        self.cursor_cell = cell_index;
+        self.block_selection = None;
+        self.ensure_cursor_visible();
         cx.notify();
     }
 
     fn select_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
-        let offset = self.state.byte_offset_for_display_cell(cell_index);
-        let original_range = self.state.selected_range.clone();
-        let original_reversed = self.state.selection_reversed;
-        if self.state.selection_reversed {
-            self.state.selected_range.start = offset;
+        let offset = self.byte_offset_for_display_cell(cell_index);
+        let original_range = self.selected_range.clone();
+        let original_reversed = self.selection_reversed;
+        if self.selection_reversed {
+            self.selected_range.start = offset;
         } else {
-            self.state.selected_range.end = offset;
+            self.selected_range.end = offset;
         }
-        if self.state.selected_range.end < self.state.selected_range.start {
-            self.state.selection_reversed = !self.state.selection_reversed;
-            self.state.selected_range =
-                self.state.selected_range.end..self.state.selected_range.start;
+        if self.selected_range.end < self.selected_range.start {
+            self.selection_reversed = !self.selection_reversed;
+            self.selected_range = self.selected_range.end..self.selected_range.start;
         }
-        self.state.cursor_cell = cell_index;
-        self.state.block_selection = None;
-        self.state.ensure_cursor_visible();
-        if self.state.cursor_cell == cell_index
-            && self.state.selected_range == original_range
-            && self.state.selection_reversed == original_reversed
-            && self.state.block_selection.is_none()
+        self.cursor_cell = cell_index;
+        self.block_selection = None;
+        self.ensure_cursor_visible();
+        if self.cursor_cell == cell_index
+            && self.selected_range == original_range
+            && self.selection_reversed == original_reversed
+            && self.block_selection.is_none()
         {
             return;
         }
@@ -440,27 +744,27 @@ impl Editor {
         new_text: &str,
         cx: &mut Context<Self>,
     ) {
-        let implicit_transaction = self.state.history.active_transaction.is_none();
+        let implicit_transaction = self.history.active_transaction.is_none();
         if implicit_transaction {
             self.begin_transaction();
         }
         let range = if new_text.is_empty() {
             range
         } else {
-            self.state.materialize_cursor_cell_for_insert(range)
+            self.materialize_cursor_cell_for_insert(range)
         };
-        let removed_text = self.state.draft.slice(range.clone());
-        if let Some(transaction) = self.state.history.active_transaction.as_mut() {
+        let removed_text = self.draft.slice(range.clone());
+        if let Some(transaction) = self.history.active_transaction.as_mut() {
             transaction.edits.push(EditOperation {
                 start: range.start,
                 removed_text,
                 inserted_text: new_text.to_string(),
             });
         }
-        self.state.draft.replace_range(range.clone(), new_text);
-        self.state.bump_draft_revision();
+        self.draft.replace_range(range.clone(), new_text);
+        self.bump_draft_revision();
         let cursor = range.start + new_text.len();
-        self.state.set_cursor_from_offset(cursor);
+        self.set_cursor_from_offset(cursor);
         if implicit_transaction {
             let _ = self.commit_transaction(cx);
         }
@@ -473,17 +777,17 @@ impl Editor {
         new_text: String,
         cx: &mut Context<Self>,
     ) {
-        let implicit_transaction = self.state.history.active_transaction.is_none();
+        let implicit_transaction = self.history.active_transaction.is_none();
         if implicit_transaction {
             self.begin_transaction();
         }
         let range = if new_text.is_empty() {
             range
         } else {
-            self.state.materialize_cursor_cell_for_insert(range)
+            self.materialize_cursor_cell_for_insert(range)
         };
-        let removed_text = self.state.draft.slice(range.clone());
-        if let Some(transaction) = self.state.history.active_transaction.as_mut() {
+        let removed_text = self.draft.slice(range.clone());
+        if let Some(transaction) = self.history.active_transaction.as_mut() {
             transaction.edits.push(EditOperation {
                 start: range.start,
                 removed_text,
@@ -491,9 +795,9 @@ impl Editor {
             });
         }
         let cursor = range.start + new_text.len();
-        self.state.draft.replace_range_owned(range, new_text);
-        self.state.bump_draft_revision();
-        self.state.set_cursor_from_offset(cursor);
+        self.draft.replace_range_owned(range, new_text);
+        self.bump_draft_revision();
+        self.set_cursor_from_offset(cursor);
         if implicit_transaction {
             let _ = self.commit_transaction(cx);
         }
@@ -505,14 +809,13 @@ impl Editor {
             return;
         }
 
-        let previous_column = self.state.scroll_column;
-        self.state.scroll_column = self
-            .state
+        let previous_column = self.scroll_column;
+        self.scroll_column = self
             .scroll_column
             .saturating_add_signed(delta_columns)
-            .min(self.state.max_scroll_column());
+            .min(self.max_scroll_column());
 
-        if self.state.scroll_column != previous_column {
+        if self.scroll_column != previous_column {
             cx.notify();
         }
     }
@@ -522,15 +825,15 @@ impl Editor {
         let index = logical_index_for_point(
             bounds,
             position,
-            self.state.scroll_column,
-            self.state.scroll_row,
-            self.state.rows_per_column(),
-            self.state.visible_columns(),
-            self.state.visible_rows(),
-            self.state.cell_size(),
-            self.state.ruby_gutter_size(),
+            self.scroll_column,
+            self.scroll_row,
+            self.rows_per_column(),
+            self.visible_columns(),
+            self.visible_rows(),
+            self.cell_size(),
+            self.ruby_gutter_size(),
         )?;
-        Some(self.state.draft.byte_offset_for_display_cell(index))
+        Some(self.draft.byte_offset_for_display_cell(index))
     }
 
     fn bounds_for_byte_range(
@@ -538,44 +841,43 @@ impl Editor {
         range: Range<usize>,
         board_bounds: Bounds<Pixels>,
     ) -> Option<Bounds<Pixels>> {
-        let logical_index = if range.is_empty() && range.start == self.state.selected_range.start {
-            self.state.cursor_cell
+        let logical_index = if range.is_empty() && range.start == self.selected_range.start {
+            self.cursor_cell
         } else {
-            self.state.display_cell_for_byte(range.start)
+            self.display_cell_for_byte(range.start)
         };
         let cell_bounds = cell_bounds_for_logical_index(
             board_bounds,
             logical_index,
-            self.state.scroll_column,
-            self.state.scroll_row,
-            self.state.rows_per_column(),
-            self.state.visible_columns(),
-            self.state.visible_rows(),
-            self.state.cell_size(),
-            self.state.ruby_gutter_size(),
+            self.scroll_column,
+            self.scroll_row,
+            self.rows_per_column(),
+            self.visible_columns(),
+            self.visible_rows(),
+            self.cell_size(),
+            self.ruby_gutter_size(),
         )?;
         Some(ime_anchor_bounds_for_cell(cell_bounds, board_bounds))
     }
 
     fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.selected_range.is_empty() {
-            let previous = self.state.previous_boundary(self.state.cursor_offset());
-            self.state.selected_range = previous..self.state.cursor_offset();
+        if self.selected_range.is_empty() {
+            let previous = self.previous_boundary(self.cursor_offset());
+            self.selected_range = previous..self.cursor_offset();
         }
-        self.replace_text_in_byte_range(self.state.selected_range.clone(), "", cx);
+        self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
         invalidate_ime_position(window);
     }
 
     fn delete_forward(&mut self, cx: &mut Context<Self>) {
-        if self.state.selected_range.is_empty() {
-            let next = self.state.next_boundary(self.state.cursor_offset());
-            self.state.selected_range = self.state.cursor_offset()..next;
+        if self.selected_range.is_empty() {
+            let next = self.next_boundary(self.cursor_offset());
+            self.selected_range = self.cursor_offset()..next;
         }
-        self.replace_text_in_byte_range(self.state.selected_range.clone(), "", cx);
+        self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
     }
 
     fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
-        println!("asdfadsf");
         self.delete_forward(cx);
         invalidate_ime_position(window);
     }
@@ -591,12 +893,12 @@ impl Editor {
     }
 
     fn left(&mut self, _: &Left, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(self.state.rows_per_column() as isize, cx);
+        self.move_cursor_by(self.rows_per_column() as isize, cx);
         invalidate_ime_position(window);
     }
 
     fn right(&mut self, _: &Right, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(-(self.state.rows_per_column() as isize), cx);
+        self.move_cursor_by(-(self.rows_per_column() as isize), cx);
         invalidate_ime_position(window);
     }
 
@@ -611,20 +913,20 @@ impl Editor {
     }
 
     fn select_left(&mut self, _: &SelectLeft, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(self.state.rows_per_column() as isize, cx);
+        self.select_cursor_by(self.rows_per_column() as isize, cx);
         invalidate_ime_position(window);
     }
 
     fn select_right(&mut self, _: &SelectRight, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(-(self.state.rows_per_column() as isize), cx);
+        self.select_cursor_by(-(self.rows_per_column() as isize), cx);
         invalidate_ime_position(window);
     }
 
     fn select_all(&mut self, _: &SelectAll, window: &mut Window, cx: &mut Context<Self>) {
-        self.state.selected_range = 0..self.state.draft.len_bytes();
-        self.state.selection_reversed = false;
-        self.state.cursor_cell = self.state.used_cells();
-        self.state.block_selection = None;
+        self.selected_range = 0..self.draft.len_bytes();
+        self.selection_reversed = false;
+        self.cursor_cell = self.used_cells();
+        self.block_selection = None;
         invalidate_ime_position(window);
         cx.notify();
     }
@@ -635,36 +937,36 @@ impl Editor {
     }
 
     fn end(&mut self, _: &End, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_display_cell(self.state.used_cells(), cx);
+        self.move_to_display_cell(self.used_cells(), cx);
         invalidate_ime_position(window);
     }
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_byte_range_owned(self.state.selected_range.clone(), text, cx);
+            self.replace_text_in_byte_range_owned(self.selected_range.clone(), text, cx);
             invalidate_ime_position(window);
         }
     }
 
     fn enter(&mut self, _: &Enter, window: &mut Window, cx: &mut Context<Self>) {
-        self.replace_text_in_byte_range(self.state.selected_range.clone(), "\n", cx);
+        self.replace_text_in_byte_range(self.selected_range.clone(), "\n", cx);
         invalidate_ime_position(window);
     }
 
     fn copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
-        if !self.state.selected_range.is_empty() {
+        if !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
-                self.state.draft.slice(self.state.selected_range.clone()),
+                self.draft.slice(self.selected_range.clone()),
             ));
         }
     }
 
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.state.selected_range.is_empty() {
+        if !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
-                self.state.draft.slice(self.state.selected_range.clone()),
+                self.draft.slice(self.selected_range.clone()),
             ));
-            self.replace_text_in_byte_range(self.state.selected_range.clone(), "", cx);
+            self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
             invalidate_ime_position(window);
         }
     }
@@ -703,13 +1005,13 @@ impl Editor {
         if let Some(cell_index) = logical_index_for_point(
             bounds,
             event.position,
-            self.state.scroll_column,
-            self.state.scroll_row,
-            self.state.rows_per_column(),
-            self.state.visible_columns(),
-            self.state.visible_rows(),
-            self.state.cell_size(),
-            self.state.ruby_gutter_size(),
+            self.scroll_column,
+            self.scroll_row,
+            self.rows_per_column(),
+            self.visible_columns(),
+            self.visible_rows(),
+            self.cell_size(),
+            self.ruby_gutter_size(),
         ) {
             if event.modifiers.shift {
                 self.select_to_display_cell(cell_index, cx);
@@ -726,17 +1028,17 @@ impl Editor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let delta = event.delta.pixel_delta(px(self.state.cell_size()));
+        let delta = event.delta.pixel_delta(px(self.cell_size()));
         let column_delta = if delta.x == Pixels::ZERO {
-            -(delta.y / px(self.state.cell_size()))
+            -(delta.y / px(self.cell_size()))
         } else {
-            -(delta.x / px(self.state.cell_size()))
+            -(delta.x / px(self.cell_size()))
         };
 
-        self.state.scroll_remainder_columns += column_delta;
-        let whole_columns = self.state.scroll_remainder_columns.trunc() as isize;
+        self.scroll_remainder_columns += column_delta;
+        let whole_columns = self.scroll_remainder_columns.trunc() as isize;
         if whole_columns != 0 {
-            self.state.scroll_remainder_columns -= whole_columns as f32;
+            self.scroll_remainder_columns -= whole_columns as f32;
             self.scroll_columns_by(whole_columns, cx);
         }
     }
@@ -819,9 +1121,9 @@ impl EntityInputHandler for Editor {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
-        let range = self.state.range_from_utf16(&range_utf16);
-        actual_range.replace(self.state.range_to_utf16(&range));
-        Some(self.state.draft.slice(range))
+        let range = self.range_from_utf16(&range_utf16);
+        actual_range.replace(self.range_to_utf16(&range));
+        Some(self.draft.slice(range))
     }
 
     fn selected_text_range(
@@ -830,7 +1132,7 @@ impl EntityInputHandler for Editor {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
-        Some(self.state.selected_utf16_selection())
+        Some(self.selected_utf16_selection())
     }
 
     fn marked_text_range(
@@ -838,11 +1140,11 @@ impl EntityInputHandler for Editor {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        self.state.marked_range_utf16()
+        self.marked_range_utf16()
     }
 
     fn unmark_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.state.marked_range = None;
+        self.marked_range = None;
         invalidate_ime_position(window);
         cx.notify();
     }
@@ -854,11 +1156,11 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.state.text_input_enabled {
+        if !self.text_input_enabled {
             return;
         }
 
-        let range = self.state.editing_range(range_utf16);
+        let range = self.editing_range(range_utf16);
         self.replace_text_in_byte_range(range, text, cx);
         invalidate_ime_position(window);
     }
@@ -871,34 +1173,34 @@ impl EntityInputHandler for Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.state.text_input_enabled {
+        if !self.text_input_enabled {
             return;
         }
 
-        let implicit_transaction = self.state.history.active_transaction.is_none();
+        let implicit_transaction = self.history.active_transaction.is_none();
         if implicit_transaction {
             self.begin_transaction();
         }
-        let range = self.state.editing_range(range_utf16);
+        let range = self.editing_range(range_utf16);
         let range = if new_text.is_empty() {
             range
         } else {
-            self.state.materialize_cursor_cell_for_insert(range)
+            self.materialize_cursor_cell_for_insert(range)
         };
-        let removed_text = self.state.draft.slice(range.clone());
-        if let Some(transaction) = self.state.history.active_transaction.as_mut() {
+        let removed_text = self.draft.slice(range.clone());
+        if let Some(transaction) = self.history.active_transaction.as_mut() {
             transaction.edits.push(EditOperation {
                 start: range.start,
                 removed_text,
                 inserted_text: new_text.to_string(),
             });
         }
-        self.state.draft.replace_range(range.clone(), new_text);
-        self.state.bump_draft_revision();
+        self.draft.replace_range(range.clone(), new_text);
+        self.bump_draft_revision();
 
         let marked_end = range.start + new_text.len();
-        self.state.marked_range = (!new_text.is_empty()).then_some(range.start..marked_end);
-        self.state.selected_range = new_selected_range_utf16
+        self.marked_range = (!new_text.is_empty()).then_some(range.start..marked_end);
+        self.selected_range = new_selected_range_utf16
             .as_ref()
             .map(|range_utf16| {
                 let start = utf16_to_byte_in_text(new_text, range_utf16.start);
@@ -906,9 +1208,9 @@ impl EntityInputHandler for Editor {
                 range.start + start..range.start + end
             })
             .unwrap_or(marked_end..marked_end);
-        self.state.selection_reversed = false;
-        self.state.cursor_cell = self.state.display_cell_for_byte(self.state.cursor_offset());
-        self.state.ensure_cursor_visible();
+        self.selection_reversed = false;
+        self.cursor_cell = self.display_cell_for_byte(self.cursor_offset());
+        self.ensure_cursor_visible();
         if implicit_transaction {
             let _ = self.commit_transaction(cx);
         }
@@ -923,7 +1225,7 @@ impl EntityInputHandler for Editor {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let range = self.state.range_from_utf16(&range_utf16);
+        let range = self.range_from_utf16(&range_utf16);
         self.bounds_for_byte_range(range, board_bounds)
     }
 
@@ -934,7 +1236,7 @@ impl EntityInputHandler for Editor {
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
         let byte_offset = self.byte_offset_for_point(point)?;
-        Some(self.state.draft.byte_to_utf16(byte_offset))
+        Some(self.draft.byte_to_utf16(byte_offset))
     }
 }
 

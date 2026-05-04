@@ -62,6 +62,8 @@ actions!(
         VimMoveWordEndForward,
         VimMoveWordBackward,
         VimMoveBigWordBackward,
+        VimMoveDocumentStart,
+        VimMoveDocumentEnd,
         VimMoveLeft,
         VimMoveDown,
         VimMoveUp,
@@ -665,6 +667,33 @@ impl Vim {
         if is_visual_block {
             self.sync_block_selection_for_current_cursor(window, cx);
         }
+    }
+
+    fn move_to_display_cell(
+        &mut self,
+        cell_index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mode = VimState::global(cx).mode;
+        self.editor.update(cx, |editor, cx| {
+            editor.move_cursor_to_display_cell(cell_index, cx);
+        });
+
+        if mode == VimMode::Visual {
+            self.sync_visual_selection_for_current_cursor(window, cx);
+        } else if mode == VimMode::VisualBlock {
+            self.sync_block_selection_for_current_cursor(window, cx);
+        }
+    }
+
+    fn move_to_document_start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.move_to_display_cell(0, window, cx);
+    }
+
+    fn move_to_document_end(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let target_cell = self.editor.read(cx).used_cells();
+        self.move_to_display_cell(target_cell, window, cx);
     }
 
     fn open_next_column(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1566,6 +1595,24 @@ impl Vim {
         self.move_by_motion(MotionKind::BigWordBackward, window, cx);
     }
 
+    fn vim_move_document_start(
+        &mut self,
+        _: &VimMoveDocumentStart,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_to_document_start(window, cx);
+    }
+
+    fn vim_move_document_end(
+        &mut self,
+        _: &VimMoveDocumentEnd,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_to_document_end(window, cx);
+    }
+
     fn vim_move_left(&mut self, _: &VimMoveLeft, window: &mut Window, cx: &mut Context<Self>) {
         let rows_per_column = self.editor.read(cx).rows_per_column() as isize;
         self.move_by_cells(rows_per_column, window, cx);
@@ -1694,6 +1741,8 @@ impl Render for Vim {
             .on_action(cx.listener(Self::vim_move_word_end_forward))
             .on_action(cx.listener(Self::vim_move_word_backward))
             .on_action(cx.listener(Self::vim_move_big_word_backward))
+            .on_action(cx.listener(Self::vim_move_document_start))
+            .on_action(cx.listener(Self::vim_move_document_end))
             .on_action(cx.listener(Self::vim_move_left))
             .on_action(cx.listener(Self::vim_move_down))
             .on_action(cx.listener(Self::vim_move_up))

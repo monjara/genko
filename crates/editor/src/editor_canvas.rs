@@ -24,7 +24,7 @@ struct PaintState {
     visible_text: std::sync::Arc<[CellText]>,
     selected_range: Range<usize>,
     marked_range: Option<Range<usize>>,
-    block_selection: Option<crate::editor_state::BlockSelection>,
+    block_selection: Option<crate::editor::BlockSelection>,
     cursor_index: usize,
     scroll_column: usize,
     scroll_row: usize,
@@ -86,18 +86,17 @@ impl Element for EditorCanvas {
         let editor = self.editor.read(cx);
         let header_height = column_number_header_height(
             AppSettings::global(cx).column_number_mode,
-            editor.state.cell_size(),
+            editor.cell_size(),
         );
         let mut style = Style::default();
         style.size.width = board_width_for_columns(
-            editor.state.visible_columns(),
-            editor.state.cell_size(),
-            editor.state.ruby_gutter_size(),
+            editor.visible_columns(),
+            editor.cell_size(),
+            editor.ruby_gutter_size(),
         )
         .into();
-        style.size.height = (px(editor.state.cell_size() * editor.state.visible_rows() as f32)
-            + header_height)
-            .into();
+        style.size.height =
+            (px(editor.cell_size() * editor.visible_rows() as f32) + header_height).into();
         (window.request_layout(style, [], cx), ())
     }
 
@@ -125,7 +124,7 @@ impl Element for EditorCanvas {
         let column_number_mode = AppSettings::global(cx).column_number_mode;
         let header_height = {
             let editor = self.editor.read(cx);
-            column_number_header_height(column_number_mode, editor.state.cell_size())
+            column_number_header_height(column_number_mode, editor.cell_size())
         };
         let content_bounds = Bounds::new(
             point(bounds.left(), bounds.top() + header_height),
@@ -143,18 +142,18 @@ impl Element for EditorCanvas {
 
         let show_grid = AppSettings::global(cx).show_grid_lines;
         let paint_state = self.editor.update(cx, |editor, _cx| PaintState {
-            visible_text: editor.state.visible_text(),
-            selected_range: editor.state.selected_range.clone(),
-            marked_range: editor.state.marked_range.clone(),
-            block_selection: editor.state.block_selection,
-            cursor_index: editor.state.cursor_cell,
-            scroll_column: editor.state.scroll_column,
-            scroll_row: editor.state.scroll_row,
-            rows_per_column: editor.state.rows_per_column(),
-            visible_columns: editor.state.visible_columns(),
-            visible_rows: editor.state.visible_rows(),
-            cell_size: editor.state.cell_size(),
-            ruby_gutter_size: editor.state.ruby_gutter_size(),
+            visible_text: editor.visible_text(),
+            selected_range: editor.selected_range.clone(),
+            marked_range: editor.marked_range.clone(),
+            block_selection: editor.block_selection,
+            cursor_index: editor.cursor_cell,
+            scroll_column: editor.scroll_column,
+            scroll_row: editor.scroll_row,
+            rows_per_column: editor.rows_per_column(),
+            visible_columns: editor.visible_columns(),
+            visible_rows: editor.visible_rows(),
+            cell_size: editor.cell_size(),
+            ruby_gutter_size: editor.ruby_gutter_size(),
         });
         let PaintState {
             visible_text,
@@ -453,7 +452,7 @@ fn paint_selection(
     visible_text: &[CellText],
     selected_range: &Range<usize>,
     marked_range: Option<&Range<usize>>,
-    block_selection: Option<crate::editor_state::BlockSelection>,
+    block_selection: Option<crate::editor::BlockSelection>,
     bounds: Bounds<Pixels>,
     scroll_column: usize,
     first_visible_row: usize,
