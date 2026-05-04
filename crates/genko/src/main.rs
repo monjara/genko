@@ -32,6 +32,7 @@ struct GenkoApp {
 impl GenkoApp {
     fn new(cx: &mut Context<Self>) -> Self {
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+        cx.bind_keys([KeyBinding::new("ctrl-b", ToggleWorkspacePane, None)]);
         cx.bind_keys([KeyBinding::new("ctrl-,", OpenSettings, None)]);
         cx.bind_keys([
             KeyBinding::new("cmd-o", OpenFile, None),

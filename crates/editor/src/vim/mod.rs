@@ -60,6 +60,8 @@ actions!(
         VimMoveWordForward,
         VimMoveBigWordForward,
         VimMoveWordEndForward,
+        VimMoveWordBackward,
+        VimMoveBigWordBackward,
         VimMoveLeft,
         VimMoveDown,
         VimMoveUp,
@@ -1546,6 +1548,24 @@ impl Vim {
         self.move_by_motion(MotionKind::WordEndForward, window, cx);
     }
 
+    fn vim_move_word_backward(
+        &mut self,
+        _: &VimMoveWordBackward,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_by_motion(MotionKind::WordBackward, window, cx);
+    }
+
+    fn vim_move_big_word_backward(
+        &mut self,
+        _: &VimMoveBigWordBackward,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_by_motion(MotionKind::BigWordBackward, window, cx);
+    }
+
     fn vim_move_left(&mut self, _: &VimMoveLeft, window: &mut Window, cx: &mut Context<Self>) {
         let rows_per_column = self.editor.read(cx).rows_per_column() as isize;
         self.move_by_cells(rows_per_column, window, cx);
@@ -1672,6 +1692,8 @@ impl Render for Vim {
             .on_action(cx.listener(Self::vim_move_word_forward))
             .on_action(cx.listener(Self::vim_move_big_word_forward))
             .on_action(cx.listener(Self::vim_move_word_end_forward))
+            .on_action(cx.listener(Self::vim_move_word_backward))
+            .on_action(cx.listener(Self::vim_move_big_word_backward))
             .on_action(cx.listener(Self::vim_move_left))
             .on_action(cx.listener(Self::vim_move_down))
             .on_action(cx.listener(Self::vim_move_up))

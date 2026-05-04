@@ -3,12 +3,12 @@ use settings::AppSettings;
 
 use super::{
     VimAppend, VimBlockAppendAfter, VimBlockInsertBefore, VimChangeOperator, VimDeleteChar,
-    VimDeleteOperator, VimEnterInsertMode, VimMoveBigWordForward, VimMoveDown, VimMoveLeft,
-    VimMoveRight, VimMoveUp, VimMoveWordEndForward, VimMoveWordForward, VimNormalMode,
-    VimOpenNextColumn, VimPasteAfter, VimPasteBefore, VimRedo, VimRepeatLastChange,
-    VimTextObjectAround, VimTextObjectBigWord, VimTextObjectBracket, VimTextObjectDoubleQuote,
-    VimTextObjectInner, VimTextObjectParen, VimTextObjectSingleQuote, VimTextObjectWord, VimUndo,
-    VimVisualBlockMode, VimVisualMode, VimYankOperator,
+    VimDeleteOperator, VimEnterInsertMode, VimMoveBigWordBackward, VimMoveBigWordForward,
+    VimMoveDown, VimMoveLeft, VimMoveRight, VimMoveUp, VimMoveWordBackward, VimMoveWordEndForward,
+    VimMoveWordForward, VimNormalMode, VimOpenNextColumn, VimPasteAfter, VimPasteBefore, VimRedo,
+    VimRepeatLastChange, VimTextObjectAround, VimTextObjectBigWord, VimTextObjectBracket,
+    VimTextObjectDoubleQuote, VimTextObjectInner, VimTextObjectParen, VimTextObjectSingleQuote,
+    VimTextObjectWord, VimUndo, VimVisualBlockMode, VimVisualMode, VimYankOperator,
 };
 
 pub(crate) fn init(cx: &mut App) {
@@ -67,6 +67,8 @@ pub(crate) fn init(cx: &mut App) {
             VimMoveWordEndForward,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
+        KeyBinding::new("b", VimMoveWordBackward, Some("vim_mode == normal")),
+        KeyBinding::new("B", VimMoveBigWordBackward, Some("vim_mode == normal")),
         KeyBinding::new("o", VimOpenNextColumn, Some("vim_mode == normal")),
         KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == operator_delete")),
         KeyBinding::new("c", VimChangeOperator, Some("vim_mode == operator_change")),

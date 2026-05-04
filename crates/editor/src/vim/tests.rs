@@ -241,6 +241,30 @@ fn big_word_forward_skips_until_next_whitespace_boundary() {
 }
 
 #[test]
+fn word_backward_moves_to_current_or_previous_word_start() {
+    assert_eq!(
+        resolve_motion("alpha beta gamma", 8, MotionKind::WordBackward),
+        Some(6)
+    );
+    assert_eq!(
+        resolve_motion("alpha beta gamma", 6, MotionKind::WordBackward),
+        Some(0)
+    );
+    assert_eq!(
+        resolve_motion("alpha beta gamma", 5, MotionKind::WordBackward),
+        Some(0)
+    );
+}
+
+#[test]
+fn big_word_backward_skips_to_previous_whitespace_boundary() {
+    assert_eq!(
+        resolve_motion("foo.bar baz", 8, MotionKind::BigWordBackward),
+        Some(0)
+    );
+}
+
+#[test]
 fn word_end_moves_to_current_or_next_word_end() {
     assert_eq!(
         resolve_motion("alpha beta", 1, MotionKind::WordEndForward),

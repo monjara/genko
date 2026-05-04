@@ -65,6 +65,8 @@ pub(crate) enum MotionKind {
     WordForward,
     BigWordForward,
     WordEndForward,
+    WordBackward,
+    BigWordBackward,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

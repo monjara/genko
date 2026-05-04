@@ -58,6 +58,8 @@ pub(crate) fn resolve_motion_target(
         MotionKind::WordForward => resolve_forward_word_start(rope, cursor_byte_offset, false),
         MotionKind::BigWordForward => resolve_forward_word_start(rope, cursor_byte_offset, true),
         MotionKind::WordEndForward => resolve_forward_word_end(rope, cursor_byte_offset),
+        MotionKind::WordBackward => resolve_backward_word_start(rope, cursor_byte_offset, false),
+        MotionKind::BigWordBackward => resolve_backward_word_start(rope, cursor_byte_offset, true),
     }
 }
 
@@ -73,7 +75,10 @@ pub(crate) fn resolve_motion_range(
 
     let start = rope.floor_char_boundary(cursor_byte_offset.min(rope.len_bytes()));
     match motion {
-        MotionKind::WordForward | MotionKind::BigWordForward => {
+        MotionKind::WordForward
+        | MotionKind::BigWordForward
+        | MotionKind::WordBackward
+        | MotionKind::BigWordBackward => {
             if operator == VimOperator::Change {
                 let target = match motion {
                     MotionKind::WordForward => find_japanese_word_range(rope, start)
@@ -81,6 +86,9 @@ pub(crate) fn resolve_motion_range(
                         .or_else(|| find_word_range(rope, start, is_word_char).map(|(_, end)| end)),
                     MotionKind::BigWordForward => {
                         find_word_range(rope, start, |ch| !ch.is_whitespace()).map(|(_, end)| end)
+                    }
+                    MotionKind::WordBackward | MotionKind::BigWordBackward => {
+                        resolve_motion_target(rope, start, motion)
                     }
                     MotionKind::WordEndForward => None,
                 }
@@ -187,6 +195,46 @@ fn resolve_forward_word_end(rope: &TextRope, cursor_byte_offset: usize) -> Optio
         .iter()
         .find(|range| range.start >= cursor_byte_offset)
         .map(|range| rope.previous_char_boundary(range.end))
+}
+
+fn resolve_backward_word_start(
+    rope: &TextRope,
+    cursor_byte_offset: usize,
+    big_word: bool,
+) -> Option<usize> {
+    if rope.len_bytes() == 0 {
+        return None;
+    }
+
+    let ranges = token_ranges_for_target(
+        rope,
+        if cursor_byte_offset < rope.len_bytes() {
+            cursor_byte_offset
+        } else {
+            rope.previous_char_boundary(rope.len_bytes())
+        },
+        if big_word {
+            TextObjectTarget::BigWord
+        } else {
+            TextObjectTarget::Word
+        },
+    )?;
+
+    if let Some(index) = current_token_index(&ranges, cursor_byte_offset) {
+        let range = &ranges[index];
+        if cursor_byte_offset > range.start {
+            return Some(range.start);
+        }
+        return index
+            .checked_sub(1)
+            .map(|previous_index| ranges[previous_index].start);
+    }
+
+    ranges
+        .iter()
+        .rev()
+        .find(|range| range.start < cursor_byte_offset)
+        .map(|range| range.start)
 }
 
 fn token_ranges_for_target(
