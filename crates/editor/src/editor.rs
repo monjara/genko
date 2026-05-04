@@ -51,6 +51,10 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("ctrl-c", Copy, EDITOR_CONTEXT),
         KeyBinding::new("cmd-x", Cut, EDITOR_CONTEXT),
         KeyBinding::new("ctrl-x", Cut, EDITOR_CONTEXT),
+        KeyBinding::new("cmd-z", Undo, EDITOR_CONTEXT),
+        KeyBinding::new("ctrl-z", Undo, EDITOR_CONTEXT),
+        KeyBinding::new("cmd-shift-z", Redo, EDITOR_CONTEXT),
+        KeyBinding::new("ctrl-u", Redo, EDITOR_CONTEXT),
         KeyBinding::new("enter", Enter, EDITOR_CONTEXT),
         KeyBinding::new("home", Home, EDITOR_CONTEXT),
         KeyBinding::new("end", End, EDITOR_CONTEXT),
@@ -77,6 +81,8 @@ actions!(
         Paste,
         Cut,
         Copy,
+        Undo,
+        Redo,
         Enter,
         ShowCharacterPalette,
     ]
@@ -672,6 +678,18 @@ impl Editor {
         window.show_character_palette();
     }
 
+    fn undo_action(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
+        if self.undo(cx) {
+            invalidate_ime_position(window);
+        }
+    }
+
+    fn redo_action(&mut self, _: &Redo, window: &mut Window, cx: &mut Context<Self>) {
+        if self.redo(cx) {
+            invalidate_ime_position(window);
+        }
+    }
+
     fn on_board_mouse_down(
         &mut self,
         event: &MouseDownEvent,
@@ -941,6 +959,8 @@ impl Render for Editor {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::undo_action))
+            .on_action(cx.listener(Self::redo_action))
             .on_action(cx.listener(Self::enter))
             .on_action(cx.listener(Self::show_character_palette))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
