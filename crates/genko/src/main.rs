@@ -3,7 +3,7 @@ mod font;
 use std::path::{Path, PathBuf};
 
 use bottom_bar::BottomBar;
-use editor::Vim;
+use editor::{Vim, VimCommandQuit, VimCommandWrite};
 use gpui::{
     App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
@@ -349,6 +349,24 @@ impl GenkoApp {
         self.save_file(window, cx);
     }
 
+    fn vim_command_write_action(
+        &mut self,
+        _: &VimCommandWrite,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_file(window, cx);
+    }
+
+    fn vim_command_quit_action(
+        &mut self,
+        _: &VimCommandQuit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.quit();
+    }
+
     fn toggle_workspace_pane_action(
         &mut self,
         _: &ToggleWorkspacePane,
@@ -429,6 +447,8 @@ impl Render for GenkoApp {
                     .on_action(cx.listener(Self::open_workspace_file_action))
                     .on_action(cx.listener(Self::open_workspace_folder_action))
                     .on_action(cx.listener(Self::save_file_action))
+                    .on_action(cx.listener(Self::vim_command_write_action))
+                    .on_action(cx.listener(Self::vim_command_quit_action))
                     .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .child(self.title_bar.clone().into_element())
                     .child(

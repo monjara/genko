@@ -2,7 +2,7 @@ mod editor;
 mod editor_canvas;
 pub mod vim;
 
-pub use vim::{Vim, VimMode, VimModeLabel, VimState};
+pub use vim::{Vim, VimCommandQuit, VimCommandWrite, VimMode, VimModeLabel, VimState};
 
 use gpui::App;
 

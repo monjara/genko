@@ -2,8 +2,8 @@ use std::ops::Range;
 
 use crate::editor::Editor;
 use gpui::{
-    App, AppContext, Context, Entity, FocusHandle, Focusable, InteractiveElement, IntoElement,
-    ParentElement, Render, Styled, Window, actions, div,
+    App, AppContext, ClipboardItem, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, KeyDownEvent, ParentElement, Render, Styled, Window, actions, div,
 };
 use rope::BLANK_CELL;
 use settings::AppSettings;
@@ -74,6 +74,8 @@ actions!(
         VimUndo,
         VimRedo,
         VimRepeatLastChange,
+        VimCommandWrite,
+        VimCommandQuit,
     ]
 );
 
@@ -91,6 +93,14 @@ pub struct Vim {
     pending_block_insert: Option<PendingBlockInsert>,
     pending_text_object_modifier: Option<TextObjectModifier>,
     visual_anchor_cell: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommandAction {
+    YankWholeBuffer,
+    Write,
+    Quit,
+    DeleteWholeBuffer,
 }
 
 impl Vim {
@@ -129,6 +139,141 @@ impl Vim {
         self.editor.update(cx, |editor, cx| {
             editor.set_text_input_enabled(text_input_enabled, cx);
         });
+    }
+
+    fn enter_command_mode(&mut self, cx: &mut Context<Self>) {
+        self.clear_pending();
+        let state = VimState::global_mut(cx);
+        state.mode = VimMode::Command;
+        state.command_line = Some(String::new());
+        self.editor.update(cx, |editor, cx| {
+            editor.set_text_input_enabled(false, cx);
+        });
+        cx.notify();
+    }
+
+    fn exit_command_mode(&mut self, cx: &mut Context<Self>) {
+        let state = VimState::global_mut(cx);
+        state.mode = VimMode::Normal;
+        state.command_line = None;
+        self.editor.update(cx, |editor, cx| {
+            editor.set_text_input_enabled(false, cx);
+        });
+        cx.notify();
+    }
+
+    fn append_command_character(&mut self, text: &str, cx: &mut Context<Self>) {
+        let Some(command_line) = VimState::global_mut(cx).command_line.as_mut() else {
+            return;
+        };
+        command_line.push_str(text);
+        cx.notify();
+    }
+
+    fn pop_command_character(&mut self, cx: &mut Context<Self>) {
+        let Some(command_line) = VimState::global_mut(cx).command_line.as_mut() else {
+            return;
+        };
+        command_line.pop();
+        cx.notify();
+    }
+
+    fn execute_command_mode(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let command_line = VimState::global(cx)
+            .command_line
+            .as_deref()
+            .unwrap_or_default()
+            .trim();
+
+        let action = parse_command_action(command_line);
+        self.exit_command_mode(cx);
+
+        match action {
+            Some(CommandAction::YankWholeBuffer) => {
+                let text = self.editor.read(cx).snapshot_text();
+                self.yank_register = YankRegister::CharWise(text.clone());
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+            Some(CommandAction::Write) => {
+                window.dispatch_action(Box::new(VimCommandWrite), cx);
+            }
+            Some(CommandAction::Quit) => {
+                window.dispatch_action(Box::new(VimCommandQuit), cx);
+            }
+            Some(CommandAction::DeleteWholeBuffer) => {
+                let deleted_text = self.editor.read(cx).snapshot_text();
+                self.yank_register = YankRegister::CharWise(deleted_text.clone());
+                self.editor.update(cx, |editor, cx| {
+                    editor.replace_byte_range(0..deleted_text.len(), "", cx);
+                });
+            }
+            None => {}
+        }
+    }
+
+    fn handle_command_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let key = event.keystroke.key.as_str();
+        match key {
+            "escape" => {
+                self.exit_command_mode(cx);
+                cx.stop_propagation();
+                return;
+            }
+            "enter" => {
+                self.execute_command_mode(window, cx);
+                cx.stop_propagation();
+                return;
+            }
+            "backspace" => {
+                self.pop_command_character(cx);
+                cx.stop_propagation();
+                return;
+            }
+            _ => {}
+        }
+
+        if let Some(text) = command_character(&event.keystroke) {
+            self.append_command_character(text, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn handle_vim_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !AppSettings::global(cx).vim_mode {
+            return;
+        }
+
+        if VimState::global(cx).mode == VimMode::Command {
+            self.handle_command_key_down(event, window, cx);
+            return;
+        }
+
+        if VimState::global(cx).mode != VimMode::Normal {
+            return;
+        }
+
+        if event.keystroke.modifiers.control
+            || event.keystroke.modifiers.alt
+            || event.keystroke.modifiers.platform
+            || event.keystroke.modifiers.function
+        {
+            return;
+        }
+
+        if event.keystroke.key_char.as_deref() == Some(":") {
+            self.enter_command_mode(cx);
+            cx.stop_propagation();
+        }
     }
 
     fn start_insert_session(
@@ -1700,10 +1845,43 @@ impl Vim {
             (VimMode::Insert, _, _) => "Genko vim_mode=insert",
             (VimMode::Visual, _, _) => "Genko vim_mode=visual",
             (VimMode::VisualBlock, _, _) => "Genko vim_mode=visual_block",
+            (VimMode::Command, _, _) => "Genko vim_mode=command",
             (VimMode::Normal, None, _) => "Genko vim_mode=normal",
             (VimMode::Normal, Some(operator), modifier) => operator_key_context(operator, modifier),
         }
     }
+}
+
+fn parse_command_action(command_line: &str) -> Option<CommandAction> {
+    let command_line = command_line.trim();
+    match command_line {
+        "%y" | "%yank" => Some(CommandAction::YankWholeBuffer),
+        "w" => Some(CommandAction::Write),
+        "q" => Some(CommandAction::Quit),
+        "%d" | "%delete" => Some(CommandAction::DeleteWholeBuffer),
+        _ => None,
+    }
+}
+
+fn command_character(keystroke: &gpui::Keystroke) -> Option<&str> {
+    if keystroke.modifiers.control
+        || keystroke.modifiers.alt
+        || keystroke.modifiers.platform
+        || keystroke.modifiers.function
+    {
+        return None;
+    }
+
+    let key = keystroke.key.as_str();
+    if matches!(key, "escape" | "enter" | "backspace" | "tab" | "delete") {
+        return None;
+    }
+
+    keystroke
+        .key_char
+        .as_deref()
+        .or(Some(key))
+        .filter(|text| !text.is_empty())
 }
 
 impl Render for Vim {
@@ -1717,6 +1895,7 @@ impl Render for Vim {
             } else {
                 "Genko vim_mode=disabled"
             })
+            .on_key_down(cx.listener(Self::handle_vim_key_down))
             .on_action(cx.listener(Self::vim_enter_insert_mode))
             .on_action(cx.listener(Self::vim_append))
             .on_action(cx.listener(Self::vim_normal_mode))
@@ -1770,12 +1949,17 @@ impl VimModeLabel {
         Self {}
     }
 
-    fn mode_label(&self, _window: &mut Window, cx: &mut Context<Self>) -> &'static str {
+    fn mode_label(&self, _window: &mut Window, cx: &mut Context<Self>) -> String {
+        if let Some(command_line) = VimState::global(cx).command_line.as_ref() {
+            return format!(":{}", command_line);
+        }
+
         match VimState::global(cx).mode {
-            VimMode::Normal => "-- NORMAL --",
-            VimMode::Insert => "-- INSERT --",
-            VimMode::Visual => "-- VISUAL --",
-            VimMode::VisualBlock => "-- VISUAL BLOCK --",
+            VimMode::Normal => "-- NORMAL --".to_string(),
+            VimMode::Insert => "-- INSERT --".to_string(),
+            VimMode::Visual => "-- VISUAL --".to_string(),
+            VimMode::VisualBlock => "-- VISUAL BLOCK --".to_string(),
+            VimMode::Command => ":".to_string(),
         }
     }
 }

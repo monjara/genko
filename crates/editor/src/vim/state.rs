@@ -6,6 +6,7 @@ pub enum VimMode {
     Insert,
     Visual,
     VisualBlock,
+    Command,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,9 +152,10 @@ pub(crate) struct BlockRegister {
     pub(crate) cells: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VimState {
     pub mode: VimMode,
+    pub command_line: Option<String>,
 }
 
 pub(crate) fn init(cx: &mut App) {
@@ -172,6 +174,7 @@ impl VimState {
     fn new() -> Self {
         Self {
             mode: VimMode::Normal,
+            command_line: None,
         }
     }
 }

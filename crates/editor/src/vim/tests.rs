@@ -38,6 +38,10 @@ fn resolve_repeat_range(
     resolve_repeat_target_range(&rope(text), cursor_byte_offset, target, is_change)
 }
 
+fn parse_command(command_line: &str) -> Option<CommandAction> {
+    parse_command_action(command_line)
+}
+
 #[test]
 fn inner_word_targets_current_word() {
     assert_eq!(
@@ -395,4 +399,23 @@ fn resolve_repeat_target_range_ignores_line_targets() {
         resolve_repeat_range("abc", 0, RepeatTarget::Line, false),
         None
     );
+}
+
+#[test]
+fn parses_yank_whole_buffer_command() {
+    assert_eq!(parse_command("%y"), Some(CommandAction::YankWholeBuffer));
+    assert_eq!(parse_command("%yank"), Some(CommandAction::YankWholeBuffer));
+    assert_eq!(parse_command("w"), Some(CommandAction::Write));
+    assert_eq!(parse_command("q"), Some(CommandAction::Quit));
+    assert_eq!(parse_command("%d"), Some(CommandAction::DeleteWholeBuffer));
+    assert_eq!(
+        parse_command("%delete"),
+        Some(CommandAction::DeleteWholeBuffer)
+    );
+}
+
+#[test]
+fn rejects_unknown_command_line() {
+    assert_eq!(parse_command("y"), None);
+    assert_eq!(parse_command("%x"), None);
 }
