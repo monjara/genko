@@ -34,8 +34,8 @@ args = ["${HOME}/.config/genko/settings.json"]
 
 [tasks.bug]
 command = "gh"
-args = ["issue", "create", "--template", "bug_report.md"]
+args = ["issue", "create", "--template", "BUG_REPORT"]
 
 [tasks.feature]
 command = "gh"
-args = ["issue", "create", "--template", "feature_request.md"]
+args = ["issue", "create", "--template", "Feature_Request"]
