@@ -1,8 +1,10 @@
 ---
 name: Feature Request
 about: 機能追加
-title: ""
+title: ''
 labels: feature
+assignees: ''
+
 ---
 
 # XXX
