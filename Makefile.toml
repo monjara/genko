@@ -31,3 +31,11 @@ args = ["${@}"]
 [tasks.configure]
 command = "nvim"
 args = ["${HOME}/.config/genko/settings.json"]
+
+[tasks.bug]
+command = "gh"
+args = ["issue", "create", "--template", "bug_report.md"]
+
+[tasks.feature]
+command = "gh"
+args = ["issue", "create", "--template", "feature_request.md"]
