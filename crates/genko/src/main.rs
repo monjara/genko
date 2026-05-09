@@ -67,7 +67,7 @@ impl GenkoApp {
     fn window_title(&self, cx: &App) -> String {
         match self.workspace.read(cx).active_file() {
             Some(path) => format!("Genko - {}", path.display()),
-            None => "Genko".to_string(),
+            _ => "Genko".to_string(),
         }
     }
 

@@ -782,8 +782,10 @@ impl Render for SettingsWindow {
                     .child(self.title_bar.clone())
                     .child(
                         div()
+                            .id("settings-content-scroll")
                             .flex_1()
                             .w_full()
+                            .overflow_y_scroll()
                             .p_6()
                             .flex()
                             .flex_col()
