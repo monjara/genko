@@ -949,7 +949,12 @@ impl Editor {
     }
 
     fn enter(&mut self, _: &Enter, window: &mut Window, cx: &mut Context<Self>) {
-        self.replace_text_in_byte_range(self.selected_range.clone(), "\n", cx);
+        let inserted_text = if AppSettings::global(cx).indent_on_enter {
+            "\n "
+        } else {
+            "\n"
+        };
+        self.replace_text_in_byte_range(self.selected_range.clone(), inserted_text, cx);
         invalidate_ime_position(window);
     }
 

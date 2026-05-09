@@ -66,6 +66,17 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    fn toggle_indent_on_enter(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx).indent_on_enter = !AppSettings::global(cx).indent_on_enter;
+        self.status = "".into();
+        cx.notify();
+    }
+
     fn toggle_hanging_punctuation(
         &mut self,
         _: &ClickEvent,
@@ -506,6 +517,61 @@ impl SettingsWindow {
             )
     }
 
+    fn render_indent_on_enter_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let value_label = if AppSettings::global(cx).indent_on_enter {
+            "有効"
+        } else {
+            "無効"
+        };
+
+        div()
+            .id("settings-indent-on-enter-toggle")
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .p_3()
+            .border_1()
+            .border_color(Theme::global(cx).primary())
+            .rounded_sm()
+            .cursor_pointer()
+            .on_click(cx.listener(Self::toggle_indent_on_enter))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Enter時に1マス字下げ"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(Theme::global(cx).text_senodary())
+                            .child("有効時は改行後に1マス分スペースを挿入します"),
+                    ),
+            )
+            .child(
+                div()
+                    .px_3()
+                    .py_1()
+                    .rounded_sm()
+                    .bg(if AppSettings::global(cx).indent_on_enter {
+                        Theme::global(cx).primary()
+                    } else {
+                        Theme::global(cx).white()
+                    })
+                    .text_color(if AppSettings::global(cx).indent_on_enter {
+                        Theme::global(cx).white()
+                    } else {
+                        Theme::global(cx).primary()
+                    })
+                    .child(value_label),
+            )
+    }
+
     fn render_hanging_punctuation_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let value_label = if AppSettings::global(cx).hanging_punctuation {
             "有効"
@@ -745,6 +811,7 @@ impl Render for SettingsWindow {
                             .child(self.render_hanging_punctuation_toggle(cx))
                             .child(self.render_column_number_mode(cx))
                             .child(self.render_vim_mode_toggle(cx))
+                            .child(self.render_indent_on_enter_toggle(cx))
                             .child(self.render_rows_per_column(cx))
                             .child(
                                 div()
@@ -813,6 +880,8 @@ pub struct AppSettings {
     pub rows_per_column: Option<usize>,
     #[serde(rename = "vimMode")]
     pub vim_mode: bool,
+    #[serde(rename = "indentOnEnter")]
+    pub indent_on_enter: bool,
 }
 
 impl Global for AppSettings {}
@@ -826,6 +895,7 @@ impl Default for AppSettings {
             cell_size: DEFAULT_CELL_SIZE,
             rows_per_column: None,
             vim_mode: false,
+            indent_on_enter: false,
         }
     }
 }
@@ -888,6 +958,7 @@ impl AppSettings {
                 .rows_per_column
                 .map(|rows| rows.clamp(MIN_ROWS_PER_COLUMN, MAX_ROWS_PER_COLUMN)),
             vim_mode: self.vim_mode,
+            indent_on_enter: self.indent_on_enter,
         }
     }
 
@@ -1016,6 +1087,7 @@ mod tests {
             cell_size: 32,
             rows_per_column: Some(24),
             vim_mode: true,
+            indent_on_enter: true,
         };
 
         settings.save_to_file(&settings_path).unwrap();
@@ -1027,6 +1099,7 @@ mod tests {
         assert_eq!(reloaded.cell_size, 32);
         assert_eq!(reloaded.rows_per_column, Some(24));
         assert!(reloaded.vim_mode);
+        assert!(reloaded.indent_on_enter);
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1036,13 +1109,14 @@ mod tests {
         let dir = test_settings_dir("vim_mode");
         fs::write(
             dir.join("settings.json"),
-            r#"{"show_grid_lines": false, "rows_per_column": 24, "vimMode": true}"#,
+            r#"{"show_grid_lines": false, "rows_per_column": 24, "vimMode": true, "indentOnEnter": true}"#,
         )
         .unwrap();
 
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
         assert!(settings.vim_mode);
+        assert!(settings.indent_on_enter);
 
         let _ = fs::remove_dir_all(dir);
     }
