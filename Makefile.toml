@@ -38,4 +38,4 @@ args = ["issue", "create", "--template", "BUG_REPORT"]
 
 [tasks.feature]
 command = "gh"
-args = ["issue", "create", "--template", "Feature_Request"]
+args = ["issue", "create", "--template", "FEATURE_REQUEST"]

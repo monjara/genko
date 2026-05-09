@@ -8,8 +8,8 @@ members = [
   "crates/genko",
   "crates/rope",
   "crates/settings",
-  "crates/title_bar",
   "crates/theme",
+  "crates/title_bar",
   "crates/workspace"
 ]
 default-members = ["crates/genko"]
@@ -30,11 +30,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 xdg = "3.0.0"
 
+bottom_bar = { path = "crates/bottom_bar" }
 editor = { path = "crates/editor" }
 env = { path = "crates/env" }
-bottom_bar = { path = "crates/bottom_bar" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
-title_bar = { path = "crates/title_bar" }
 theme = { path = "crates/theme" }
+title_bar = { path = "crates/title_bar" }
 workspace = { path = "crates/workspace" }
