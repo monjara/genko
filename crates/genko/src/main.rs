@@ -3,7 +3,7 @@ mod font;
 use std::path::{Path, PathBuf};
 
 use bottom_bar::BottomBar;
-use editor::{Vim, VimCommandQuit, VimCommandWrite};
+use editor::{EditorController, VimCommandQuit, VimCommandWrite};
 use gpui::{
     App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
@@ -21,7 +21,7 @@ use workspace::{
 actions!(genko, [OpenSettings, OpenFile, OpenFolder, SaveFile, Quit]);
 
 struct GenkoApp {
-    vim: Entity<Vim>,
+    editor_controller: Entity<EditorController>,
     workspace: Entity<Workspace>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
@@ -43,7 +43,7 @@ impl GenkoApp {
             KeyBinding::new("ctrl-s", SaveFile, None),
         ]);
 
-        let vim = cx.new(Vim::new);
+        let editor_controller = cx.new(EditorController::new);
         let workspace = cx.new(Workspace::new);
         let subscriptions = vec![cx.subscribe(&workspace, |this, _, event, cx| {
             let WorkspaceEvent::OpenPath(path) = event;
@@ -55,7 +55,7 @@ impl GenkoApp {
         let bottom_bar = cx.new(BottomBar::new);
 
         Self {
-            vim,
+            editor_controller,
             workspace,
             title_bar,
             bottom_bar,
@@ -87,13 +87,15 @@ impl GenkoApp {
     }
 
     fn load_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
-        self.vim.update(cx, |vim, cx| vim.load_text(text, cx));
+        self.editor_controller
+            .update(cx, |editor_controller, cx| editor_controller.load_text(text, cx));
         self.workspace
             .update(cx, |workspace, cx| workspace.open_file(path, cx));
     }
 
     fn open_standalone_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
-        self.vim.update(cx, |vim, cx| vim.load_text(text, cx));
+        self.editor_controller
+            .update(cx, |editor_controller, cx| editor_controller.load_text(text, cx));
         self.workspace.update(cx, |workspace, cx| {
             workspace.open_file_without_root(path, cx)
         });
@@ -271,7 +273,7 @@ impl GenkoApp {
     }
 
     fn save_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let contents = self.vim.read(cx).snapshot_text(cx);
+        let contents = self.editor_controller.read(cx).snapshot_text(cx);
         let window_handle = window.window_handle();
 
         if let Some(path) = self.workspace.read(cx).active_file().map(Path::to_path_buf) {
@@ -389,11 +391,11 @@ impl Render for GenkoApp {
             editor_viewport_size.width -= px(WORKSPACE_PANE_WIDTH);
         }
         editor_viewport_size.height -= bar_height * 2.0;
-        self.vim.update(cx, |vim, cx| {
-            vim.update_viewport_size(editor_viewport_size, cx);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.update_viewport_size(editor_viewport_size, cx);
         });
 
-        let content = self.vim.clone().into_element();
+        let content = self.editor_controller.clone().into_element();
 
         div()
             .size_full()
@@ -476,7 +478,7 @@ impl Render for GenkoApp {
 
 impl Focusable for GenkoApp {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.vim.focus_handle(cx)
+        self.editor_controller.focus_handle(cx)
     }
 }
 

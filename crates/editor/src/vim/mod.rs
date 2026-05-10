@@ -84,7 +84,7 @@ pub fn init(cx: &mut App) {
     state::init(cx);
 }
 
-pub struct Vim {
+pub struct EditorController {
     editor: Entity<Editor>,
     yank_register: YankRegister,
     last_change: Option<RepeatableCommand>,
@@ -103,7 +103,7 @@ enum CommandAction {
     DeleteWholeBuffer,
 }
 
-impl Vim {
+impl EditorController {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let editor = cx.new(Editor::new);
         Self {
@@ -1884,7 +1884,7 @@ fn command_character(keystroke: &gpui::Keystroke) -> Option<&str> {
         .filter(|text| !text.is_empty())
 }
 
-impl Render for Vim {
+impl Render for EditorController {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         self.sync_text_input_enabled(window, cx);
 
@@ -1936,7 +1936,7 @@ impl Render for Vim {
     }
 }
 
-impl Focusable for Vim {
+impl Focusable for EditorController {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.editor.focus_handle(cx)
     }
