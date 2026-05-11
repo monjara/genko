@@ -1,8 +1,10 @@
 mod editor;
+mod editor_controller;
 mod editor_canvas;
 pub mod vim;
 
-pub use vim::{EditorController, VimCommandQuit, VimCommandWrite, VimMode, VimModeLabel, VimState};
+pub use editor_controller::EditorController;
+pub use vim::{VimCommandQuit, VimCommandWrite, VimController, VimMode, VimModeLabel, VimState};
 
 use gpui::App;
 

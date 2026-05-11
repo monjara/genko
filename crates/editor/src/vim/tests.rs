@@ -1,5 +1,4 @@
 use rope::TextRope;
-
 use super::*;
 use crate::vim::state::BlockRegister;
 
@@ -333,12 +332,12 @@ fn end_motion_range_includes_target_character() {
 fn current_column_cell_range_returns_current_column_bounds() {
     assert_eq!(current_column_cell_range(0, 4, 10), Some(0..4));
     assert_eq!(current_column_cell_range(4, 4, 10), Some(4..8));
-    assert_eq!(current_column_cell_range(8, 4, 10), Some(8..10));
+    assert_eq!(current_column_cell_range(8, 4, 10), Some(8..12));
 }
 
 #[test]
 fn current_column_cell_range_uses_last_non_empty_column_for_end_cursor() {
-    assert_eq!(current_column_cell_range(10, 4, 10), Some(8..10));
+    assert_eq!(current_column_cell_range(10, 4, 10), Some(8..12));
 }
 
 #[test]

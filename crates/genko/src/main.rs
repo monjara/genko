@@ -87,15 +87,17 @@ impl GenkoApp {
     }
 
     fn load_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
-        self.editor_controller
-            .update(cx, |editor_controller, cx| editor_controller.load_text(text, cx));
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.load_text(text, cx)
+        });
         self.workspace
             .update(cx, |workspace, cx| workspace.open_file(path, cx));
     }
 
     fn open_standalone_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
-        self.editor_controller
-            .update(cx, |editor_controller, cx| editor_controller.load_text(text, cx));
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.load_text(text, cx)
+        });
         self.workspace.update(cx, |workspace, cx| {
             workspace.open_file_without_root(path, cx)
         });

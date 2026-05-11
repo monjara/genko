@@ -252,20 +252,6 @@ impl Editor {
         self.ensure_cursor_visible();
     }
 
-    pub(crate) fn update_rows_per_column(&mut self, rows_per_column: usize) {
-        let rows_per_column = rows_per_column.clamp(1, AppSettings::max_rows_per_column());
-        if self.rows_per_column == rows_per_column {
-            return;
-        }
-
-        let cursor_offset = self.cursor_offset();
-        self.rows_per_column = rows_per_column;
-        self.draft.set_rows_per_column(rows_per_column);
-        self.bump_draft_revision();
-        self.cursor_cell = self.display_cell_for_byte(cursor_offset);
-        self.ensure_cursor_visible();
-    }
-
     pub(crate) fn update_cell_size(&mut self, cell_size: f32) {
         let cell_size = cell_size.max(1.0);
         if (self.cell_size - cell_size).abs() < f32::EPSILON {
@@ -383,6 +369,12 @@ impl Editor {
         self.draft.byte_offset_for_display_cell(display_cell_index)
     }
 
+    pub(crate) fn materialize_display_cell(&mut self, display_cell_index: usize) -> usize {
+        let offset = self.draft.materialize_display_cell(display_cell_index);
+        self.bump_draft_revision();
+        offset
+    }
+
     pub(crate) fn set_cursor_from_offset(&mut self, cursor_offset: usize) {
         self.selected_range = cursor_offset..cursor_offset;
         self.selection_reversed = false;
@@ -455,12 +447,6 @@ impl Editor {
                 content_height,
                 self.cell_size(),
             ));
-            if AppSettings::global(cx).rows_per_column.is_none() {
-                self.update_rows_per_column(rows_per_column_for_window_height(
-                    content_height,
-                    self.cell_size(),
-                ));
-            }
         }
         self.last_viewport_size = Some(size);
     }

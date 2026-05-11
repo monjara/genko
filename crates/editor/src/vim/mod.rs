@@ -84,7 +84,7 @@ pub fn init(cx: &mut App) {
     state::init(cx);
 }
 
-pub struct EditorController {
+pub struct VimController {
     editor: Entity<Editor>,
     yank_register: YankRegister,
     last_change: Option<RepeatableCommand>,
@@ -103,7 +103,7 @@ enum CommandAction {
     DeleteWholeBuffer,
 }
 
-impl EditorController {
+impl VimController {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let editor = cx.new(Editor::new);
         Self {
@@ -590,6 +590,7 @@ impl EditorController {
             self.resolve_linewise_paste(PastePosition::After, cx)
         {
             self.editor.update(cx, |editor, cx| {
+                let insertion_offset = editor.materialize_display_cell(insertion_offset);
                 editor.replace_byte_range(
                     insertion_offset..insertion_offset,
                     inserted_text.as_str(),
@@ -641,6 +642,7 @@ impl EditorController {
             self.resolve_linewise_paste(PastePosition::Before, cx)
         {
             self.editor.update(cx, |editor, cx| {
+                let insertion_offset = editor.materialize_display_cell(insertion_offset);
                 editor.replace_byte_range(
                     insertion_offset..insertion_offset,
                     inserted_text.as_str(),
@@ -1411,7 +1413,6 @@ impl EditorController {
         position: PastePosition,
         cx: &App,
     ) -> Option<(usize, usize, String)> {
-        println!("Resolving linewise paste for position: {:?}", position);
         let YankRegister::LineWise {
             content,
             leading_rows,
@@ -1419,36 +1420,17 @@ impl EditorController {
         else {
             return None;
         };
-        println!(
-            "Linewise paste content: '{}', leading_rows: {}",
-            content, leading_rows
-        );
         let editor = self.editor.read(cx);
         let cell_range = current_column_cell_range(
             editor.cursor_cell(),
             editor.rows_per_column(),
             editor.used_cells(),
         );
-        println!("Current cell range: {:?}", cell_range);
-        let row_size = editor.rows_per_column();
-        println!("Row size: {}", row_size);
-        let target_row = editor.cursor_cell().saturating_sub(
-            cell_range
-                .as_ref()
-                .map(|range| (range.start % row_size + 1) * row_size)
-                .unwrap_or_default(),
-        );
-        println!("Target row for paste: {}", target_row);
-        let (target_column_start, insertion_offset) = match (position, cell_range) {
-            (_, None) => (0, 0),
-            (PastePosition::Before, Some(cell_range)) => (
-                cell_range.start,
-                editor.byte_offset_for_display_cell(cell_range.start),
-            ),
-            (PastePosition::After, Some(cell_range)) => (
-                cell_range.end,
-                editor.byte_offset_for_display_cell(cell_range.end),
-            ),
+        let target_row = editor.cursor_cell() % editor.rows_per_column();
+        let target_column_start = match (position, cell_range.as_ref()) {
+            (_, None) => 0,
+            (PastePosition::Before, Some(cell_range)) => cell_range.start,
+            (PastePosition::After, Some(cell_range)) => cell_range.end,
         };
         let inserted_text = format!(
             "{}{}",
@@ -1456,7 +1438,7 @@ impl EditorController {
             content
         );
         let target_cell = target_column_start + target_row;
-        Some((insertion_offset, target_cell, inserted_text))
+        Some((target_column_start, target_cell, inserted_text))
     }
 
     fn sync_visual_selection_for_current_cursor(
@@ -1617,7 +1599,9 @@ impl EditorController {
             return;
         }
         if self.pending_operator() == Some(VimOperator::Yank) {
-            self.apply_current_line_operator(VimOperator::Yank, window, cx);
+            self.clear_pending();
+            VimState::global_mut(cx).mode = VimMode::Normal;
+            cx.notify();
             return;
         }
         self.begin_operator(VimOperator::Yank, window, cx);
@@ -1884,7 +1868,7 @@ fn command_character(keystroke: &gpui::Keystroke) -> Option<&str> {
         .filter(|text| !text.is_empty())
 }
 
-impl Render for EditorController {
+impl Render for VimController {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         self.sync_text_input_enabled(window, cx);
 
@@ -1936,7 +1920,7 @@ impl Render for EditorController {
     }
 }
 
-impl Focusable for EditorController {
+impl Focusable for VimController {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.editor.focus_handle(cx)
     }

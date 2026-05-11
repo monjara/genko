@@ -131,50 +131,6 @@ impl SettingsWindow {
         self.set_column_number_mode(ColumnNumberMode::All, cx);
     }
 
-    fn toggle_rows_auto(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        // TODO AppSettings内で関数を作成
-        AppSettings::global_mut(cx).rows_per_column = AppSettings::global(cx)
-            .rows_per_column
-            .map_or_else(|| Some(AppSettings::default_rows_per_column()), |_| None);
-        self.status = "".into();
-        cx.notify();
-    }
-
-    fn decrement_rows_per_column(
-        &mut self,
-        _: &ClickEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let rows = AppSettings::global(cx)
-            .rows_per_column
-            .unwrap_or_else(AppSettings::default_rows_per_column);
-
-        AppSettings::global_mut(cx).rows_per_column = Some(
-            rows.saturating_sub(1)
-                .max(AppSettings::min_rows_per_column()),
-        );
-
-        self.status = "".into();
-        cx.notify();
-    }
-
-    fn increment_rows_per_column(
-        &mut self,
-        _: &ClickEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let rows = AppSettings::global(cx)
-            .rows_per_column
-            .unwrap_or_else(AppSettings::default_rows_per_column);
-
-        AppSettings::global_mut(cx).rows_per_column =
-            Some((rows + 1).min(AppSettings::max_rows_per_column()));
-        self.status = "".into();
-        cx.notify();
-    }
-
     fn decrement_cell_size(
         &mut self,
         _: &ClickEvent,
@@ -222,22 +178,15 @@ impl SettingsWindow {
         row_settings.column_number_mode = settings.column_number_mode;
         row_settings.show_grid_lines = settings.show_grid_lines;
         row_settings.vim_mode = settings.vim_mode;
-        if let Some(rows_per_column) = settings.rows_per_column {
-            row_settings.rows_per_column = Some(rows_per_column);
-        }
+        row_settings.rows_per_column = settings.rows_per_column;
         cx.notify();
     }
 
     fn render_rows_per_column(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let rows_label = AppSettings::global(cx)
             .rows_per_column
-            .map_or_else(|| "自動".to_string(), |rows| rows.to_string());
-
-        let mode_label = if AppSettings::global(cx).rows_per_column.is_some() {
-            "固定"
-        } else {
-            "自動"
-        };
+            .unwrap_or_else(AppSettings::default_rows_per_column)
+            .to_string();
 
         div()
             .flex()
@@ -258,11 +207,7 @@ impl SettingsWindow {
                         div()
                             .text_sm()
                             .text_color(Theme::global(cx).text_senodary())
-                            .child(format!(
-                                "未指定ならウィンドウの高さに合わせます。固定は{}から{}の範囲です",
-                                AppSettings::min_rows_per_column(),
-                                AppSettings::max_rows_per_column()
-                            )),
+                            .child("20文字で固定です"),
                     ),
             )
             .child(
@@ -270,38 +215,6 @@ impl SettingsWindow {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(
-                        div()
-                            .id("settings-rows-auto-toggle")
-                            .px_3()
-                            .h(px(32.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(Theme::global(cx).primary())
-                            .cursor_pointer()
-                            .active(|this| this.opacity(0.85))
-                            .child(mode_label)
-                            .on_click(cx.listener(Self::toggle_rows_auto)),
-                    )
-                    .child(
-                        div()
-                            .id("settings-rows-decrement")
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(Theme::global(cx).primary())
-                            .cursor_pointer()
-                            .active(|this| this.opacity(0.85))
-                            .child("-")
-                            .on_click(cx.listener(Self::decrement_rows_per_column)),
-                    )
                     .child(
                         div()
                             .w(px(52.0))
@@ -312,22 +225,6 @@ impl SettingsWindow {
                             .rounded_sm()
                             .bg(Theme::global(cx).white())
                             .child(rows_label),
-                    )
-                    .child(
-                        div()
-                            .id("settings-rows-increment")
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(Theme::global(cx).primary())
-                            .cursor_pointer()
-                            .active(|this| this.opacity(0.85))
-                            .child("+")
-                            .on_click(cx.listener(Self::increment_rows_per_column)),
                     ),
             )
     }
@@ -836,8 +733,6 @@ impl Render for SettingsWindow {
 }
 
 const DEFAULT_ROWS_PER_COLUMN: usize = 20;
-const MIN_ROWS_PER_COLUMN: usize = 1;
-const MAX_ROWS_PER_COLUMN: usize = 60;
 const DEFAULT_CELL_SIZE: usize = 28;
 const MIN_CELL_SIZE: usize = 20;
 const MAX_CELL_SIZE: usize = 60;
@@ -895,7 +790,7 @@ impl Default for AppSettings {
             hanging_punctuation: true,
             column_number_mode: ColumnNumberMode::Hidden,
             cell_size: DEFAULT_CELL_SIZE,
-            rows_per_column: None,
+            rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: false,
             indent_on_enter: false,
         }
@@ -921,11 +816,11 @@ impl AppSettings {
     }
 
     pub fn min_rows_per_column() -> usize {
-        MIN_ROWS_PER_COLUMN
+        DEFAULT_ROWS_PER_COLUMN
     }
 
     pub fn max_rows_per_column() -> usize {
-        MAX_ROWS_PER_COLUMN
+        DEFAULT_ROWS_PER_COLUMN
     }
 
     pub fn min_cell_size() -> usize {
@@ -956,9 +851,7 @@ impl AppSettings {
             hanging_punctuation: self.hanging_punctuation,
             column_number_mode: self.column_number_mode,
             cell_size: self.cell_size.clamp(MIN_CELL_SIZE, MAX_CELL_SIZE),
-            rows_per_column: self
-                .rows_per_column
-                .map(|rows| rows.clamp(MIN_ROWS_PER_COLUMN, MAX_ROWS_PER_COLUMN)),
+            rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: self.vim_mode,
             indent_on_enter: self.indent_on_enter,
         }
@@ -1032,48 +925,48 @@ mod tests {
         assert!(settings.hanging_punctuation);
         assert_eq!(settings.column_number_mode, ColumnNumberMode::Hidden);
         assert_eq!(settings.cell_size, DEFAULT_CELL_SIZE);
-        assert_eq!(settings.rows_per_column, Some(24));
+        assert_eq!(settings.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(!settings.vim_mode);
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn uses_auto_rows_per_column_when_missing() {
+    fn uses_default_rows_per_column_when_missing() {
         let dir = test_settings_dir("rows_missing");
         fs::write(dir.join("settings.json"), r#"{"show_grid_lines": false}"#).unwrap();
 
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
-        assert_eq!(settings.rows_per_column, None);
+        assert_eq!(settings.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn uses_auto_rows_per_column_when_null() {
+    fn uses_default_rows_per_column_when_null() {
         let dir = test_settings_dir("rows_null");
         fs::write(dir.join("settings.json"), r#"{"rows_per_column": null}"#).unwrap();
 
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
-        assert_eq!(settings.rows_per_column, None);
+        assert_eq!(settings.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
 
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn clamps_rows_per_column_from_settings_file() {
+    fn normalizes_rows_per_column_from_settings_file() {
         let dir = test_settings_dir("rows_clamp");
         fs::write(
             dir.join("settings.json"),
-            format!(r#"{{"rows_per_column": {}}}"#, MAX_ROWS_PER_COLUMN + 1),
+            format!(r#"{{"rows_per_column": {}}}"#, DEFAULT_ROWS_PER_COLUMN + 1),
         )
         .unwrap();
 
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
-        assert_eq!(settings.rows_per_column, Some(MAX_ROWS_PER_COLUMN));
+        assert_eq!(settings.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1099,7 +992,7 @@ mod tests {
         assert!(!reloaded.hanging_punctuation);
         assert_eq!(reloaded.column_number_mode, ColumnNumberMode::EveryFive);
         assert_eq!(reloaded.cell_size, 32);
-        assert_eq!(reloaded.rows_per_column, Some(24));
+        assert_eq!(reloaded.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(reloaded.vim_mode);
         assert!(reloaded.indent_on_enter);
 

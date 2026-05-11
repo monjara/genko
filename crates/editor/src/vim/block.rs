@@ -25,7 +25,7 @@ pub(crate) fn current_column_cell_range(
     };
     let column_index = target_cell / rows_per_column;
     let start = column_index * rows_per_column;
-    let end = (start + rows_per_column).min(used_cells);
+    let end = start + rows_per_column;
     Some(start..end)
 }
 
