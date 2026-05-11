@@ -19,4 +19,3 @@ title_bar = { workspace = true }
 xdg = { workspace = true }
 editor = { workspace = true, features = ["embedded-ipadic"] }
 theme = { workspace = true }
-workspace = { workspace = true }

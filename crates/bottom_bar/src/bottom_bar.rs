@@ -1,11 +1,10 @@
 use editor::VimModeLabel;
 use gpui::{
     App, AppContext, Context, Decorations, Entity, InteractiveElement, IntoElement, ParentElement,
-    Render, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px,
+    Render, Styled, Window, div, prelude::FluentBuilder, px,
 };
 use settings::AppSettings;
 use theme::Theme;
-use workspace::ToggleWorkspacePane;
 
 const SIDE_SLOT_WIDTH: f32 = 160.0;
 
@@ -40,23 +39,6 @@ impl Render for BottomBar {
                     .items_center()
                     .justify_between()
                     .px_3()
-                    .child(
-                        div()
-                            .id("workspace-pane-toggle")
-                            .w(px(28.0))
-                            .h(px(28.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(Theme::global(cx).primary())
-                            .cursor_pointer()
-                            .child("▤")
-                            .on_click(|_, window, cx| {
-                                window.dispatch_action(Box::new(ToggleWorkspacePane), cx);
-                            }),
-                    )
                     .when(AppSettings::global(cx).vim_mode, |this| {
                         this.child(
                             div()

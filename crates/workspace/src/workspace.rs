@@ -11,7 +11,7 @@ use theme::Theme;
 
 actions!(
     workspace,
-    [ToggleWorkspacePane, OpenWorkspaceFile, OpenWorkspaceFolder]
+    [ToggleWorkspacePane, OpenWorkspaceFile]
 );
 
 pub const WORKSPACE_PANE_WIDTH: f32 = 280.0;
@@ -143,6 +143,9 @@ fn collect_workspace_entries(
     for child in children {
         let path = child.path();
         let metadata = child.file_type()?;
+        if metadata.is_file() && !is_supported_text_file(path.as_path()) {
+            continue;
+        }
         let kind = if metadata.is_dir() {
             WorkspaceEntryKind::Directory
         } else {
@@ -348,24 +351,6 @@ impl Render for Workspace {
                                     .on_click(move |_, window, cx| {
                                         window.dispatch_action(Box::new(OpenWorkspaceFile), cx);
                                     }),
-                            )
-                            .child(
-                                div()
-                                    .id("workspace-open-folder-button")
-                                    .px_3()
-                                    .h(px(32.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded_sm()
-                                    .border_1()
-                                    .border_color(Theme::global(cx).primary())
-                                    .bg(Theme::global(cx).white())
-                                    .cursor_pointer()
-                                    .child("フォルダ")
-                                    .on_click(move |_, window, cx| {
-                                        window.dispatch_action(Box::new(OpenWorkspaceFolder), cx);
-                                    }),
                             ),
                     )
                     .child(
@@ -384,6 +369,12 @@ fn is_hidden(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.starts_with('.'))
+}
+
+fn is_supported_text_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("txt"))
 }
 
 #[cfg(test)]

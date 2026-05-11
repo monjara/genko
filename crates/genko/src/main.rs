@@ -6,66 +6,50 @@ use bottom_bar::BottomBar;
 use editor::{EditorController, VimCommandQuit, VimCommandWrite};
 use gpui::{
     App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
-    PromptLevel, Render, Styled, Subscription, Window, WindowBounds, WindowDecorations,
+    ExternalPaths, InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement,
+    PathPromptOptions, PromptLevel, Render, Styled, Window, WindowBounds, WindowDecorations,
     WindowOptions, actions, div, prelude::FluentBuilder, px, size, transparent_black,
 };
 use settings::open_settings_window;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
-use workspace::{
-    Event as WorkspaceEvent, OpenWorkspaceFile, OpenWorkspaceFolder, ToggleWorkspacePane,
-    WORKSPACE_PANE_WIDTH, Workspace, scan_workspace_entries,
-};
 
-actions!(genko, [OpenSettings, OpenFile, OpenFolder, SaveFile, Quit]);
+actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
 
 struct GenkoApp {
     editor_controller: Entity<EditorController>,
-    workspace: Entity<Workspace>,
+    active_file: Option<PathBuf>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
     window_handle: Option<gpui::AnyWindowHandle>,
-    _subscriptions: Vec<Subscription>,
 }
 
 impl GenkoApp {
     fn new(cx: &mut Context<Self>) -> Self {
         cx.bind_keys([
             KeyBinding::new("cmd-q", Quit, None),
-            KeyBinding::new("ctrl-b", ToggleWorkspacePane, None),
             KeyBinding::new("ctrl-,", OpenSettings, None),
             KeyBinding::new("cmd-o", OpenFile, None),
             KeyBinding::new("ctrl-o", OpenFile, None),
-            KeyBinding::new("cmd-shift-o", OpenFolder, None),
-            KeyBinding::new("ctrl-shift-o", OpenFolder, None),
             KeyBinding::new("cmd-s", SaveFile, None),
             KeyBinding::new("ctrl-s", SaveFile, None),
         ]);
 
         let editor_controller = cx.new(EditorController::new);
-        let workspace = cx.new(Workspace::new);
-        let subscriptions = vec![cx.subscribe(&workspace, |this, _, event, cx| {
-            let WorkspaceEvent::OpenPath(path) = event;
-            if let Some(window_handle) = this.window_handle {
-                this.open_document_path(path.clone(), true, window_handle, cx);
-            }
-        })];
         let title_bar = cx.new(|cx| TitleBar::new("Genko", cx));
         let bottom_bar = cx.new(BottomBar::new);
 
         Self {
             editor_controller,
-            workspace,
+            active_file: None,
             title_bar,
             bottom_bar,
-            _subscriptions: subscriptions,
             window_handle: None,
         }
     }
 
-    fn window_title(&self, cx: &App) -> String {
-        match self.workspace.read(cx).active_file() {
+    fn window_title(&self, _cx: &App) -> String {
+        match &self.active_file {
             Some(path) => format!("Genko - {}", path.display()),
             _ => "Genko".to_string(),
         }
@@ -86,21 +70,24 @@ impl GenkoApp {
         );
     }
 
+    fn is_supported_text_file(path: &Path) -> bool {
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("txt"))
+    }
+
     fn load_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.load_text(text, cx)
         });
-        self.workspace
-            .update(cx, |workspace, cx| workspace.open_file(path, cx));
+        self.active_file = Some(path);
     }
 
     fn open_standalone_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.load_text(text, cx)
         });
-        self.workspace.update(cx, |workspace, cx| {
-            workspace.open_file_without_root(path, cx)
-        });
+        self.active_file = Some(path);
     }
 
     fn save_document_to_path(
@@ -120,8 +107,8 @@ impl GenkoApp {
             match result {
                 Ok(path) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.workspace
-                            .update(cx, |workspace, cx| workspace.open_file(path, cx));
+                        this.active_file = Some(path);
+                        cx.notify();
                     });
                 }
                 Err(error) => {
@@ -142,6 +129,18 @@ impl GenkoApp {
         window_handle: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
+        if !Self::is_supported_text_file(path.as_path()) {
+            let _ = cx.update_window(window_handle, |_, window, cx| {
+                Self::show_error(
+                    window,
+                    "ファイルを開けませんでした",
+                    "現在は .txt ファイルのみ対応しています".into(),
+                    cx,
+                );
+            });
+            return;
+        }
+
         cx.spawn(async move |this, cx| {
             let path_for_read = path.clone();
             let result = cx
@@ -164,40 +163,6 @@ impl GenkoApp {
                     let detail = error.to_string();
                     let _ = cx.update_window(window_handle, |_, window, cx| {
                         Self::show_error(window, "ファイルを開けませんでした", detail, cx);
-                    });
-                }
-            }
-        })
-        .detach();
-    }
-
-    fn open_workspace_root(
-        &mut self,
-        root_dir: PathBuf,
-        window_handle: gpui::AnyWindowHandle,
-        cx: &mut Context<Self>,
-    ) {
-        cx.spawn(async move |this, cx| {
-            let root_for_scan = root_dir.clone();
-            let result = cx
-                .background_spawn(async move {
-                    scan_workspace_entries(root_for_scan.as_path())
-                        .map(|entries| (root_for_scan, entries))
-                })
-                .await;
-
-            match result {
-                Ok((root_dir, entries)) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.workspace.update(cx, |workspace, cx| {
-                            workspace.open_root(root_dir, entries, cx)
-                        });
-                    });
-                }
-                Err(error) => {
-                    let detail = error.to_string();
-                    let _ = cx.update_window(window_handle, |_, window, cx| {
-                        Self::show_error(window, "フォルダを開けませんでした", detail, cx);
                     });
                 }
             }
@@ -239,61 +204,51 @@ impl GenkoApp {
         .detach();
     }
 
-    fn open_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let picker = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("フォルダを開く".into()),
-        });
-        let window_handle = window.window_handle();
+    fn open_dropped_paths(
+        &mut self,
+        paths: &ExternalPaths,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(path) = paths
+            .paths()
+            .iter()
+            .find(|path| Self::is_supported_text_file(path.as_path()))
+            .cloned()
+        else {
+            Self::show_error(
+                window,
+                "ファイルを開けませんでした",
+                "現在は .txt ファイルのみ対応しています".into(),
+                cx,
+            );
+            return;
+        };
 
-        cx.spawn(async move |this, cx| {
-            let Ok(result) = picker.await else {
-                return;
-            };
-
-            let Some(path) = (match result {
-                Ok(Some(mut paths)) => paths.pop(),
-                Ok(None) => None,
-                Err(error) => {
-                    let detail = error.to_string();
-                    let _ = cx.update_window(window_handle, |_, window, cx| {
-                        Self::show_error(window, "フォルダ選択を開けませんでした", detail, cx);
-                    });
-                    None
-                }
-            }) else {
-                return;
-            };
-
-            let _ = this.update(cx, |this, cx| {
-                this.open_workspace_root(path, window_handle, cx);
-            });
-        })
-        .detach();
+        self.open_document_path(path, true, window.window_handle(), cx);
     }
 
     fn save_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let contents = self.editor_controller.read(cx).snapshot_text(cx);
         let window_handle = window.window_handle();
 
-        if let Some(path) = self.workspace.read(cx).active_file().map(Path::to_path_buf) {
+        if let Some(path) = self.active_file.clone() {
             self.save_document_to_path(path, contents, window_handle, cx);
             return;
         }
 
         let initial_directory = self
-            .workspace
-            .read(cx)
-            .suggested_save_directory()
+            .active_file
+            .as_deref()
+            .and_then(Path::parent)
             .map(Path::to_path_buf)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
         let suggested_name = self
-            .workspace
-            .read(cx)
-            .suggested_file_name()
+            .active_file
+            .as_deref()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
             .unwrap_or("untitled.txt")
             .to_string();
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
@@ -327,28 +282,6 @@ impl GenkoApp {
         self.open_file(window, cx);
     }
 
-    fn open_folder_action(&mut self, _: &OpenFolder, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_folder(window, cx);
-    }
-
-    fn open_workspace_file_action(
-        &mut self,
-        _: &OpenWorkspaceFile,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_file(window, cx);
-    }
-
-    fn open_workspace_folder_action(
-        &mut self,
-        _: &OpenWorkspaceFolder,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_folder(window, cx);
-    }
-
     fn save_file_action(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
         self.save_file(window, cx);
     }
@@ -371,14 +304,13 @@ impl GenkoApp {
         cx.quit();
     }
 
-    fn toggle_workspace_pane_action(
+    fn drop_external_paths(
         &mut self,
-        _: &ToggleWorkspacePane,
-        _window: &mut Window,
+        paths: &ExternalPaths,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.workspace
-            .update(cx, |workspace, cx| workspace.toggle_pane(cx));
+        self.open_dropped_paths(paths, window, cx);
     }
 }
 
@@ -389,9 +321,6 @@ impl Render for GenkoApp {
         self.sync_window_title(window, cx);
         let bar_height = title_bar::platform_title_bar_height(window);
         let mut editor_viewport_size = window.viewport_size();
-        if self.workspace.read(cx).is_pane_visible() {
-            editor_viewport_size.width -= px(WORKSPACE_PANE_WIDTH);
-        }
         editor_viewport_size.height -= bar_height * 2.0;
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.update_viewport_size(editor_viewport_size, cx);
@@ -446,23 +375,18 @@ impl Render for GenkoApp {
                                 this.shadow(title_bar::client_window_shadow())
                             }),
                     })
+                    .can_drop(|value, _, _| value.is::<ExternalPaths>())
+                    .on_drop(cx.listener(Self::drop_external_paths))
                     .on_action(cx.listener(Self::open_file_action))
-                    .on_action(cx.listener(Self::open_folder_action))
-                    .on_action(cx.listener(Self::open_workspace_file_action))
-                    .on_action(cx.listener(Self::open_workspace_folder_action))
                     .on_action(cx.listener(Self::save_file_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
-                    .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .child(self.title_bar.clone().into_element())
                     .child(
                         div()
                             .flex_1()
                             .w_full()
                             .flex()
-                            .when(self.workspace.read(cx).is_pane_visible(), |this| {
-                                this.child(self.workspace.clone().into_element())
-                            })
                             .child(
                                 div()
                                     .flex_1()
@@ -508,7 +432,6 @@ fn main() {
                     name: "ファイル".into(),
                     items: vec![
                         MenuItem::action("開く", OpenFile),
-                        MenuItem::action("フォルダを開く", OpenFolder),
                         MenuItem::action("保存", SaveFile),
                     ],
                 },
