@@ -1,9 +1,10 @@
 use gpui::{
     AnyElement, App, BoxShadow, ClickEvent, Context, Decorations, Hsla, InteractiveElement,
     IntoElement, ParentElement, Pixels, Render, Rgba, SharedString, StatefulInteractiveElement,
-    Styled, TitlebarOptions, Window, WindowButton, WindowButtonLayout, WindowControlArea,
-    WindowDecorations, div, point, prelude::FluentBuilder, px,
+    Styled, TitlebarOptions, Window, WindowControlArea, div, point, px,
 };
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+use gpui::{WindowButton, WindowButtonLayout, WindowDecorations, prelude::FluentBuilder};
 use theme::Theme;
 
 const MAC_TRAFFIC_LIGHT_PADDING: f32 = 71.0;
@@ -365,9 +366,12 @@ fn rgba(r: f32, g: f32, b: f32, a: f32) -> Rgba {
 impl Render for TitleBar {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         match PlatformStyle::current() {
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             PlatformStyle::Linux => self.render_for_linux(window, cx),
             PlatformStyle::Mac => self.render_for_darwin(window, cx),
             PlatformStyle::Windows => div().into_any_element(),
+            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+            PlatformStyle::Linux => div().into_any_element(),
         }
     }
 }
