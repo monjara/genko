@@ -19,3 +19,10 @@ title_bar = { workspace = true }
 xdg = { workspace = true }
 editor = { workspace = true, features = ["embedded-ipadic"] }
 theme = { workspace = true }
+
+[package.metadata.bundle]
+icon = ["resources/AppIcon.icns"]
+identifier = "dev.monj.soukou"
+name = "Genko"
+osx_minimum_system_version = "11.0"
+osx_info_plist_exts = ["resources/info/*"]
