@@ -9,9 +9,14 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: release-macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   bundle_macos:
     runs-on: macos-latest
+    timeout-minutes: 90
     strategy:
       matrix:
         target:
