@@ -21,7 +21,7 @@ pub fn open_settings_window(cx: &mut App) {
         .open_window(
             title_bar::configure_window_options(WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                app_id: Some("dev.genko".into()),
+                app_id: Some("dev.monj.soukou".into()),
                 is_movable: true,
                 window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
@@ -211,21 +211,17 @@ impl SettingsWindow {
                     ),
             )
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .w(px(52.0))
-                            .h(px(32.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_sm()
-                            .bg(Theme::global(cx).white())
-                            .child(rows_label),
-                    ),
+                div().flex().items_center().gap_2().child(
+                    div()
+                        .w(px(52.0))
+                        .h(px(32.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_sm()
+                        .bg(Theme::global(cx).white())
+                        .child(rows_label),
+                ),
             )
     }
 

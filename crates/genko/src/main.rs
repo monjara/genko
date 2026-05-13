@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 use bottom_bar::BottomBar;
 use editor::{EditorController, VimCommandQuit, VimCommandWrite};
 use gpui::{
-    App, AppContext, Bounds, Context, Decorations, Entity, FocusHandle, Focusable,
-    ExternalPaths, InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement,
-    PathPromptOptions, PromptLevel, Render, Styled, Window, WindowBounds, WindowDecorations,
-    WindowOptions, actions, div, prelude::FluentBuilder, px, size, transparent_black,
+    App, AppContext, Bounds, Context, Decorations, Entity, ExternalPaths, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
+    PromptLevel, Render, Styled, Window, WindowBounds, WindowDecorations, WindowOptions, actions,
+    div, prelude::FluentBuilder, px, size, transparent_black,
 };
 use settings::open_settings_window;
 use theme::{APP_FONT_FAMILY, Theme};
@@ -383,19 +383,15 @@ impl Render for GenkoApp {
                     .on_action(cx.listener(Self::vim_command_quit_action))
                     .child(self.title_bar.clone().into_element())
                     .child(
-                        div()
-                            .flex_1()
-                            .w_full()
-                            .flex()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .h_full()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .child(content),
-                            ),
+                        div().flex_1().w_full().flex().child(
+                            div()
+                                .flex_1()
+                                .h_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(content),
+                        ),
                     )
                     .child(self.bottom_bar.clone().into_element()),
             )
@@ -444,7 +440,7 @@ fn main() {
                     size(px(1200.0), px(800.0)),
                     cx,
                 ))),
-                app_id: Some("dev.genko".into()),
+                app_id: Some("dev.monj.soukou".into()),
                 is_movable: true,
                 is_resizable: true,
                 window_decorations: Some(WindowDecorations::Client),
