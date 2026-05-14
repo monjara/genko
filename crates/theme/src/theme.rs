@@ -58,11 +58,10 @@ impl Theme {
     fn load_default() -> Self {
         // TODO: 複数のテーマを作成し、1テーマごとに1jsonファイルを作成する
         //       設定画面からテーマを選択できるようにする
-        let json_str = std::fs::read_to_string("crates/theme/themes/default.json")
-            .expect("Failed to read default theme file");
+        let json_str = include_str!("../themes/default.json");
 
         let theme_json: ThemeJson =
-            serde_json::from_str(&json_str).expect("Failed to parse default theme JSON");
+            serde_json::from_str(json_str).expect("Failed to parse default theme JSON");
 
         Self {
             primary: theme_json.primary,
