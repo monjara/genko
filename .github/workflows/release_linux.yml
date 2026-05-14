@@ -73,7 +73,7 @@ jobs:
       - name: Upload Linux archive
         uses: actions/upload-artifact@v4
         with:
-          name: 草稿-${{ matrix.target }}.tar.gz
+          name: soukou-${{ matrix.target }}.tar.gz
           path: target/${{ matrix.target }}/release/草稿-linux-*.tar.gz
           if-no-files-found: error
 

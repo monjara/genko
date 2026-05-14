@@ -58,14 +58,14 @@ jobs:
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
-          name: 草稿-${{ matrix.target }}.app
+          name: soukou-${{ matrix.target }}.app
           path: target/${{ matrix.target }}/release/bundle/osx/草稿.app
           if-no-files-found: error
 
       - name: Upload disk image
         uses: actions/upload-artifact@v4
         with:
-          name: 草稿-${{ matrix.target }}.dmg
+          name: soukou-${{ matrix.target }}.dmg
           path: target/${{ matrix.target }}/release/草稿-*.dmg
           if-no-files-found: error
 
