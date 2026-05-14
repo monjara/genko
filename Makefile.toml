@@ -14,7 +14,7 @@ command = "cargo"
 args = ["watch", "-x", "run"]
 
 [tasks.watch.env]
-GENKO_DEVELOPMENT_WATCH_MODE = "1"
+SOUKOU_DEVELOPMENT_WATCH_MODE = "1"
 
 [tasks.test]
 command = "cargo"
@@ -30,7 +30,7 @@ args = ["${@}"]
 
 [tasks.configure]
 command = "nvim"
-args = ["${HOME}/.config/genko/settings.json"]
+args = ["${HOME}/.config/soukou/settings.json"]
 
 [tasks.bug]
 command = "gh"

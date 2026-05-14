@@ -57,7 +57,7 @@ pub(crate) fn init(cx: &mut App) {
 }
 
 actions!(
-    genko,
+    soukou,
     [
         Backspace,
         Delete,
@@ -1235,7 +1235,7 @@ impl Render for Editor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .track_focus(&self.focus_handle(cx))
-            .key_context("Genko")
+            .key_context("Soukou")
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
             .on_action(cx.listener(Self::up))

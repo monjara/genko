@@ -113,7 +113,7 @@ impl TitleBar {
         let right_controls = self.render_linux_window_controls(button_layout.right, window, cx);
 
         let bar = div()
-            .id("genko-title-bar-linux")
+            .id("soukou-title-bar-linux")
             .w_full()
             .h(height)
             .bg(background)
@@ -193,7 +193,7 @@ impl TitleBar {
         let height = platform_title_bar_height(window);
         let background = self.title_bar_background(window, cx);
         div()
-            .id("genko-title-bar-macos")
+            .id("soukou-title-bar-macos")
             .w_full()
             .h(height)
             .bg(background)

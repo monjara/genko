@@ -27,26 +27,26 @@ pub(crate) fn operator_key_context(
     modifier: Option<TextObjectModifier>,
 ) -> &'static str {
     match (operator, modifier) {
-        (VimOperator::Delete, None) => "Genko vim_mode=operator_delete",
-        (VimOperator::Change, None) => "Genko vim_mode=operator_change",
-        (VimOperator::Yank, None) => "Genko vim_mode=operator_yank",
+        (VimOperator::Delete, None) => "Soukou vim_mode=operator_delete",
+        (VimOperator::Change, None) => "Soukou vim_mode=operator_change",
+        (VimOperator::Yank, None) => "Soukou vim_mode=operator_yank",
         (VimOperator::Delete, Some(TextObjectModifier::Inner)) => {
-            "Genko vim_mode=operator_delete_inner"
+            "Soukou vim_mode=operator_delete_inner"
         }
         (VimOperator::Delete, Some(TextObjectModifier::Around)) => {
-            "Genko vim_mode=operator_delete_around"
+            "Soukou vim_mode=operator_delete_around"
         }
         (VimOperator::Change, Some(TextObjectModifier::Inner)) => {
-            "Genko vim_mode=operator_change_inner"
+            "Soukou vim_mode=operator_change_inner"
         }
         (VimOperator::Change, Some(TextObjectModifier::Around)) => {
-            "Genko vim_mode=operator_change_around"
+            "Soukou vim_mode=operator_change_around"
         }
         (VimOperator::Yank, Some(TextObjectModifier::Inner)) => {
-            "Genko vim_mode=operator_yank_inner"
+            "Soukou vim_mode=operator_yank_inner"
         }
         (VimOperator::Yank, Some(TextObjectModifier::Around)) => {
-            "Genko vim_mode=operator_yank_around"
+            "Soukou vim_mode=operator_yank_around"
         }
     }
 }

@@ -828,13 +828,13 @@ impl AppSettings {
     }
 
     fn load() -> Self {
-        let xdg_dirs = xdg::BaseDirectories::with_prefix("genko");
+        let xdg_dirs = xdg::BaseDirectories::with_prefix("soukou");
         Self::load_from_base_dirs(&xdg_dirs)
     }
 
     fn save(&self) -> Result<(), String> {
         let settings = self.normalized();
-        let xdg_dirs = xdg::BaseDirectories::with_prefix("genko");
+        let xdg_dirs = xdg::BaseDirectories::with_prefix("soukou");
         let settings_path = xdg_dirs
             .place_config_file(SETTINGS_FILE)
             .map_err(|error| format!("設定ファイルの保存先を作成できません: {error}"))?;
@@ -887,7 +887,7 @@ mod tests {
     fn test_settings_dir(name: &str) -> PathBuf {
         let mut path = env::temp_dir();
         path.push(format!(
-            "genko_settings_test_{}_{}",
+            "soukou_settings_test_{}_{}",
             name,
             std::process::id()
         ));

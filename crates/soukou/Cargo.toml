@@ -1,10 +1,10 @@
 [package]
-name = "genko"
+name = "soukou"
 version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "genko"
+name = "soukou"
 path = "src/main.rs"
 
 [dependencies]
@@ -24,6 +24,6 @@ theme = { workspace = true }
 icon = ["resources/AppIcon.icns"]
 resources = ["resources/AppIcon.icns"]
 identifier = "dev.monj.soukou"
-name = "Genko"
+name = "Soukou"
 osx_minimum_system_version = "11.0"
 osx_info_plist_exts = ["resources/info/*"]

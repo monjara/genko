@@ -5,14 +5,14 @@ members = [
   "crates/bottom_bar",
   "crates/editor",
   "crates/env",
-  "crates/genko",
+  "crates/soukou",
   "crates/rope",
   "crates/settings",
   "crates/theme",
   "crates/title_bar",
   "crates/workspace"
 ]
-default-members = ["crates/genko"]
+default-members = ["crates/soukou"]
 
 [workspace.package]
 edition = "2024"

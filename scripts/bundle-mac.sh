@@ -6,7 +6,7 @@ build_flag="--release"
 target_dir="release"
 target_triple=""
 can_code_sign=false
-keychain_name="genko-signing.keychain-db"
+keychain_name="soukou-signing.keychain-db"
 keychain_password=""
 signing_identity=""
 notarization_key_file=""
@@ -14,7 +14,7 @@ notarization_key_file=""
 help_info() {
   echo "
 Usage: ${0##*/} [options] [target]
-Build a macOS .app bundle and .dmg for Genko.
+Build a macOS .app bundle and .dmg for Soukou.
 
 Options:
   -d    Compile in debug mode
@@ -68,7 +68,7 @@ setup_signing() {
   fi
 
   local certificate_file
-  certificate_file="$(mktemp /tmp/genko-certificate.XXXXXX.p12)"
+  certificate_file="$(mktemp /tmp/soukou-certificate.XXXXXX.p12)"
   decode_secret_to_file "$MACOS_CERTIFICATE" "$certificate_file"
 
   keychain_password="$(openssl rand -hex 24)"
@@ -144,7 +144,7 @@ notarize_and_staple() {
     return
   fi
 
-  notarization_key_file="$(mktemp /tmp/genko-notary-key.XXXXXX.p8)"
+  notarization_key_file="$(mktemp /tmp/soukou-notary-key.XXXXXX.p8)"
   decode_secret_to_file "$APPLE_NOTARIZATION_KEY" "$notarization_key_file"
 
   xcrun notarytool submit \
@@ -187,15 +187,15 @@ export CXXFLAGS="-stdlib=libc++"
 
 setup_signing
 
-echo "Building Genko for $target_triple"
-cargo build ${build_flag} --package genko --target "$target_triple"
+echo "Building Soukou for $target_triple"
+cargo build ${build_flag} --package soukou --target "$target_triple"
 
-echo "Bundling Genko.app"
+echo "Bundling Soukou.app"
 cargo bundle ${build_flag} \
-  --package genko \
+  --package soukou \
   --target "$target_triple"
 
-app_path="target/${target_triple}/${target_dir}/bundle/osx/Genko.app"
+app_path="target/${target_triple}/${target_dir}/bundle/osx/Soukou.app"
 
 if [[ ! -d "$app_path" ]]; then
   echo "Expected app bundle was not created: $app_path" >&2
@@ -203,13 +203,13 @@ if [[ ! -d "$app_path" ]]; then
 fi
 
 if [[ "$target_dir" != "debug" ]]; then
-  echo "Signing Genko.app"
+  echo "Signing Soukou.app"
   sign_path "$app_path"
 fi
 
 bundle_directory="target/${target_triple}/${target_dir}"
 dmg_staging_dir="${bundle_directory}/dmg"
-dmg_path="${bundle_directory}/Genko-${arch_suffix}.dmg"
+dmg_path="${bundle_directory}/Soukou-${arch_suffix}.dmg"
 
 rm -rf "$dmg_staging_dir"
 mkdir -p "$dmg_staging_dir"
@@ -219,7 +219,7 @@ ln -s /Applications "${dmg_staging_dir}/Applications"
 echo "Creating DMG at $dmg_path"
 rm -f "$dmg_path"
 hdiutil create \
-  -volname "Genko" \
+  -volname "Soukou" \
   -srcfolder "$dmg_staging_dir" \
   -ov \
   -format UDZO \
@@ -232,7 +232,7 @@ if [[ "$target_dir" != "debug" ]]; then
   echo "Notarizing DMG"
   notarize_and_staple "$dmg_path"
 
-  echo "Stapling Genko.app"
+  echo "Stapling Soukou.app"
   xcrun stapler staple "$app_path"
 fi
 

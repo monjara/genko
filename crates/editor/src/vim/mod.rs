@@ -1826,11 +1826,11 @@ impl VimController {
             self.pending_operator,
             self.pending_text_object_modifier,
         ) {
-            (VimMode::Insert, _, _) => "Genko vim_mode=insert",
-            (VimMode::Visual, _, _) => "Genko vim_mode=visual",
-            (VimMode::VisualBlock, _, _) => "Genko vim_mode=visual_block",
-            (VimMode::Command, _, _) => "Genko vim_mode=command",
-            (VimMode::Normal, None, _) => "Genko vim_mode=normal",
+            (VimMode::Insert, _, _) => "Soukou vim_mode=insert",
+            (VimMode::Visual, _, _) => "Soukou vim_mode=visual",
+            (VimMode::VisualBlock, _, _) => "Soukou vim_mode=visual_block",
+            (VimMode::Command, _, _) => "Soukou vim_mode=command",
+            (VimMode::Normal, None, _) => "Soukou vim_mode=normal",
             (VimMode::Normal, Some(operator), modifier) => operator_key_context(operator, modifier),
         }
     }
@@ -1877,7 +1877,7 @@ impl Render for VimController {
             .key_context(if AppSettings::global(cx).vim_mode {
                 self.key_context(window, cx)
             } else {
-                "Genko vim_mode=disabled"
+                "Soukou vim_mode=disabled"
             })
             .on_key_down(cx.listener(Self::handle_vim_key_down))
             .on_action(cx.listener(Self::vim_enter_insert_mode))

@@ -1,7 +1,7 @@
-# genko crate
+# soukou crate
 
 ## 目的
-`genko` はアプリケーションのエントリーポイントとなるバイナリ crate で、ウィンドウの初期化、メニューとショートカット登録、ワークスペース操作、設定ウィンドウの表示制御を担当します。
+`soukou` はアプリケーションのエントリーポイントとなるバイナリ crate で、ウィンドウの初期化、メニューとショートカット登録、ワークスペース操作、設定ウィンドウの表示制御を担当します。
 
 ## 役割
 - `EditorController` エンティティとローカル `WorkspaceState` を束ね、UI 全体を組み立てる。
@@ -12,7 +12,7 @@
 ## 処理の詳細
 1. **起動時初期化**
    - `settings::init`, `editor::init` を呼び出し、グローバル設定とキーバインドを準備する。
-   - メインウィンドウ生成時に `GenkoApp` を構築し、`EditorController` と `WorkspaceState` を紐づける。
+   - メインウィンドウ生成時に `SoukouApp` を構築し、`EditorController` と `WorkspaceState` を紐づける。
 
 2. **UI と状態同期**
    - ビューポートサイズ変更時に、`EditorController` 側へ表示サイズを通知して描画セル数を再計算する。

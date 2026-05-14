@@ -25,7 +25,7 @@ impl Render for BottomBar {
         let background = background_color(window, cx);
 
         let bar = div()
-            .id("genko-bottom-bar")
+            .id("soukou-bottom-bar")
             .w_full()
             .h(height)
             .bg(background)

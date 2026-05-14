@@ -2167,23 +2167,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "genko"
-version = "0.1.0"
-dependencies = [
- "bottom_bar",
- "editor",
- "gpui",
- "gpui_platform",
- "rope",
- "serde",
- "serde_json",
- "settings",
- "theme",
- "title_bar",
- "xdg",
-]
-
-[[package]]
 name = "gethostname"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5843,6 +5826,23 @@ checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "soukou"
+version = "0.1.0"
+dependencies = [
+ "bottom_bar",
+ "editor",
+ "gpui",
+ "gpui_platform",
+ "rope",
+ "serde",
+ "serde_json",
+ "settings",
+ "theme",
+ "title_bar",
+ "xdg",
 ]
 
 [[package]]

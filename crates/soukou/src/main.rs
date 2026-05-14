@@ -14,9 +14,9 @@ use settings::open_settings_window;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
 
-actions!(genko, [OpenSettings, OpenFile, SaveFile, Quit]);
+actions!(soukou, [OpenSettings, OpenFile, SaveFile, Quit]);
 
-struct GenkoApp {
+struct SoukouApp {
     editor_controller: Entity<EditorController>,
     active_file: Option<PathBuf>,
     title_bar: Entity<TitleBar>,
@@ -24,7 +24,7 @@ struct GenkoApp {
     window_handle: Option<gpui::AnyWindowHandle>,
 }
 
-impl GenkoApp {
+impl SoukouApp {
     fn new(cx: &mut Context<Self>) -> Self {
         cx.bind_keys([
             KeyBinding::new("cmd-q", Quit, None),
@@ -36,7 +36,7 @@ impl GenkoApp {
         ]);
 
         let editor_controller = cx.new(EditorController::new);
-        let title_bar = cx.new(|cx| TitleBar::new("Genko", cx));
+        let title_bar = cx.new(|cx| TitleBar::new("Soukou", cx));
         let bottom_bar = cx.new(BottomBar::new);
 
         Self {
@@ -50,8 +50,8 @@ impl GenkoApp {
 
     fn window_title(&self, _cx: &App) -> String {
         match &self.active_file {
-            Some(path) => format!("Genko - {}", path.display()),
-            _ => "Genko".to_string(),
+            Some(path) => format!("Soukou - {}", path.display()),
+            _ => "Soukou".to_string(),
         }
     }
 
@@ -314,7 +314,7 @@ impl GenkoApp {
     }
 }
 
-impl Render for GenkoApp {
+impl Render for SoukouApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         title_bar::sync_client_window_inset(window);
         self.window_handle = Some(window.window_handle());
@@ -398,7 +398,7 @@ impl Render for GenkoApp {
     }
 }
 
-impl Focusable for GenkoApp {
+impl Focusable for SoukouApp {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.editor_controller.focus_handle(cx)
     }
@@ -416,7 +416,7 @@ fn main() {
             .set_menus(vec![
                 Menu {
                     disabled: false,
-                    name: "Genko".into(),
+                    name: "Soukou".into(),
                     items: vec![
                         MenuItem::action("設定", OpenSettings),
                         MenuItem::separator(),
@@ -446,7 +446,7 @@ fn main() {
                 window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
             }),
-            |_, cx| cx.new(GenkoApp::new),
+            |_, cx| cx.new(SoukouApp::new),
         )
         .and_then(|window| {
             window.update(cx, |view, window, cx| {
