@@ -22,6 +22,7 @@ theme = { workspace = true }
 
 [package.metadata.bundle]
 icon = ["resources/AppIcon.icns"]
+resources = ["resources/AppIcon.icns"]
 identifier = "dev.monj.soukou"
 name = "Genko"
 osx_minimum_system_version = "11.0"
