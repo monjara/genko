@@ -65,4 +65,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          repository: monjara/Soukou.app
+          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          target_commitish: main
           files: target/${{ matrix.target }}-pc-windows-msvc/release/soukou-windows-${{ matrix.target }}.zip
