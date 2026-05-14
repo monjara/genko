@@ -65,3 +65,9 @@ jobs:
           name: 草稿-${{ matrix.target }}.dmg
           path: target/${{ matrix.target }}/release/草稿-*.dmg
           if-no-files-found: error
+
+      - name: Upload disk image to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/${{ matrix.target }}/release/草稿-*.dmg
