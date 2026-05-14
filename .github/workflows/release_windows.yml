@@ -29,6 +29,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Add Cargo bin directory to PATH
+        shell: cmd
+        run: |
+          if exist "%USERPROFILE%\.cargo\bin" echo %USERPROFILE%\.cargo\bin>>"%GITHUB_PATH%"
+          if exist "%LOCALAPPDATA%\Programs\Rust\bin" echo %LOCALAPPDATA%\Programs\Rust\bin>>"%GITHUB_PATH%"
+
+      - name: Verify Rust toolchain commands
+        shell: cmd
+        run: |
+          where rustup
+          where cargo
+
       - name: Ensure Rust target is installed
         shell: cmd
         run: rustup target add ${{ matrix.target }}-pc-windows-msvc

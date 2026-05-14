@@ -94,6 +94,7 @@ setup_signing() {
   security unlock-keychain -p "$keychain_password" "$keychain_name"
   security list-keychains -d user -s "$keychain_name" login.keychain-db
   security import "$certificate_file" \
+    -f pkcs12 \
     -k "$keychain_name" \
     -P "$MACOS_CERTIFICATE_PASSWORD" \
     -T /usr/bin/codesign \
