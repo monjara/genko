@@ -3,23 +3,6 @@ name = "soukou"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "soukou"
-path = "src/main.rs"
-
-[dependencies]
-bottom_bar = { workspace = true }
-gpui = { workspace = true }
-gpui_platform = { workspace = true }
-rope = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-settings = { workspace = true }
-title_bar = { workspace = true }
-xdg = { workspace = true }
-editor = { workspace = true, features = ["embedded-ipadic"] }
-theme = { workspace = true }
-
 [package.metadata.bundle]
 icon = ["resources/AppIcon.icns"]
 resources = ["resources/AppIcon.icns"]
@@ -27,3 +10,20 @@ identifier = "dev.monj.soukou"
 name = "Soukou"
 osx_minimum_system_version = "11.0"
 osx_info_plist_exts = ["resources/info/*"]
+
+[[bin]]
+name = "soukou"
+path = "src/main.rs"
+
+[dependencies]
+bottom_bar = { workspace = true }
+editor = { workspace = true, features = ["embedded-ipadic"] }
+gpui = { workspace = true }
+gpui_platform = { workspace = true }
+rope = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+settings = { workspace = true }
+theme = { workspace = true }
+title_bar = { workspace = true }
+xdg = { workspace = true }

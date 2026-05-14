@@ -14,6 +14,32 @@ use settings::open_settings_window;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
 
+const APP_NAME: &str = "Soukou";
+const APP_ID: &str = "dev.monj.soukou";
+const OK_BUTTON_LABEL: &str = "OK";
+const OPEN_PROMPT_LABEL: &str = "開く";
+const SETTINGS_MENU_LABEL: &str = "設定";
+const QUIT_MENU_LABEL: &str = "終了";
+const FILE_MENU_LABEL: &str = "ファイル";
+const SAVE_MENU_LABEL: &str = "保存";
+const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
+const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
+const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
+const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
+const UNSUPPORTED_TEXT_FILE_ERROR_DETAIL: &str = "現在は .txt ファイルのみ対応しています";
+const SUPPORTED_TEXT_FILE_EXTENSION: &str = "txt";
+const DEFAULT_NEW_FILE_NAME: &str = "untitled.txt";
+const CURRENT_DIRECTORY_FALLBACK: &str = ".";
+const WINDOW_TITLE_SEPARATOR: &str = " - ";
+const MAIN_WINDOW_WIDTH: f32 = 1200.0;
+const MAIN_WINDOW_HEIGHT: f32 = 800.0;
+const OPEN_FILE_SHORTCUT_MAC: &str = "cmd-o";
+const OPEN_FILE_SHORTCUT_CTRL: &str = "ctrl-o";
+const SAVE_FILE_SHORTCUT_MAC: &str = "cmd-s";
+const SAVE_FILE_SHORTCUT_CTRL: &str = "ctrl-s";
+const QUIT_SHORTCUT_MAC: &str = "cmd-q";
+const OPEN_SETTINGS_SHORTCUT_CTRL: &str = "ctrl-,";
+
 actions!(soukou, [OpenSettings, OpenFile, SaveFile, Quit]);
 
 struct SoukouApp {
@@ -27,16 +53,16 @@ struct SoukouApp {
 impl SoukouApp {
     fn new(cx: &mut Context<Self>) -> Self {
         cx.bind_keys([
-            KeyBinding::new("cmd-q", Quit, None),
-            KeyBinding::new("ctrl-,", OpenSettings, None),
-            KeyBinding::new("cmd-o", OpenFile, None),
-            KeyBinding::new("ctrl-o", OpenFile, None),
-            KeyBinding::new("cmd-s", SaveFile, None),
-            KeyBinding::new("ctrl-s", SaveFile, None),
+            KeyBinding::new(QUIT_SHORTCUT_MAC, Quit, None),
+            KeyBinding::new(OPEN_SETTINGS_SHORTCUT_CTRL, OpenSettings, None),
+            KeyBinding::new(OPEN_FILE_SHORTCUT_MAC, OpenFile, None),
+            KeyBinding::new(OPEN_FILE_SHORTCUT_CTRL, OpenFile, None),
+            KeyBinding::new(SAVE_FILE_SHORTCUT_MAC, SaveFile, None),
+            KeyBinding::new(SAVE_FILE_SHORTCUT_CTRL, SaveFile, None),
         ]);
 
         let editor_controller = cx.new(EditorController::new);
-        let title_bar = cx.new(|cx| TitleBar::new("Soukou", cx));
+        let title_bar = cx.new(|cx| TitleBar::new(APP_NAME, cx));
         let bottom_bar = cx.new(BottomBar::new);
 
         Self {
@@ -50,8 +76,8 @@ impl SoukouApp {
 
     fn window_title(&self, _cx: &App) -> String {
         match &self.active_file {
-            Some(path) => format!("Soukou - {}", path.display()),
-            _ => "Soukou".to_string(),
+            Some(path) => format!("{APP_NAME}{WINDOW_TITLE_SEPARATOR}{}", path.display()),
+            _ => APP_NAME.to_string(),
         }
     }
 
@@ -65,7 +91,7 @@ impl SoukouApp {
             PromptLevel::Warning,
             message,
             Some(detail.as_str()),
-            &["OK"],
+            &[OK_BUTTON_LABEL],
             cx,
         );
     }
@@ -73,7 +99,7 @@ impl SoukouApp {
     fn is_supported_text_file(path: &Path) -> bool {
         path.extension()
             .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("txt"))
+            .is_some_and(|extension| extension.eq_ignore_ascii_case(SUPPORTED_TEXT_FILE_EXTENSION))
     }
 
     fn load_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
@@ -114,7 +140,7 @@ impl SoukouApp {
                 Err(error) => {
                     let detail = error.to_string();
                     let _ = cx.update_window(window_handle, |_, window, cx| {
-                        Self::show_error(window, "ファイルを保存できませんでした", detail, cx);
+                        Self::show_error(window, FILE_SAVE_ERROR_TITLE, detail, cx);
                     });
                 }
             }
@@ -133,8 +159,8 @@ impl SoukouApp {
             let _ = cx.update_window(window_handle, |_, window, cx| {
                 Self::show_error(
                     window,
-                    "ファイルを開けませんでした",
-                    "現在は .txt ファイルのみ対応しています".into(),
+                    FILE_OPEN_ERROR_TITLE,
+                    UNSUPPORTED_TEXT_FILE_ERROR_DETAIL.into(),
                     cx,
                 );
             });
@@ -162,7 +188,7 @@ impl SoukouApp {
                 Err(error) => {
                     let detail = error.to_string();
                     let _ = cx.update_window(window_handle, |_, window, cx| {
-                        Self::show_error(window, "ファイルを開けませんでした", detail, cx);
+                        Self::show_error(window, FILE_OPEN_ERROR_TITLE, detail, cx);
                     });
                 }
             }
@@ -175,7 +201,7 @@ impl SoukouApp {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("開く".into()),
+            prompt: Some(OPEN_PROMPT_LABEL.into()),
         });
         let window_handle = window.window_handle();
 
@@ -190,7 +216,7 @@ impl SoukouApp {
                 Err(error) => {
                     let detail = error.to_string();
                     let _ = cx.update_window(window_handle, |_, window, cx| {
-                        Self::show_error(window, "ファイル選択を開けませんでした", detail, cx);
+                        Self::show_error(window, FILE_PICKER_ERROR_TITLE, detail, cx);
                     });
                     None
                 }
@@ -218,8 +244,8 @@ impl SoukouApp {
         else {
             Self::show_error(
                 window,
-                "ファイルを開けませんでした",
-                "現在は .txt ファイルのみ対応しています".into(),
+                FILE_OPEN_ERROR_TITLE,
+                UNSUPPORTED_TEXT_FILE_ERROR_DETAIL.into(),
                 cx,
             );
             return;
@@ -243,13 +269,13 @@ impl SoukouApp {
             .and_then(Path::parent)
             .map(Path::to_path_buf)
             .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."));
+            .unwrap_or_else(|| PathBuf::from(CURRENT_DIRECTORY_FALLBACK));
         let suggested_name = self
             .active_file
             .as_deref()
             .and_then(Path::file_name)
             .and_then(|name| name.to_str())
-            .unwrap_or("untitled.txt")
+            .unwrap_or(DEFAULT_NEW_FILE_NAME)
             .to_string();
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
 
@@ -263,7 +289,7 @@ impl SoukouApp {
                 Err(error) => {
                     let detail = error.to_string();
                     let _ = cx.update_window(window_handle, |_, window, cx| {
-                        Self::show_error(window, "保存先を選択できませんでした", detail, cx);
+                        Self::show_error(window, SAVE_PATH_PICKER_ERROR_TITLE, detail, cx);
                     });
                     None
                 }
@@ -416,19 +442,19 @@ fn main() {
             .set_menus(vec![
                 Menu {
                     disabled: false,
-                    name: "Soukou".into(),
+                    name: APP_NAME.into(),
                     items: vec![
-                        MenuItem::action("設定", OpenSettings),
+                        MenuItem::action(SETTINGS_MENU_LABEL, OpenSettings),
                         MenuItem::separator(),
-                        MenuItem::action("終了", Quit),
+                        MenuItem::action(QUIT_MENU_LABEL, Quit),
                     ],
                 },
                 Menu {
                     disabled: false,
-                    name: "ファイル".into(),
+                    name: FILE_MENU_LABEL.into(),
                     items: vec![
-                        MenuItem::action("開く", OpenFile),
-                        MenuItem::action("保存", SaveFile),
+                        MenuItem::action(OPEN_PROMPT_LABEL, OpenFile),
+                        MenuItem::action(SAVE_MENU_LABEL, SaveFile),
                     ],
                 },
             ]);
@@ -437,10 +463,10 @@ fn main() {
             title_bar::configure_window_options(WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
-                    size(px(1200.0), px(800.0)),
+                    size(px(MAIN_WINDOW_WIDTH), px(MAIN_WINDOW_HEIGHT)),
                     cx,
                 ))),
-                app_id: Some("dev.monj.soukou".into()),
+                app_id: Some(APP_ID.into()),
                 is_movable: true,
                 is_resizable: true,
                 window_decorations: Some(WindowDecorations::Client),
