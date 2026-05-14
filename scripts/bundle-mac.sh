@@ -82,7 +82,7 @@ setup_signing() {
   fi
 
   local certificate_file
-  certificate_file="$(mktemp /tmp/soukou-certificate.XXXXXX.p12)"
+  certificate_file="$(mktemp /tmp/soukou-certificate.XXXXXX)"
   decode_secret_to_file "$MACOS_CERTIFICATE" "$certificate_file"
 
   keychain_password="$(openssl rand -hex 24)"
@@ -168,7 +168,7 @@ notarize_and_staple() {
     return
   fi
 
-  notarization_key_file="$(mktemp /tmp/soukou-notary-key.XXXXXX.p8)"
+  notarization_key_file="$(mktemp /tmp/soukou-notary-key.XXXXXX)"
   decode_secret_to_file "$APPLE_NOTARIZATION_KEY" "$notarization_key_file"
 
   xcrun notarytool submit \
