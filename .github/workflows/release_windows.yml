@@ -32,21 +32,20 @@ jobs:
       - name: Add Cargo bin directory to PATH
         shell: cmd
         run: |
-          if exist "%USERPROFILE%\.cargo\bin" echo %USERPROFILE%\.cargo\bin>>"%GITHUB_PATH%"
-          if exist "%LOCALAPPDATA%\Programs\Rust\bin" echo %LOCALAPPDATA%\Programs\Rust\bin>>"%GITHUB_PATH%"
+          if exist "%USERPROFILE%\.cargo\bin\rustup.exe" echo %USERPROFILE%\.cargo\bin>>"%GITHUB_PATH%"
+          if exist "%LOCALAPPDATA%\Programs\Rust\bin\rustup.exe" echo %LOCALAPPDATA%\Programs\Rust\bin>>"%GITHUB_PATH%"
+          for /D %%D in (C:\Users\*) do @if exist "%%D\.cargo\bin\rustup.exe" echo %%D\.cargo\bin>>"%GITHUB_PATH%"
 
       - name: Verify Rust toolchain commands
         shell: cmd
         run: |
+          echo USERPROFILE=%USERPROFILE%
           where rustup
           where cargo
 
       - name: Ensure Rust target is installed
         shell: cmd
         run: rustup target add ${{ matrix.target }}-pc-windows-msvc
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
 
       - name: Build Windows release archive
         shell: cmd
