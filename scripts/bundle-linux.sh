@@ -22,7 +22,7 @@ bundle_directory="target/${target_triple}/release/${archive_root}"
 archive_path="target/${target_triple}/release/${archive_root}.tar.gz"
 binary_path="target/${target_triple}/release/soukou"
 desktop_file_source="crates/soukou/resources/linux/soukou.desktop"
-icon_source="crates/soukou/resources/icon.png"
+icon_source="crates/soukou/resources/AppIcon.iconset/icon_512x512.png"
 
 rustup target add "$target_triple"
 

@@ -22,7 +22,7 @@ esac
 binary_path="target/${target_triple}/release/soukou"
 appdir_path="target/${target_triple}/release/AppDir"
 desktop_file_source="crates/soukou/resources/linux/soukou.desktop"
-icon_source="crates/soukou/resources/icon.png"
+icon_source="crates/soukou/resources/AppIcon.iconset/icon_512x512.png"
 linuxdeploy_path="tools/linuxdeploy-${linuxdeploy_arch}.AppImage"
 output_name="草稿-${archive_arch}.AppImage"
 

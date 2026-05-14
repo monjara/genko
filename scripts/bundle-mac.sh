@@ -9,6 +9,7 @@ can_code_sign=false
 keychain_name="soukou-signing.keychain-db"
 keychain_password=""
 signing_identity=""
+signing_identity_hash=""
 notarization_key_file=""
 app_icon_source="crates/soukou/resources/AppIcon.icns"
 app_icon_name="AppIcon.icns"
@@ -92,24 +93,26 @@ setup_signing() {
 
   rm -f "$certificate_file"
 
+  local identity_line
   if [[ -n "${APPLE_TEAM_ID:-}" ]]; then
-    signing_identity="$(
+    identity_line="$(
       security find-identity -v -p codesigning "$keychain_name" \
         | grep "Developer ID Application" \
         | grep "$APPLE_TEAM_ID" \
-        | head -n 1 \
-        | sed -E 's/.*"(.+)"/\1/'
+        | head -n 1
     )"
   else
-    signing_identity="$(
+    identity_line="$(
       security find-identity -v -p codesigning "$keychain_name" \
         | grep "Developer ID Application" \
-        | head -n 1 \
-        | sed -E 's/.*"(.+)"/\1/'
+        | head -n 1
     )"
   fi
 
-  if [[ -z "$signing_identity" ]]; then
+  signing_identity="$(printf '%s\n' "$identity_line" | sed -E 's/.*"(.+)"/\1/')"
+  signing_identity_hash="$(printf '%s\n' "$identity_line" | awk '{print $2}')"
+
+  if [[ -z "$signing_identity" || -z "$signing_identity_hash" ]]; then
     echo "Developer ID Application identity was not found in imported certificate." >&2
     exit 1
   fi
@@ -127,9 +130,10 @@ sign_path() {
   /usr/bin/codesign \
     --force \
     --deep \
+    --keychain "$keychain_name" \
     --timestamp \
     --options runtime \
-    --sign "$signing_identity" \
+    --sign "$signing_identity_hash" \
     "$path_to_sign" \
     -v
 }
