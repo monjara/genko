@@ -16,7 +16,9 @@ concurrency:
 
 jobs:
   bundle_windows:
-    runs-on: self-hosted
+    runs-on:
+      - self-hosted
+      - soukou-windows
     timeout-minutes: 60
     strategy:
       matrix:
