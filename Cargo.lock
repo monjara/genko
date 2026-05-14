@@ -5834,6 +5834,7 @@ version = "0.1.0"
 dependencies = [
  "bottom_bar",
  "editor",
+ "embed-resource",
  "gpui",
  "gpui_platform",
  "rope",
