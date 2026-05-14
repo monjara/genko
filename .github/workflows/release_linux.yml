@@ -61,36 +61,15 @@ jobs:
             libxrandr-dev \
             libpipewire-0.3-dev
 
-      - name: Download linuxdeploy
-        run: |
-          mkdir -p tools
-          curl -L \
-            -o tools/linuxdeploy-x86_64.AppImage \
-            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x tools/linuxdeploy-x86_64.AppImage
-
       - name: Build Linux release archive
         env:
           CC: clang
           CXX: clang++
         run: ./scripts/bundle-linux.sh ${{ matrix.target }}
 
-      - name: Build AppImage
-        env:
-          CC: clang
-          CXX: clang++
-        run: ./scripts/bundle-appimage.sh ${{ matrix.target }}
-
       - name: Upload Linux archive
         uses: actions/upload-artifact@v4
         with:
           name: 草稿-${{ matrix.target }}.tar.gz
           path: target/${{ matrix.target }}/release/草稿-linux-*.tar.gz
-          if-no-files-found: error
-
-      - name: Upload AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: 草稿-${{ matrix.target }}.AppImage
-          path: target/${{ matrix.target }}/release/草稿-*.AppImage
           if-no-files-found: error
