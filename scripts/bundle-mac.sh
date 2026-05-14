@@ -6,15 +6,13 @@ build_flag="--release"
 target_dir="release"
 target_triple=""
 can_code_sign=false
-keychain_name=""
+keychain_name="soukou-signing.keychain-db"
 keychain_password=""
 signing_identity=""
 signing_identity_hash=""
 notarization_key_file=""
 app_icon_source="crates/soukou/resources/AppIcon.icns"
 app_icon_name="AppIcon.icns"
-original_default_keychain=""
-original_user_keychains=""
 
 help_info() {
   echo "
@@ -48,16 +46,7 @@ cleanup() {
     rm -f "$notarization_key_file"
   fi
 
-  if [[ -n "$original_default_keychain" ]]; then
-    security default-keychain -s "$original_default_keychain" || true
-  fi
-
-  if [[ -n "$original_user_keychains" ]]; then
-    # shellcheck disable=SC2086
-    security list-keychains -d user -s $original_user_keychains || true
-  fi
-
-  if [[ -n "$keychain_name" ]] && security list-keychains | grep -q "$keychain_name"; then
+  if security list-keychains | grep -q "$keychain_name"; then
     security delete-keychain "$keychain_name" || true
   fi
 }
@@ -82,23 +71,15 @@ setup_signing() {
   fi
 
   local certificate_file
-  certificate_file="$(mktemp /tmp/soukou-certificate.XXXXXX)"
+  certificate_file="$(mktemp /tmp/soukou-certificate.XXXXXX.p12)"
   decode_secret_to_file "$MACOS_CERTIFICATE" "$certificate_file"
 
   keychain_password="$(openssl rand -hex 24)"
-  keychain_name="$(mktemp /tmp/soukou-signing-keychain.XXXXXX).keychain-db"
-  original_default_keychain="$(security default-keychain -d user | tr -d '"')"
-  original_user_keychains="$(
-    security list-keychains -d user \
-      | tr -d '"' \
-      | xargs
-  )"
 
   security create-keychain -p "$keychain_password" "$keychain_name"
   security set-keychain-settings -lut 21600 "$keychain_name"
   security unlock-keychain -p "$keychain_password" "$keychain_name"
-  security list-keychains -d user -s "$keychain_name"
-  security default-keychain -d user -s "$keychain_name"
+  security list-keychains -d user -s "$keychain_name" login.keychain-db
   security import "$certificate_file" \
     -k "$keychain_name" \
     -P "$MACOS_CERTIFICATE_PASSWORD" \
@@ -169,7 +150,7 @@ notarize_and_staple() {
     return
   fi
 
-  notarization_key_file="$(mktemp /tmp/soukou-notary-key.XXXXXX)"
+  notarization_key_file="$(mktemp /tmp/soukou-notary-key.XXXXXX.p8)"
   decode_secret_to_file "$APPLE_NOTARIZATION_KEY" "$notarization_key_file"
 
   xcrun notarytool submit \
