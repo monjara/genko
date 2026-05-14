@@ -1,4 +1,5 @@
 use std::{
+    env,
     fs,
     path::{Path, PathBuf},
 };
@@ -828,16 +829,17 @@ impl AppSettings {
     }
 
     fn load() -> Self {
-        let xdg_dirs = xdg::BaseDirectories::with_prefix("soukou");
-        Self::load_from_base_dirs(&xdg_dirs)
+        Self::load_from_config_file(Self::existing_settings_file_path())
     }
 
     fn save(&self) -> Result<(), String> {
         let settings = self.normalized();
-        let xdg_dirs = xdg::BaseDirectories::with_prefix("soukou");
-        let settings_path = xdg_dirs
-            .place_config_file(SETTINGS_FILE)
-            .map_err(|error| format!("設定ファイルの保存先を作成できません: {error}"))?;
+        let settings_path = Self::settings_file_path()
+            .ok_or_else(|| "設定ファイルの保存先を解決できません".to_string())?;
+        if let Some(settings_dir) = settings_path.parent() {
+            fs::create_dir_all(settings_dir)
+                .map_err(|error| format!("設定ファイルの保存先を作成できません: {error}"))?;
+        }
         settings.save_to_file(&settings_path)
     }
 
@@ -853,8 +855,30 @@ impl AppSettings {
         }
     }
 
-    fn load_from_base_dirs(xdg_dirs: &xdg::BaseDirectories) -> Self {
-        Self::load_from_config_file(xdg_dirs.find_config_file(SETTINGS_FILE))
+    fn existing_settings_file_path() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        {
+            Self::settings_file_path()
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let xdg_dirs = xdg::BaseDirectories::with_prefix("soukou");
+            xdg_dirs.find_config_file(SETTINGS_FILE)
+        }
+    }
+
+    fn settings_file_path() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        {
+            env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("soukou").join(SETTINGS_FILE))
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let xdg_dirs = xdg::BaseDirectories::with_prefix("soukou");
+            xdg_dirs.place_config_file(SETTINGS_FILE).ok()
+        }
     }
 
     fn load_from_config_file(settings_path: Option<PathBuf>) -> Self {
