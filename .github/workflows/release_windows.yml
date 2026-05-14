@@ -1,0 +1,47 @@
+name: release_windows
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: release-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle_windows:
+    runs-on: self-hosted
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        target:
+          - x86_64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}-pc-windows-msvc
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Windows release archive
+        shell: pwsh
+        run: .\scripts\bundle-windows.ps1 -Architecture ${{ matrix.target }}
+
+      - name: Upload Windows archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: 草稿-${{ matrix.target }}-pc-windows-msvc.zip
+          path: target/${{ matrix.target }}-pc-windows-msvc/release/草稿-windows-${{ matrix.target }}.zip
+          if-no-files-found: error
