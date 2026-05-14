@@ -57,6 +57,7 @@ jobs:
             libxcursor-dev \
             libxi-dev \
             libxkbcommon-dev \
+            libxkbcommon-x11-dev \
             libxrandr-dev \
             libpipewire-0.3-dev
 
