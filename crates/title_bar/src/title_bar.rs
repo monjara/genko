@@ -148,15 +148,6 @@ impl TitleBar {
                     )
                     .child(
                         div()
-                            .flex_1()
-                            .px_3()
-                            .text_center()
-                            .text_size(px(12.0))
-                            .text_color(text_color(cx))
-                            .child(self.title.clone()),
-                    )
-                    .child(
-                        div()
                             .w(px(SIDE_SLOT_WIDTH))
                             .flex_none()
                             .flex()

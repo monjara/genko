@@ -7,7 +7,7 @@ edition = "2024"
 icon = ["resources/AppIcon.icns"]
 resources = ["resources/AppIcon.icns"]
 identifier = "dev.monj.soukou"
-name = "Soukou"
+name = "草稿"
 osx_minimum_system_version = "11.0"
 osx_info_plist_exts = ["resources/info/*"]
 
