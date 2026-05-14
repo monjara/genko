@@ -10,6 +10,8 @@ keychain_name="soukou-signing.keychain-db"
 keychain_password=""
 signing_identity=""
 notarization_key_file=""
+app_icon_source="crates/soukou/resources/AppIcon.icns"
+app_icon_name="AppIcon.icns"
 
 help_info() {
   echo "
@@ -160,6 +162,20 @@ notarize_and_staple() {
   notarization_key_file=""
 }
 
+configure_app_bundle_icon() {
+  local bundle_path=$1
+  local resources_path="${bundle_path}/Contents/Resources"
+  local info_plist_path="${bundle_path}/Contents/Info.plist"
+
+  mkdir -p "$resources_path"
+  cp "$app_icon_source" "${resources_path}/${app_icon_name}"
+
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile AppIcon" "$info_plist_path" \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$info_plist_path"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIconName AppIcon" "$info_plist_path" \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$info_plist_path"
+}
+
 if [[ $# -gt 0 && -n "$1" ]]; then
   target_triple="$1"
 else
@@ -201,6 +217,9 @@ if [[ ! -d "$app_path" ]]; then
   echo "Expected app bundle was not created: $app_path" >&2
   exit 1
 fi
+
+echo "Configuring app bundle icon"
+configure_app_bundle_icon "$app_path"
 
 if [[ "$target_dir" != "debug" ]]; then
   echo "Signing Soukou.app"
