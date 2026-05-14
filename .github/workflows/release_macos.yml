@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   bundle_macos:
-    runs-on: macos-latest
+    # runs-on: macos-latest
+    runs-on: self-hosted
     timeout-minutes: 90
     env:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
