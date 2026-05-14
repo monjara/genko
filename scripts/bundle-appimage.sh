@@ -26,6 +26,7 @@ icon_source="crates/soukou/resources/AppIcon.iconset/icon_512x512.png"
 icon_staging_path="target/${target_triple}/release/soukou.png"
 linuxdeploy_path="tools/linuxdeploy-${linuxdeploy_arch}.AppImage"
 output_name="草稿-${archive_arch}.AppImage"
+appimage_path="target/${target_triple}/release/${output_name}"
 
 if [[ ! -x "$linuxdeploy_path" ]]; then
   echo "linuxdeploy AppImage is missing or not executable: $linuxdeploy_path" >&2
@@ -48,7 +49,7 @@ cp "$icon_source" "$icon_staging_path"
 
 export APPIMAGE_EXTRACT_AND_RUN=1
 export ARCH="$archive_arch"
-export OUTPUT="草稿.AppImage"
+export OUTPUT="$appimage_path"
 export LDAI_OUTPUT="$output_name"
 export LDAI_NO_APPSTREAM=1
 
@@ -58,8 +59,6 @@ export LDAI_NO_APPSTREAM=1
   --desktop-file "$desktop_file_source" \
   --icon-file "$icon_staging_path" \
   --output appimage
-
-appimage_path="target/${target_triple}/release/${output_name}"
 
 if [[ ! -f "$appimage_path" ]]; then
   echo "Expected AppImage was not created: $appimage_path" >&2
