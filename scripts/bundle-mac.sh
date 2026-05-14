@@ -60,10 +60,13 @@ decode_secret_to_file() {
   if [[ "$secret_value" == *"-----BEGIN "* ]]; then
     printf '%s' "$secret_value" > "$output_path"
   else
-    if printf '%s' "$secret_value" | base64 --decode > "$output_path" 2>/dev/null; then
+    local normalized_secret
+    normalized_secret="$(printf '%s' "$secret_value" | tr -d ' \t\r\n')"
+
+    if printf '%s' "$normalized_secret" | base64 --decode > "$output_path" 2>/dev/null; then
       :
     else
-      printf '%s' "$secret_value" | base64 -D > "$output_path"
+      printf '%s' "$normalized_secret" | base64 -D > "$output_path"
     fi
   fi
 }
@@ -77,6 +80,12 @@ setup_signing() {
   local certificate_file
   certificate_file="$(mktemp /tmp/soukou-certificate.XXXXXX)"
   decode_secret_to_file "$MACOS_CERTIFICATE" "$certificate_file"
+
+  if ! openssl pkcs12 -in "$certificate_file" -passin "pass:$MACOS_CERTIFICATE_PASSWORD" -nokeys >/dev/null 2>&1; then
+    echo "MACOS_CERTIFICATE is not a valid PKCS#12 archive, or MACOS_CERTIFICATE_PASSWORD does not match." >&2
+    rm -f "$certificate_file"
+    exit 1
+  fi
 
   keychain_password="$(openssl rand -hex 24)"
 
