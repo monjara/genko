@@ -14,7 +14,7 @@ use settings::open_settings_window;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
 
-const APP_NAME: &str = "Soukou";
+const APP_NAME: &str = "草稿";
 const APP_ID: &str = "dev.monj.soukou";
 const OK_BUTTON_LABEL: &str = "OK";
 const OPEN_PROMPT_LABEL: &str = "開く";

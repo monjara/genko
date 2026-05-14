@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=草稿
+Comment=Lightweight Japanese manuscript editor
+Exec=soukou %F
+Icon=soukou
+Terminal=false
+Categories=Office;TextEditor;
+MimeType=text/plain;
+StartupNotify=true

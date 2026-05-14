@@ -1,0 +1,95 @@
+name: release_linux
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: release-linux-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle_linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            file \
+            pkg-config \
+            libasound2-dev \
+            libcairo2-dev \
+            libfontconfig1-dev \
+            libfuse2 \
+            libgl1-mesa-dev \
+            libglib2.0-dev \
+            libva-dev \
+            libvulkan-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libpipewire-0.3-dev
+
+      - name: Download linuxdeploy
+        run: |
+          mkdir -p tools
+          curl -L \
+            -o tools/linuxdeploy-x86_64.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x tools/linuxdeploy-x86_64.AppImage
+
+      - name: Build Linux release archive
+        env:
+          CC: clang
+          CXX: clang++
+        run: ./scripts/bundle-linux.sh ${{ matrix.target }}
+
+      - name: Build AppImage
+        env:
+          CC: clang
+          CXX: clang++
+        run: ./scripts/bundle-appimage.sh ${{ matrix.target }}
+
+      - name: Upload Linux archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: 草稿-${{ matrix.target }}.tar.gz
+          path: target/${{ matrix.target }}/release/草稿-linux-*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: 草稿-${{ matrix.target }}.AppImage
+          path: target/${{ matrix.target }}/release/草稿-*.AppImage
+          if-no-files-found: error

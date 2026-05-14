@@ -16,7 +16,7 @@ app_icon_name="AppIcon.icns"
 help_info() {
   echo "
 Usage: ${0##*/} [options] [target]
-Build a macOS .app bundle and .dmg for Soukou.
+Build a macOS .app bundle and .dmg for 草稿.
 
 Options:
   -d    Compile in debug mode
@@ -203,15 +203,15 @@ export CXXFLAGS="-stdlib=libc++"
 
 setup_signing
 
-echo "Building Soukou for $target_triple"
+echo "Building 草稿 for $target_triple"
 cargo build ${build_flag} --package soukou --target "$target_triple"
 
-echo "Bundling Soukou.app"
+echo "Bundling 草稿.app"
 cargo bundle ${build_flag} \
   --package soukou \
   --target "$target_triple"
 
-app_path="target/${target_triple}/${target_dir}/bundle/osx/Soukou.app"
+app_path="target/${target_triple}/${target_dir}/bundle/osx/草稿.app"
 
 if [[ ! -d "$app_path" ]]; then
   echo "Expected app bundle was not created: $app_path" >&2
@@ -222,13 +222,13 @@ echo "Configuring app bundle icon"
 configure_app_bundle_icon "$app_path"
 
 if [[ "$target_dir" != "debug" ]]; then
-  echo "Signing Soukou.app"
+  echo "Signing 草稿.app"
   sign_path "$app_path"
 fi
 
 bundle_directory="target/${target_triple}/${target_dir}"
 dmg_staging_dir="${bundle_directory}/dmg"
-dmg_path="${bundle_directory}/Soukou-${arch_suffix}.dmg"
+dmg_path="${bundle_directory}/草稿-${arch_suffix}.dmg"
 
 rm -rf "$dmg_staging_dir"
 mkdir -p "$dmg_staging_dir"
@@ -238,7 +238,7 @@ ln -s /Applications "${dmg_staging_dir}/Applications"
 echo "Creating DMG at $dmg_path"
 rm -f "$dmg_path"
 hdiutil create \
-  -volname "Soukou" \
+  -volname "草稿" \
   -srcfolder "$dmg_staging_dir" \
   -ov \
   -format UDZO \
@@ -251,7 +251,7 @@ if [[ "$target_dir" != "debug" ]]; then
   echo "Notarizing DMG"
   notarize_and_staple "$dmg_path"
 
-  echo "Stapling Soukou.app"
+  echo "Stapling 草稿.app"
   xcrun stapler staple "$app_path"
 fi
 
