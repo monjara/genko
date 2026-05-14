@@ -3,7 +3,7 @@ name: release_linux
 on:
   push:
     tags:
-      - "v-linux-*"
+      - "v*"
   workflow_dispatch:
 
 env:

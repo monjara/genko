@@ -3,7 +3,7 @@ name: release_macos
 on:
   push:
     tags:
-      - "v-macos-*"
+      - "v*"
   workflow_dispatch:
 
 env:
