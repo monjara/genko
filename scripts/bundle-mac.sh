@@ -6,7 +6,7 @@ build_flag="--release"
 target_dir="release"
 target_triple=""
 can_code_sign=false
-keychain_name="soukou-signing.keychain-db"
+keychain_name=""
 keychain_password=""
 signing_identity=""
 signing_identity_hash=""
@@ -57,7 +57,7 @@ cleanup() {
     security list-keychains -d user -s $original_user_keychains || true
   fi
 
-  if security list-keychains | grep -q "$keychain_name"; then
+  if [[ -n "$keychain_name" ]] && security list-keychains | grep -q "$keychain_name"; then
     security delete-keychain "$keychain_name" || true
   fi
 }
@@ -86,6 +86,7 @@ setup_signing() {
   decode_secret_to_file "$MACOS_CERTIFICATE" "$certificate_file"
 
   keychain_password="$(openssl rand -hex 24)"
+  keychain_name="$(mktemp /tmp/soukou-signing-keychain.XXXXXX).keychain-db"
   original_default_keychain="$(security default-keychain -d user | tr -d '"')"
   original_user_keychains="$(
     security list-keychains -d user \
