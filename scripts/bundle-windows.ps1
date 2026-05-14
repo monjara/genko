@@ -9,7 +9,7 @@ $PSNativeCommandUseErrorActionPreference = $true
 $target = "$Architecture-pc-windows-msvc"
 $binaryPath = ".\target\$target\release\soukou.exe"
 $bundleRoot = ".\target\$target\release\草稿-windows-$Architecture"
-$archivePath = ".\target\$target\release\草稿-windows-$Architecture.zip"
+$archivePath = ".\target\$target\release\soukou-windows-$Architecture.zip"
 
 Write-Output "Building 草稿 for $target"
 cargo build --release --package soukou --target $target
