@@ -1,7 +1,8 @@
 use gpui::{
     AnyElement, App, BoxShadow, ClickEvent, Context, Decorations, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, Rgba, SharedString, StatefulInteractiveElement,
-    Styled, TitlebarOptions, Window, WindowControlArea, div, point, px,
+    IntoElement, MouseButton, ParentElement, Pixels, Render, Rgba, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, TitlebarOptions, Window, WindowControlArea,
+    div, point, px,
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use gpui::{WindowButton, WindowButtonLayout, WindowDecorations, prelude::FluentBuilder};
@@ -89,13 +90,101 @@ impl PlatformStyle {
 
 pub struct TitleBar {
     title: SharedString,
+    auth_manager: auth::AuthManager,
+    _auth_subscription: Subscription,
 }
 
 impl TitleBar {
-    pub fn new(title: &str, _cx: &mut Context<Self>) -> Self {
+    pub fn new(title: &str, cx: &mut Context<Self>) -> Self {
         Self {
             title: title.into(),
+            auth_manager: auth::AuthManager::new(),
+            _auth_subscription: cx.observe_global::<auth::AuthStore>(|_, cx| {
+                cx.notify();
+            }),
         }
+    }
+
+    fn render_auth_control(&self, cx: &App) -> AnyElement {
+        match auth::AuthStore::global(cx).state() {
+            auth::AuthState::LoggedOut | auth::AuthState::Error(_) => {
+                self.render_sign_in_button(cx).into_any_element()
+            }
+            auth::AuthState::Authorizing => div()
+                .id("soukou-auth-authorizing")
+                .px_3()
+                .h(px(28.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_sm()
+                .text_size(px(12.0))
+                .text_color(text_color(cx))
+                .child("Signing in...")
+                .into_any_element(),
+            auth::AuthState::LoggedIn(user) => self.render_user_badge(user, cx).into_any_element(),
+        }
+    }
+
+    fn render_sign_in_button(&self, cx: &App) -> impl IntoElement {
+        let auth_manager = self.auth_manager;
+        let hover_background = Theme::global(cx).bg_primary();
+
+        div()
+            .id("soukou-auth-sign-in")
+            .h(px(28.0))
+            .px_3()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_sm()
+            .border_1()
+            .border_color(Theme::global(cx).primary())
+            .bg(Theme::global(cx).white())
+            .text_size(px(12.0))
+            .text_color(text_color(cx))
+            .cursor_pointer()
+            .hover(move |style| style.bg(hover_background))
+            .active(|style| style.opacity(0.85))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .on_click(
+                move |_, _, cx| match auth_manager.start_browser_sign_in(cx) {
+                    Ok(()) | Err(_) => {}
+                },
+            )
+            .child("Sign In")
+    }
+
+    fn render_user_badge(&self, user: &auth::AuthenticatedUser, cx: &App) -> impl IntoElement {
+        let auth_manager = self.auth_manager;
+        let label = user_badge_label(user);
+        let can_open_account = auth_manager.has_account_url();
+
+        div()
+            .id("soukou-auth-user")
+            .w(px(28.0))
+            .h(px(28.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .bg(Theme::global(cx).primary())
+            .text_size(px(12.0))
+            .text_color(Theme::global(cx).white())
+            .when(can_open_account, |this| {
+                this.cursor_pointer()
+                    .hover(|style| style.opacity(0.9))
+                    .active(|style| style.opacity(0.8))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_click(move |_, _, cx| match auth_manager.open_account(cx) {
+                        Ok(()) | Err(_) => {}
+                    })
+            })
+            .child(label)
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -155,6 +244,7 @@ impl TitleBar {
                             .justify_end()
                             .items_center()
                             .gap_2()
+                            .child(self.render_auth_control(cx))
                             .children(right_controls),
                     ),
             );
@@ -219,6 +309,15 @@ impl TitleBar {
                             .text_size(px(12.0))
                             .text_color(text_color(cx))
                             .child(self.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .w(px(SIDE_SLOT_WIDTH))
+                            .flex_none()
+                            .flex()
+                            .justify_end()
+                            .items_center()
+                            .child(self.render_auth_control(cx)),
                     ),
             )
             .into_any_element()
@@ -336,6 +435,26 @@ fn border_color(cx: &App) -> Hsla {
 
 fn text_color(cx: &App) -> Hsla {
     Theme::global(cx).text_primary().into()
+}
+
+fn user_badge_label(user: &auth::AuthenticatedUser) -> String {
+    let candidate = user
+        .display_name
+        .as_deref()
+        .filter(|display_name| !display_name.is_empty())
+        .or_else(|| {
+            user.email
+                .split('@')
+                .next()
+                .filter(|email_local_part| !email_local_part.is_empty())
+        })
+        .unwrap_or("人");
+
+    candidate
+        .chars()
+        .next()
+        .map(|character| character.to_uppercase().collect())
+        .unwrap_or_else(|| "人".to_string())
 }
 
 fn mix(left: Rgba, right: Rgba, ratio: f32) -> Rgba {

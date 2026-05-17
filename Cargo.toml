@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   ".",
+  "crates/auth",
   "crates/bottom_bar",
   "crates/editor",
   "crates/env",
@@ -30,6 +31,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 xdg = "3.0.0"
 
+auth = { path = "crates/auth" }
 bottom_bar = { path = "crates/bottom_bar" }
 editor = { path = "crates/editor" }
 env = { path = "crates/env" }

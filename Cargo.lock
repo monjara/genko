@@ -428,6 +428,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "auth"
+version = "0.1.0"
+dependencies = [
+ "env",
+ "gpui",
+ "url",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1513,6 +1522,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotenvy"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1701,6 +1716,9 @@ dependencies = [
 [[package]]
 name = "env"
 version = "0.1.0"
+dependencies = [
+ "dotenvy",
+]
 
 [[package]]
 name = "equator"
@@ -5832,9 +5850,11 @@ dependencies = [
 name = "soukou"
 version = "0.1.0"
 dependencies = [
+ "auth",
  "bottom_bar",
  "editor",
  "embed-resource",
+ "env",
  "gpui",
  "gpui_platform",
  "rope",
@@ -6363,6 +6383,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 name = "title_bar"
 version = "0.1.0"
 dependencies = [
+ "auth",
  "gpui",
  "theme",
 ]

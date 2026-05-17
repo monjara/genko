@@ -1,6 +1,11 @@
 mod font;
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::VecDeque,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use bottom_bar::BottomBar;
 use editor::{EditorController, VimCommandQuit, VimCommandWrite};
@@ -51,7 +56,7 @@ struct SoukouApp {
 }
 
 impl SoukouApp {
-    fn new(cx: &mut Context<Self>) -> Self {
+    fn new(auth_callback_inbox: Arc<Mutex<VecDeque<String>>>, cx: &mut Context<Self>) -> Self {
         cx.bind_keys([
             KeyBinding::new(QUIT_SHORTCUT_MAC, Quit, None),
             KeyBinding::new(OPEN_SETTINGS_SHORTCUT_CTRL, OpenSettings, None),
@@ -64,6 +69,7 @@ impl SoukouApp {
         let editor_controller = cx.new(EditorController::new);
         let title_bar = cx.new(|cx| TitleBar::new(APP_NAME, cx));
         let bottom_bar = cx.new(BottomBar::new);
+        Self::spawn_auth_callback_processor(auth_callback_inbox, cx);
 
         Self {
             editor_controller,
@@ -72,6 +78,43 @@ impl SoukouApp {
             bottom_bar,
             window_handle: None,
         }
+    }
+
+    fn spawn_auth_callback_processor(
+        auth_callback_inbox: Arc<Mutex<VecDeque<String>>>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
+
+                let callback_urls = {
+                    let Ok(mut auth_callback_inbox) = auth_callback_inbox.lock() else {
+                        continue;
+                    };
+
+                    auth_callback_inbox.drain(..).collect::<Vec<_>>()
+                };
+
+                if callback_urls.is_empty() {
+                    continue;
+                }
+
+                let result = this.update(cx, |_, cx| {
+                    let auth_manager = auth::AuthManager::new();
+                    for callback_url in callback_urls {
+                        let _ = auth_manager.complete_callback(&callback_url, cx);
+                    }
+                });
+
+                if result.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     fn window_title(&self, _cx: &App) -> String {
@@ -431,11 +474,27 @@ impl Focusable for SoukouApp {
 }
 
 fn main() {
-    gpui_platform::application().run(|cx: &mut App| {
+    env::load();
+    let auth_callback_inbox = Arc::new(Mutex::new(VecDeque::new()));
+    let application = gpui_platform::application();
+    application.on_open_urls({
+        let auth_callback_inbox = auth_callback_inbox.clone();
+        move |urls| {
+            let Ok(mut auth_callback_queue) = auth_callback_inbox.lock() else {
+                return;
+            };
+
+            auth_callback_queue.extend(urls);
+        }
+    });
+
+    application.run(move |cx: &mut App| {
+        auth::init(cx);
         font::init(cx);
         theme::init(cx);
         settings::init(cx);
         editor::init(cx);
+        auth::AuthManager::new().restore_session(cx);
 
         cx.on_action(|_: &Quit, cx| cx.quit())
             .on_action(|_: &OpenSettings, cx| open_settings_window(cx))
@@ -472,7 +531,13 @@ fn main() {
                 window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
             }),
-            |_, cx| cx.new(SoukouApp::new),
+            {
+                let auth_callback_inbox = auth_callback_inbox.clone();
+                move |_, cx| {
+                    let auth_callback_inbox = auth_callback_inbox.clone();
+                    cx.new(move |cx| SoukouApp::new(auth_callback_inbox.clone(), cx))
+                }
+            },
         )
         .and_then(|window| {
             window.update(cx, |view, window, cx| {

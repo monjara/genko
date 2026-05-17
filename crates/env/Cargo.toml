@@ -9,3 +9,4 @@ name = "env"
 path = "src/env.rs"
 
 [dependencies]
+dotenvy = "0.15"
