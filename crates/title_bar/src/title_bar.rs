@@ -2,10 +2,10 @@ use gpui::{
     AnyElement, App, BoxShadow, ClickEvent, Context, Decorations, Hsla, InteractiveElement,
     IntoElement, MouseButton, ParentElement, Pixels, Render, Rgba, SharedString,
     StatefulInteractiveElement, Styled, Subscription, TitlebarOptions, Window, WindowControlArea,
-    div, point, px,
+    div, point, prelude::FluentBuilder, px,
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-use gpui::{WindowButton, WindowButtonLayout, WindowDecorations, prelude::FluentBuilder};
+use gpui::{WindowButton, WindowButtonLayout, WindowDecorations};
 use theme::Theme;
 
 const MAC_TRAFFIC_LIGHT_PADDING: f32 = 71.0;
