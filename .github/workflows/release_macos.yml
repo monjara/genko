@@ -30,6 +30,9 @@ jobs:
       APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
       APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      SOUKOU_SITE_URL: https://soukou.dev
+      SOUKOU_SUPABASE_URL: ${{ secrets.SOUKOU_SUPABASE_URL }}
+      SOUKOU_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SOUKOU_SUPABASE_PUBLISHABLE_KEY }}
     strategy:
       matrix:
         target:

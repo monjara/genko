@@ -1,10 +1,12 @@
 use gpui::{
-    AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Entity, Hsla,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba, SharedString,
-    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea, div, point, px,
+    Anchor, AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Entity,
+    Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, Rgba,
+    SharedString, StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea,
+    anchored, deferred, div, point, px,
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use gpui::{WindowButton, WindowButtonLayout, WindowDecorations, prelude::FluentBuilder};
+use std::rc::Rc;
 use theme::Theme;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use ui::MenuBar;
@@ -13,6 +15,8 @@ pub use ui::{MenuBarItem as TitleBarMenuItem, MenuBarMenu as TitleBarMenu};
 
 const MAC_TRAFFIC_LIGHT_PADDING: f32 = 71.0;
 const SIDE_SLOT_WIDTH: f32 = 160.0;
+const AUTH_MENU_MIN_WIDTH: Pixels = px(220.0);
+const AUTH_MENU_VERTICAL_OFFSET: Pixels = px(12.0);
 pub const CLIENT_SIDE_DECORATION_ROUNDING: Pixels = px(10.0);
 pub const CLIENT_SIDE_SHADOW_SIZE: Pixels = px(10.0);
 
@@ -91,19 +95,334 @@ impl PlatformStyle {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TitleBarUser {
+    pub display_name: String,
+    pub email: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum TitleBarAuthState {
+    #[default]
+    Anonymous,
+    Authenticated(TitleBarUser),
+}
+
+#[derive(Clone)]
+pub struct TitleBarAuthActions {
+    sign_in: Rc<dyn Fn(&mut Window, &mut App)>,
+    open_account_settings: Rc<dyn Fn(&mut Window, &mut App)>,
+    sign_out: Rc<dyn Fn(&mut Window, &mut App)>,
+}
+
+impl TitleBarAuthActions {
+    pub fn new(
+        sign_in: impl Fn(&mut Window, &mut App) + 'static,
+        open_account_settings: impl Fn(&mut Window, &mut App) + 'static,
+        sign_out: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            sign_in: Rc::new(sign_in),
+            open_account_settings: Rc::new(open_account_settings),
+            sign_out: Rc::new(sign_out),
+        }
+    }
+}
+
 pub struct TitleBar {
     title: SharedString,
+    auth_state: TitleBarAuthState,
+    auth_actions: Option<TitleBarAuthActions>,
+    auth_menu_open: bool,
+    auth_menu_position: Point<Pixels>,
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     menu_bar: Entity<MenuBar>,
 }
 
 impl TitleBar {
-    pub fn new(title: &str, menus: Vec<TitleBarMenu>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        title: &str,
+        menus: Vec<TitleBarMenu>,
+        auth_actions: Option<TitleBarAuthActions>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self {
             title: title.into(),
+            auth_state: TitleBarAuthState::Anonymous,
+            auth_actions,
+            auth_menu_open: false,
+            auth_menu_position: point(px(0.0), px(0.0)),
             #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             menu_bar: cx.new(|cx| MenuBar::new(menus, cx)),
         }
+    }
+
+    pub fn set_auth_state(&mut self, auth_state: TitleBarAuthState, cx: &mut Context<Self>) {
+        self.auth_state = auth_state;
+        if !matches!(self.auth_state, TitleBarAuthState::Authenticated(_)) {
+            self.auth_menu_open = false;
+        }
+        cx.notify();
+    }
+
+    fn toggle_auth_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.auth_menu_open {
+            self.auth_menu_open = false;
+            cx.notify();
+            return;
+        }
+
+        self.auth_menu_open = true;
+        self.auth_menu_position = point(position.x - px(180.0), position.y + AUTH_MENU_VERTICAL_OFFSET);
+        cx.notify();
+    }
+
+    fn close_auth_menu(&mut self, cx: &mut Context<Self>) {
+        if self.auth_menu_open {
+            self.auth_menu_open = false;
+            cx.notify();
+        }
+    }
+
+    fn auth_initial(display_name: &str) -> String {
+        display_name
+            .chars()
+            .next()
+            .map(|ch| ch.to_uppercase().collect())
+            .unwrap_or_else(|| "U".to_string())
+    }
+
+    fn render_auth_trigger(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let actions = self.auth_actions.clone()?;
+
+        match &self.auth_state {
+            TitleBarAuthState::Anonymous => Some(
+                div()
+                    .id("title-bar-sign-in")
+                    .px_3()
+                    .h(px(26.0))
+                    .rounded_sm()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(12.0))
+                    .text_color(text_color(cx))
+                    .border_1()
+                    .border_color(border_color(cx))
+                    .bg(Theme::global(cx).white())
+                    .cursor_pointer()
+                    .hover(|style| {
+                        style.bg(mix(
+                            Theme::global(cx).bg_senodary(),
+                            Theme::global(cx).white(),
+                            0.14,
+                        ))
+                    })
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .on_click(move |_, window, cx| {
+                        (actions.sign_in)(window, cx);
+                    })
+                    .child("Sign In")
+                    .into_any_element(),
+            ),
+            TitleBarAuthState::Authenticated(user) => {
+                let display_name = user.display_name.clone();
+                let initial = Self::auth_initial(display_name.as_str());
+
+                Some(
+                    div()
+                        .id("title-bar-account-trigger")
+                        .w(px(30.0))
+                        .h(px(30.0))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(border_color(cx))
+                        .bg(mix(
+                            Theme::global(cx).primary(),
+                            Theme::global(cx).white(),
+                            0.78,
+                        ))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(12.0))
+                        .text_color(text_color(cx))
+                        .cursor_pointer()
+                        .hover(|style| {
+                            style.bg(mix(
+                                Theme::global(cx).primary(),
+                                Theme::global(cx).white(),
+                                0.68,
+                            ))
+                        })
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.toggle_auth_menu(event.position(), cx);
+                        }))
+                        .child(initial)
+                        .into_any_element(),
+                )
+            }
+        }
+    }
+
+    fn render_auth_menu_popup(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let TitleBarAuthState::Authenticated(user) = &self.auth_state else {
+            return None;
+        };
+        let actions = self.auth_actions.clone()?;
+        if !self.auth_menu_open {
+            return None;
+        }
+
+        let display_name = user.display_name.clone();
+        let email = user.email.clone();
+        let initial = Self::auth_initial(display_name.as_str());
+        let popup_background = Theme::global(cx).white();
+        let item_hover_background = mix(
+            Theme::global(cx).bg_senodary(),
+            Theme::global(cx).white(),
+            0.12,
+        );
+
+        Some(
+            deferred(
+                anchored()
+                    .position(self.auth_menu_position)
+                    .anchor(Anchor::TopLeft)
+                    .child(
+                        div()
+                            .id("title-bar-auth-popup")
+                            .min_w(AUTH_MENU_MIN_WIDTH)
+                            .py_2()
+                            .bg(popup_background)
+                            .border_1()
+                            .border_color(border_color(cx))
+                            .rounded_md()
+                            .shadow(vec![BoxShadow {
+                                color: Hsla {
+                                    h: 0.0,
+                                    s: 0.0,
+                                    l: 0.0,
+                                    a: 0.18,
+                                },
+                                offset: point(px(0.0), px(8.0)),
+                                blur_radius: px(24.0),
+                                spread_radius: px(0.0),
+                            }])
+                            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                                cx.stop_propagation();
+                            })
+                            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                                this.close_auth_menu(cx);
+                            }))
+                            .child(
+                                div()
+                                    .px_3()
+                                    .pb_2()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_3()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .w(px(36.0))
+                                            .h(px(36.0))
+                                            .rounded_full()
+                                            .border_1()
+                                            .border_color(border_color(cx))
+                                            .bg(mix(
+                                                Theme::global(cx).primary(),
+                                                Theme::global(cx).white(),
+                                                0.78,
+                                            ))
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .justify_center()
+                                            .text_size(px(13.0))
+                                            .text_color(text_color(cx))
+                                            .child(initial),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .gap_0p5()
+                                            .child(
+                                                div()
+                                                    .text_size(px(12.0))
+                                                    .text_color(text_color(cx))
+                                                    .child(display_name),
+                                            )
+                                            .when_some(email, |this, email| {
+                                                this.child(
+                                                    div()
+                                                        .text_size(px(11.0))
+                                                        .text_color(secondary_text_color(cx))
+                                                        .child(email),
+                                                )
+                                            }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .h(px(1.0))
+                                    .mx_2()
+                                    .bg(border_color(cx)),
+                            )
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .child(
+                                        div()
+                                            .id("title-bar-account-settings")
+                                            .w_full()
+                                            .px_3()
+                                            .py_1p5()
+                                            .rounded_sm()
+                                            .text_size(px(12.0))
+                                            .text_color(text_color(cx))
+                                            .cursor_pointer()
+                                            .hover(move |style| style.bg(item_hover_background))
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                cx.stop_propagation();
+                                                this.close_auth_menu(cx);
+                                                (actions.open_account_settings)(window, cx);
+                                            }))
+                                            .child("アカウント設定"),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("title-bar-sign-out")
+                                            .w_full()
+                                            .px_3()
+                                            .py_1p5()
+                                            .rounded_sm()
+                                            .text_size(px(12.0))
+                                            .text_color(text_color(cx))
+                                            .cursor_pointer()
+                                            .hover(move |style| style.bg(item_hover_background))
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                cx.stop_propagation();
+                                                this.close_auth_menu(cx);
+                                                (actions.sign_out)(window, cx);
+                                            }))
+                                            .child("ログアウト"),
+                                    ),
+                            ),
+                    ),
+            )
+            .into_any_element(),
+        )
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -119,6 +438,8 @@ impl TitleBar {
             .unwrap_or_else(WindowButtonLayout::linux_default);
         let left_controls = self.render_linux_window_controls(button_layout.left, window, cx);
         let right_controls = self.render_linux_window_controls(button_layout.right, window, cx);
+        let auth_trigger = self.render_auth_trigger(cx);
+        let auth_menu_popup = self.render_auth_menu_popup(cx);
 
         let bar = div()
             .id("soukou-title-bar-linux")
@@ -180,7 +501,23 @@ impl TitleBar {
                             .px_3()
                             .children(right_controls),
                     ),
-            );
+            )
+            .when_some(auth_trigger, |this, auth_trigger| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .h_full()
+                        .px_3()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_end()
+                        .child(auth_trigger),
+                )
+            })
+            .children(auth_menu_popup);
 
         match window.window_decorations() {
             Decorations::Server => bar.into_any_element(),
@@ -206,6 +543,8 @@ impl TitleBar {
     ) -> AnyElement {
         let height = platform_title_bar_height(window);
         let background = self.title_bar_background(window, cx);
+        let auth_trigger = self.render_auth_trigger(cx);
+        let auth_menu_popup = self.render_auth_menu_popup(cx);
         div()
             .id("soukou-title-bar-macos")
             .w_full()
@@ -244,6 +583,22 @@ impl TitleBar {
                             .child(self.title.clone()),
                     ),
             )
+            .when_some(auth_trigger, |this, auth_trigger| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .right_0()
+                        .h_full()
+                        .px_3()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_end()
+                        .child(auth_trigger),
+                )
+            })
+            .children(auth_menu_popup)
             .into_any_element()
     }
 
@@ -359,6 +714,10 @@ fn border_color(cx: &App) -> Hsla {
 
 fn text_color(cx: &App) -> Hsla {
     Theme::global(cx).text_primary().into()
+}
+
+fn secondary_text_color(cx: &App) -> Hsla {
+    Theme::global(cx).text_senodary().into()
 }
 
 fn mix(left: Rgba, right: Rgba, ratio: f32) -> Rgba {

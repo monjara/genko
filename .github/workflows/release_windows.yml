@@ -23,6 +23,10 @@ jobs:
       - self-hosted
       - soukou-windows
     timeout-minutes: 60
+    env:
+      SOUKOU_SITE_URL: https://soukou.dev
+      SOUKOU_SUPABASE_URL: ${{ secrets.SOUKOU_SUPABASE_URL }}
+      SOUKOU_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SOUKOU_SUPABASE_PUBLISHABLE_KEY }}
     strategy:
       matrix:
         target:

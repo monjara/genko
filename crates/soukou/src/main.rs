@@ -1,20 +1,24 @@
+mod auth;
 mod font;
 
 use std::path::{Path, PathBuf};
+use std::{cell::RefCell, rc::Rc};
 
 use bottom_bar::BottomBar;
 use editor::{EditorController, VimCommandQuit, VimCommandWrite};
+use futures::StreamExt;
 use gpui::{
-    App, AppContext, Bounds, Context, Decorations, Entity, ExternalPaths, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement, PathPromptOptions,
-    PromptLevel, Render, Styled, Window, WindowBounds, WindowDecorations, WindowOptions, actions,
-    div, prelude::FluentBuilder, px, size, transparent_black,
+    App, AppContext, AsyncApp, Bounds, Context, Decorations, Entity, ExternalPaths, FocusHandle,
+    Focusable, InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement,
+    PathPromptOptions, PromptLevel, Render, Styled, WeakEntity, Window, WindowBounds,
+    WindowDecorations, WindowOptions, actions, div, prelude::FluentBuilder, px, size,
+    transparent_black,
 };
 use semver::Version;
 use serde::Deserialize;
 use settings::open_settings_window;
 use theme::{APP_FONT_FAMILY, Theme};
-use title_bar::{TitleBar, TitleBarMenu};
+use title_bar::{TitleBar, TitleBarAuthActions, TitleBarAuthState, TitleBarMenu, TitleBarUser};
 use ui::{MenuBarItem, MenuBarMenu};
 
 const APP_NAME: &str = "草稿";
@@ -54,7 +58,16 @@ const RELEASES_LATEST_API_URL: &str =
 
 actions!(
     soukou,
-    [OpenSettings, CheckForUpdates, OpenFile, SaveFile, Quit]
+    [
+        OpenSettings,
+        CheckForUpdates,
+        OpenFile,
+        SaveFile,
+        Quit,
+        SignIn,
+        OpenAccountSettings,
+        SignOut
+    ]
 );
 
 #[derive(Deserialize)]
@@ -75,6 +88,50 @@ struct SoukouApp {
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
     window_handle: Option<gpui::AnyWindowHandle>,
+    auth_state: auth::AuthState,
+    auth_config: auth::AuthConfig,
+}
+
+async fn read_stored_refresh_token(
+    credentials_key: String,
+    cx: &mut AsyncApp,
+) -> Result<Option<String>, String> {
+    let task = cx.update(|app| app.read_credentials(credentials_key.as_str()));
+    let credentials = task
+        .await
+        .map_err(|error| format!("認証情報の読み込みに失敗しました: {error}"))?;
+
+    let Some((_, password)) = credentials else {
+        return Ok(None);
+    };
+
+    String::from_utf8(password)
+        .map(Some)
+        .map_err(|error| format!("保存済みトークンを解析できませんでした: {error}"))
+}
+
+async fn write_refresh_token(
+    credentials_key: String,
+    refresh_token: String,
+    cx: &mut AsyncApp,
+) -> Result<(), String> {
+    let task = cx.update(|app| {
+        app.write_credentials(
+            credentials_key.as_str(),
+            "refresh_token",
+            refresh_token.as_bytes(),
+        )
+    });
+    task.await
+        .map_err(|error| format!("認証情報の保存に失敗しました: {error}"))?;
+    Ok(())
+}
+
+async fn delete_refresh_token(credentials_key: String, cx: &mut AsyncApp) -> Result<(), String> {
+    let task = cx.update(|app| app.delete_credentials(credentials_key.as_str()));
+    task.await
+        .map_err(|error| format!("認証情報の削除に失敗しました: {error}"))?;
+    Ok(())
 }
 
 impl SoukouApp {
@@ -89,16 +146,33 @@ impl SoukouApp {
         ]);
 
         let editor_controller = cx.new(EditorController::new);
-        let title_bar = cx.new(|cx| TitleBar::new(APP_NAME, Self::title_bar_menus(), cx));
+        let title_bar = cx.new(|cx| {
+            TitleBar::new(
+                APP_NAME,
+                Self::title_bar_menus(),
+                Some(TitleBarAuthActions::new(
+                    |window, cx| window.dispatch_action(Box::new(SignIn), cx),
+                    |window, cx| window.dispatch_action(Box::new(OpenAccountSettings), cx),
+                    |window, cx| window.dispatch_action(Box::new(SignOut), cx),
+                )),
+                cx,
+            )
+        });
         let bottom_bar = cx.new(BottomBar::new);
+        let auth_config = auth::AuthConfig::from_env();
 
-        Self {
+        let mut app = Self {
             editor_controller,
             active_file: None,
             title_bar,
             bottom_bar,
             window_handle: None,
-        }
+            auth_state: auth::AuthState::Restoring,
+            auth_config,
+        };
+        app.sync_title_bar_auth_state(cx);
+        app.restore_auth_session(cx);
+        app
     }
 
     fn title_bar_menus() -> Vec<TitleBarMenu> {
@@ -140,6 +214,219 @@ impl SoukouApp {
 
     fn sync_window_title(&self, window: &mut Window, cx: &App) {
         window.set_window_title(&self.window_title(cx));
+    }
+
+    fn set_auth_state(&mut self, auth_state: auth::AuthState, cx: &mut Context<Self>) {
+        self.auth_state = auth_state;
+        self.sync_title_bar_auth_state(cx);
+        cx.notify();
+    }
+
+    fn sync_title_bar_auth_state(&mut self, cx: &mut Context<Self>) {
+        let title_bar_auth_state = match &self.auth_state {
+            auth::AuthState::Authenticated(session) => TitleBarAuthState::Authenticated(
+                TitleBarUser {
+                    display_name: session.user.display_name.clone(),
+                    email: session.user.email.clone(),
+                    avatar_url: session.user.avatar_url.clone(),
+                },
+            ),
+            auth::AuthState::Anonymous | auth::AuthState::Restoring => TitleBarAuthState::Anonymous,
+        };
+
+        self.title_bar.update(cx, |title_bar, cx| {
+            title_bar.set_auth_state(title_bar_auth_state, cx);
+        });
+    }
+
+    fn restore_auth_session(&mut self, cx: &mut Context<Self>) {
+        let auth_config = self.auth_config.clone();
+        let credentials_key = self.auth_config.credentials_key().to_string();
+
+        cx.spawn(async move |this, cx| {
+            let Some(this_entity) = this.upgrade() else {
+                return;
+            };
+
+            let stored_refresh_token = read_stored_refresh_token(credentials_key.clone(), cx).await;
+
+            let refresh_token = match stored_refresh_token {
+                Ok(Some(refresh_token)) => refresh_token,
+                Ok(None) => {
+                    let _ = this_entity.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                    });
+                    return;
+                }
+                Err(_) => {
+                    let _ = this_entity.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                    });
+                    return;
+                }
+            };
+
+            let restored_session = cx
+                .background_spawn({
+                    let auth_config = auth_config.clone();
+                    async move { auth::restore_session(&auth_config, refresh_token.as_str()) }
+                })
+                .await;
+
+            match restored_session {
+                Ok(session) => {
+                    let _ =
+                        write_refresh_token(credentials_key.clone(), session.refresh_token.clone(), cx)
+                            .await;
+                    let _ = this_entity.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                    });
+                }
+                Err(_) => {
+                    let _ = delete_refresh_token(credentials_key.clone(), cx).await;
+                    let _ = this_entity.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn handle_open_urls(&mut self, urls: Vec<String>, cx: &mut Context<Self>) {
+        let window_handle = self.window_handle;
+        let credentials_key = self.auth_config.credentials_key().to_string();
+
+        for url in urls {
+            let callback = match auth::parse_callback(url.as_str(), self.auth_config.callback_scheme()) {
+                Ok(Some(callback)) => callback,
+                Ok(None) => continue,
+                Err(error) => {
+                    if let Some(window_handle) = window_handle {
+                        let _ = cx.update_window(window_handle, |_, window, cx| {
+                            Self::show_error(window, "ログイン情報を処理できませんでした", error, cx);
+                        });
+                    }
+                    continue;
+                }
+            };
+
+            match callback {
+                auth::AuthCallback::SignedOut => {
+                    self.set_auth_state(auth::AuthState::Anonymous, cx);
+                    let credentials_key = credentials_key.clone();
+                    cx.spawn(move |_, cx: &mut AsyncApp| {
+                        let mut app = cx.clone();
+                        async move {
+                            let _ = delete_refresh_token(credentials_key, &mut app).await;
+                        }
+                    })
+                    .detach();
+                }
+                auth::AuthCallback::SignedIn { refresh_token } => {
+                    let auth_config = self.auth_config.clone();
+                    let credentials_key = credentials_key.clone();
+                    self.set_auth_state(auth::AuthState::Restoring, cx);
+
+                    cx.spawn(async move |this, cx| {
+                        let restored_session = cx
+                            .background_spawn(async move {
+                                auth::restore_session(&auth_config, refresh_token.as_str())
+                            })
+                            .await;
+
+                        let Some(this_entity) = this.upgrade() else {
+                            return;
+                        };
+
+                        match restored_session {
+                            Ok(session) => {
+                                let save_result = write_refresh_token(
+                                    credentials_key.clone(),
+                                    session.refresh_token.clone(),
+                                    cx,
+                                )
+                                .await;
+
+                                if let Err(error) = save_result {
+                                    if let Some(window_handle) = window_handle {
+                                        let _ = cx.update_window(window_handle, |_, window, cx| {
+                                            Self::show_error(
+                                                window,
+                                                "認証情報を保存できませんでした",
+                                                error,
+                                                cx,
+                                            );
+                                        });
+                                    }
+                                }
+
+                                let _ = this_entity.update(cx, |this, cx| {
+                                    this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                                });
+                            }
+                            Err(error) => {
+                                let _ = delete_refresh_token(credentials_key.clone(), cx).await;
+                                let _ = this_entity.update(cx, |this, cx| {
+                                    this.set_auth_state(auth::AuthState::Anonymous, cx);
+                                });
+                                if let Some(window_handle) = window_handle {
+                                    let _ = cx.update_window(window_handle, |_, window, cx| {
+                                        Self::show_error(
+                                            window,
+                                            "ログインに失敗しました",
+                                            error,
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }
+                        }
+                    })
+                    .detach();
+                }
+            }
+        }
+    }
+
+    fn sign_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.auth_config.is_supabase_configured() {
+            Self::show_error(
+                window,
+                "ログインを開始できませんでした",
+                "SOUKOU_SUPABASE_URL と SOUKOU_SUPABASE_PUBLISHABLE_KEY を設定してください。"
+                    .to_string(),
+                cx,
+            );
+            return;
+        }
+
+        let url = self.auth_config.sign_in_url();
+        cx.open_url(url.as_str());
+        window.activate_window();
+    }
+
+    fn open_account_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let url = self.auth_config.account_url();
+        cx.open_url(url.as_str());
+        window.activate_window();
+    }
+
+    fn sign_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_auth_state(auth::AuthState::Anonymous, cx);
+
+        let sign_out_url = self.auth_config.sign_out_url();
+        let credentials_key = self.auth_config.credentials_key().to_string();
+
+        cx.spawn(move |_, cx: &mut AsyncApp| {
+            let mut app = cx.clone();
+            async move {
+                let _ = delete_refresh_token(credentials_key, &mut app).await;
+            }
+        })
+        .detach();
+        cx.open_url(sign_out_url.as_str());
+        window.activate_window();
     }
 
     // TODO Future
@@ -483,6 +770,23 @@ impl SoukouApp {
     ) {
         self.open_dropped_paths(paths, window, cx);
     }
+
+    fn sign_in_action(&mut self, _: &SignIn, window: &mut Window, cx: &mut Context<Self>) {
+        self.sign_in(window, cx);
+    }
+
+    fn open_account_settings_action(
+        &mut self,
+        _: &OpenAccountSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_account_settings(window, cx);
+    }
+
+    fn sign_out_action(&mut self, _: &SignOut, window: &mut Window, cx: &mut Context<Self>) {
+        self.sign_out(window, cx);
+    }
 }
 
 impl Render for SoukouApp {
@@ -553,6 +857,9 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
+                    .on_action(cx.listener(Self::sign_in_action))
+                    .on_action(cx.listener(Self::open_account_settings_action))
+                    .on_action(cx.listener(Self::sign_out_action))
                     .child(self.title_bar.clone().into_element())
                     .child(
                         div().flex_1().w_full().flex().child(
@@ -577,7 +884,13 @@ impl Focusable for SoukouApp {
 }
 
 fn main() {
-    gpui_platform::application().run(|cx: &mut App| {
+    let (open_url_tx, open_url_rx) = futures::channel::mpsc::unbounded::<Vec<String>>();
+    let application = gpui_platform::application();
+    application.on_open_urls(move |urls| {
+        let _ = open_url_tx.unbounded_send(urls);
+    });
+
+    application.run(move |cx: &mut App| {
         font::init(cx);
         theme::init(cx);
         settings::init(cx);
@@ -606,7 +919,11 @@ fn main() {
                 },
             ]);
 
-        cx.open_window(
+        let main_app = Rc::new(RefCell::new(None::<WeakEntity<SoukouApp>>));
+        let main_app_for_build = main_app.clone();
+
+        let main_window = cx
+            .open_window(
             title_bar::configure_window_options(WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
@@ -619,14 +936,51 @@ fn main() {
                 window_decorations: Some(WindowDecorations::Client),
                 ..Default::default()
             }),
-            |_, cx| cx.new(SoukouApp::new),
+            move |_, cx| {
+                let entity = cx.new(SoukouApp::new);
+                *main_app_for_build.borrow_mut() = Some(entity.downgrade());
+                entity
+            },
         )
-        .and_then(|window| {
-            window.update(cx, |view, window, cx| {
+        .expect("Failed to open main window");
+
+        main_window
+            .update(cx, |view, window, cx| {
                 window.focus(&view.focus_handle(cx), cx);
                 cx.activate(true);
             })
+            .expect("Failed to focus main window");
+
+        let mut open_url_rx = open_url_rx;
+        let main_app = main_app
+            .borrow()
+            .clone()
+            .expect("Main app should be available after opening the window");
+
+        cx.spawn(move |cx: &mut AsyncApp| {
+            let mut app = cx.clone();
+            async move {
+                while let Some(urls) = open_url_rx.next().await {
+                    let Some(main_app) = main_app.upgrade() else {
+                        break;
+                    };
+                    let _ = main_app.update(&mut app, |this: &mut SoukouApp, cx| {
+                        this.handle_open_urls(urls, cx);
+                    });
+                }
+            }
         })
-        .expect("Failed to open main window")
+        .detach();
+
+        let callback_prefix = format!("{}://", auth::AuthConfig::from_env().callback_scheme());
+        let startup_urls = std::env::args()
+            .skip(1)
+            .filter(|arg| arg.starts_with(callback_prefix.as_str()))
+            .collect::<Vec<_>>();
+        if !startup_urls.is_empty() {
+            let _ = main_window.update(cx, |this, _, cx| {
+                this.handle_open_urls(startup_urls, cx);
+            });
+        }
     })
 }
