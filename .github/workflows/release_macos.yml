@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+      - "dev*"
   workflow_dispatch:
 
 permissions:
@@ -73,7 +74,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload disk image to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           repository: monjara/Soukou.app
