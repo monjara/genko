@@ -1,3 +1,9 @@
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
+use std::time::Duration;
+
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use url::{Url, form_urlencoded};
@@ -41,6 +47,11 @@ pub enum AuthState {
 pub enum AuthCallback {
     SignedIn { refresh_token: String },
     SignedOut,
+}
+
+pub struct LocalCallbackListener {
+    callback_url: String,
+    receiver: Receiver<Result<AuthCallback, String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -87,20 +98,17 @@ impl AuthConfig {
         self.join_site_path("/account")
     }
 
-    pub fn sign_in_url(&self) -> String {
+    pub fn sign_in_url(&self, redirect_url: &str) -> String {
         let mut url = self.join_site_path("/signin");
         url.push_str("?redirect_to=");
-        url.push_str(urlencoding::encode(self.callback_url().as_str()).as_ref());
+        url.push_str(urlencoding::encode(redirect_url).as_ref());
         url
     }
 
-    pub fn sign_out_url(&self) -> String {
-        let mut redirect_url = self.callback_url();
-        redirect_url.push_str("?mode=signed_out");
-
+    pub fn sign_out_url(&self, redirect_url: &str) -> String {
         let mut url = self.join_site_path("/signout");
         url.push_str("?redirect_to=");
-        url.push_str(urlencoding::encode(redirect_url.as_str()).as_ref());
+        url.push_str(urlencoding::encode(redirect_url).as_ref());
         url
     }
 
@@ -123,12 +131,55 @@ impl AuthConfig {
     }
 }
 
-pub fn parse_callback(url: &str, expected_scheme: &str) -> Result<Option<AuthCallback>, String> {
-    let parsed = Url::parse(url).map_err(|error| format!("認証URLを解析できませんでした: {error}"))?;
-    if parsed.scheme() != expected_scheme {
-        return Ok(None);
+impl LocalCallbackListener {
+    pub fn callback_url(&self) -> &str {
+        self.callback_url.as_str()
     }
-    if parsed.host_str() != Some("auth") || parsed.path() != "/callback" {
+
+    pub fn wait_for_callback(self) -> Result<AuthCallback, String> {
+        self.receiver
+            .recv_timeout(Duration::from_secs(180))
+            .map_err(|_| "認証結果の受信がタイムアウトしました。".to_string())?
+    }
+}
+
+pub fn start_local_callback_server() -> Result<LocalCallbackListener, String> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|error| format!("認証用のローカルポートを開けませんでした: {error}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("認証用ポートを取得できませんでした: {error}"))?
+        .port();
+
+    let (sender, receiver) = mpsc::channel::<Result<AuthCallback, String>>();
+    thread::spawn(move || {
+        let result = handle_local_callback(listener);
+        let _ = sender.send(result);
+    });
+
+    Ok(LocalCallbackListener {
+        callback_url: format!("http://127.0.0.1:{port}/auth/callback"),
+        receiver,
+    })
+}
+
+pub fn parse_callback(url: &str, expected_scheme: &str) -> Result<Option<AuthCallback>, String> {
+    let parsed =
+        Url::parse(url).map_err(|error| format!("認証URLを解析できませんでした: {error}"))?;
+    parse_callback_url(&parsed, expected_scheme)
+}
+
+fn parse_callback_url(parsed: &Url, expected_scheme: &str) -> Result<Option<AuthCallback>, String> {
+    let is_custom_scheme_callback =
+        parsed.scheme() == expected_scheme
+            && parsed.host_str() == Some("auth")
+            && parsed.path() == "/callback";
+    let is_localhost_callback =
+        (parsed.scheme() == "http" || parsed.scheme() == "https")
+            && matches!(parsed.host_str(), Some("127.0.0.1" | "localhost"))
+            && parsed.path() == "/auth/callback";
+
+    if !is_custom_scheme_callback && !is_localhost_callback {
         return Ok(None);
     }
 
@@ -140,15 +191,55 @@ pub fn parse_callback(url: &str, expected_scheme: &str) -> Result<Option<AuthCal
         return Ok(Some(AuthCallback::SignedOut));
     }
 
-    let fragment = parsed.fragment().unwrap_or_default();
-    let fragment_pairs = form_urlencoded::parse(fragment.as_bytes())
-        .into_owned()
-        .collect::<Vec<_>>();
-    let refresh_token = fragment_pairs
+    let refresh_token = query
         .iter()
-        .find_map(|(key, value)| (key == "refresh_token").then(|| value.clone()));
+        .find_map(|(key, value)| (key == "refresh_token").then(|| value.clone()))
+        .or_else(|| {
+            let fragment = parsed.fragment().unwrap_or_default();
+            let fragment_pairs = form_urlencoded::parse(fragment.as_bytes())
+                .into_owned()
+                .collect::<Vec<_>>();
+            fragment_pairs
+                .iter()
+                .find_map(|(key, value)| (key == "refresh_token").then(|| value.clone()))
+        });
 
     Ok(refresh_token.map(|refresh_token| AuthCallback::SignedIn { refresh_token }))
+}
+
+fn handle_local_callback(listener: TcpListener) -> Result<AuthCallback, String> {
+    let (mut stream, _) = listener
+        .accept()
+        .map_err(|error| format!("認証結果の受信に失敗しました: {error}"))?;
+    let mut request = [0; 4096];
+    let read_len = stream
+        .read(&mut request)
+        .map_err(|error| format!("認証リクエストを読み取れませんでした: {error}"))?;
+    let request = String::from_utf8_lossy(&request[..read_len]);
+    let request_line = request
+        .lines()
+        .next()
+        .ok_or_else(|| "認証リクエストの形式が不正です。".to_string())?;
+    let path = request_line
+        .split_whitespace()
+        .nth(1)
+        .ok_or_else(|| "認証リクエストのパスを取得できませんでした。".to_string())?;
+    let url = Url::parse(&format!("http://127.0.0.1{path}"))
+        .map_err(|error| format!("認証コールバックURLを解析できませんでした: {error}"))?;
+    let callback = parse_callback_url(&url, DEFAULT_CALLBACK_SCHEME)?
+        .ok_or_else(|| "認証コールバックの形式が不正です。".to_string())?;
+
+    let body = r#"<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>草稿</title></head><body><p>草稿へのログインを処理しました。アプリに戻ってください。</p></body></html>"#;
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream
+        .write_all(response.as_bytes())
+        .map_err(|error| format!("認証レスポンスを返せませんでした: {error}"))?;
+
+    Ok(callback)
 }
 
 pub fn restore_session(config: &AuthConfig, refresh_token: &str) -> Result<AuthSession, String> {

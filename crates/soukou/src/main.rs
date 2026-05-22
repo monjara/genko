@@ -320,83 +320,83 @@ impl SoukouApp {
                     }
                 };
 
-            match callback {
-                auth::AuthCallback::SignedOut => {
-                    self.set_auth_state(auth::AuthState::Anonymous, cx);
-                    let credentials_key = credentials_key.clone();
-                    cx.spawn(move |_, cx: &mut AsyncApp| {
-                        let mut app = cx.clone();
-                        async move {
-                            let _ = delete_refresh_token(credentials_key, &mut app).await;
-                        }
-                    })
-                    .detach();
-                }
-                auth::AuthCallback::SignedIn { refresh_token } => {
-                    let auth_config = self.auth_config.clone();
-                    let credentials_key = credentials_key.clone();
-                    self.set_auth_state(auth::AuthState::Restoring, cx);
+            self.apply_auth_callback(callback, credentials_key.clone(), window_handle, cx);
+        }
+    }
 
-                    cx.spawn(async move |this, cx| {
-                        let restored_session = cx
-                            .background_spawn(async move {
-                                auth::restore_session(&auth_config, refresh_token.as_str())
-                            })
+    fn apply_auth_callback(
+        &mut self,
+        callback: auth::AuthCallback,
+        credentials_key: String,
+        window_handle: Option<gpui::AnyWindowHandle>,
+        cx: &mut Context<Self>,
+    ) {
+        match callback {
+            auth::AuthCallback::SignedOut => {
+                self.set_auth_state(auth::AuthState::Anonymous, cx);
+                cx.spawn(move |_, cx: &mut AsyncApp| {
+                    let mut app = cx.clone();
+                    async move {
+                        let _ = delete_refresh_token(credentials_key, &mut app).await;
+                    }
+                })
+                .detach();
+            }
+            auth::AuthCallback::SignedIn { refresh_token } => {
+                let auth_config = self.auth_config.clone();
+                self.set_auth_state(auth::AuthState::Restoring, cx);
+
+                cx.spawn(async move |this, cx| {
+                    let restored_session = cx
+                        .background_spawn(async move {
+                            auth::restore_session(&auth_config, refresh_token.as_str())
+                        })
+                        .await;
+
+                    let Some(this_entity) = this.upgrade() else {
+                        return;
+                    };
+
+                    match restored_session {
+                        Ok(session) => {
+                            let save_result = write_refresh_token(
+                                credentials_key.clone(),
+                                session.refresh_token.clone(),
+                                cx,
+                            )
                             .await;
 
-                        let Some(this_entity) = this.upgrade() else {
-                            return;
-                        };
-
-                        match restored_session {
-                            Ok(session) => {
-                                let save_result = write_refresh_token(
-                                    credentials_key.clone(),
-                                    session.refresh_token.clone(),
-                                    cx,
-                                )
-                                .await;
-
-                                if let Err(error) = save_result {
-                                    if let Some(window_handle) = window_handle {
-                                        let _ = cx.update_window(window_handle, |_, window, cx| {
-                                            Self::show_error(
-                                                window,
-                                                "認証情報を保存できませんでした",
-                                                error,
-                                                cx,
-                                            );
-                                        });
-                                    }
-                                }
-
-                                let _ = this_entity.update(cx, |this, cx| {
-                                    this.set_auth_state(
-                                        auth::AuthState::Authenticated(session),
-                                        cx,
-                                    );
-                                });
-                            }
-                            Err(error) => {
-                                let _ = delete_refresh_token(credentials_key.clone(), cx).await;
-                                let _ = this_entity.update(cx, |this, cx| {
-                                    this.set_auth_state(auth::AuthState::Anonymous, cx);
-                                });
+                            if let Err(error) = save_result {
                                 if let Some(window_handle) = window_handle {
                                     let _ = cx.update_window(window_handle, |_, window, cx| {
                                         Self::show_error(
                                             window,
-                                            "ログインに失敗しました",
+                                            "認証情報を保存できませんでした",
                                             error,
                                             cx,
                                         );
                                     });
                                 }
                             }
+
+                            let _ = this_entity.update(cx, |this, cx| {
+                                this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                            });
                         }
-                    })
-                    .detach();
-                }
+                        Err(error) => {
+                            let _ = delete_refresh_token(credentials_key.clone(), cx).await;
+                            let _ = this_entity.update(cx, |this, cx| {
+                                this.set_auth_state(auth::AuthState::Anonymous, cx);
+                            });
+                            if let Some(window_handle) = window_handle {
+                                let _ = cx.update_window(window_handle, |_, window, cx| {
+                                    Self::show_error(window, "ログインに失敗しました", error, cx);
+                                });
+                            }
+                        }
+                    }
+                })
+                .detach();
             }
         }
     }
@@ -413,7 +413,48 @@ impl SoukouApp {
             return;
         }
 
-        let url = self.auth_config.sign_in_url();
+        let callback_listener = match auth::start_local_callback_server() {
+            Ok(callback_listener) => callback_listener,
+            Err(error) => {
+                Self::show_error(window, "ログインを開始できませんでした", error, cx);
+                return;
+            }
+        };
+
+        let url = self.auth_config.sign_in_url(callback_listener.callback_url());
+        let credentials_key = self.auth_config.credentials_key().to_string();
+        let window_handle = self.window_handle;
+        self.set_auth_state(auth::AuthState::Restoring, cx);
+
+        cx.spawn(async move |this, cx| {
+            let callback_result = cx
+                .background_spawn(async move { callback_listener.wait_for_callback() })
+                .await;
+
+            let Some(this_entity) = this.upgrade() else {
+                return;
+            };
+
+            match callback_result {
+                Ok(callback) => {
+                    let _ = this_entity.update(cx, |this, cx| {
+                        this.apply_auth_callback(callback, credentials_key.clone(), window_handle, cx);
+                    });
+                }
+                Err(error) => {
+                    let _ = this_entity.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                        if let Some(window_handle) = window_handle {
+                            let _ = cx.update_window(window_handle, |_, window, cx| {
+                                Self::show_error(window, "ログインに失敗しました", error, cx);
+                            });
+                        }
+                    });
+                }
+            }
+        })
+        .detach();
+
         cx.open_url(url.as_str());
         window.activate_window();
     }
@@ -427,13 +468,45 @@ impl SoukouApp {
     fn sign_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.set_auth_state(auth::AuthState::Anonymous, cx);
 
-        let sign_out_url = self.auth_config.sign_out_url();
+        let callback_listener = match auth::start_local_callback_server() {
+            Ok(callback_listener) => callback_listener,
+            Err(error) => {
+                Self::show_error(window, "ログアウトを開始できませんでした", error, cx);
+                return;
+            }
+        };
+
+        let mut redirect_url = callback_listener.callback_url().to_string();
+        redirect_url.push_str("?mode=signed_out");
+        let sign_out_url = self.auth_config.sign_out_url(redirect_url.as_str());
         let credentials_key = self.auth_config.credentials_key().to_string();
+        let window_handle = self.window_handle;
 
         cx.spawn(move |_, cx: &mut AsyncApp| {
             let mut app = cx.clone();
             async move {
                 let _ = delete_refresh_token(credentials_key, &mut app).await;
+            }
+        })
+        .detach();
+
+        cx.spawn(async move |this, cx| {
+            let callback_result = cx
+                .background_spawn(async move { callback_listener.wait_for_callback() })
+                .await;
+
+            let Some(this_entity) = this.upgrade() else {
+                return;
+            };
+
+            if let Err(error) = callback_result {
+                let _ = this_entity.update(cx, |_, cx| {
+                    if let Some(window_handle) = window_handle {
+                        let _ = cx.update_window(window_handle, |_, window, cx| {
+                            Self::show_error(window, "ログアウトを完了できませんでした", error, cx);
+                        });
+                    }
+                });
             }
         })
         .detach();
