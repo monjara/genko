@@ -10,6 +10,7 @@ members = [
   "crates/settings",
   "crates/theme",
   "crates/title_bar",
+  "crates/ui",
   "crates/workspace"
 ]
 default-members = ["crates/soukou"]
@@ -37,4 +38,5 @@ rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 theme = { path = "crates/theme" }
 title_bar = { path = "crates/title_bar" }
+ui = { path = "crates/ui" }
 workspace = { path = "crates/workspace" }

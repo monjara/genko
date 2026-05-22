@@ -1,6 +1,5 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
 };
 
@@ -46,7 +45,7 @@ struct SettingsWindow {
 
 impl SettingsWindow {
     fn new(cx: &mut Context<Self>) -> Self {
-        let title_bar = cx.new(|cx| TitleBar::new("設定", cx));
+        let title_bar = cx.new(|cx| TitleBar::new("設定", Vec::new(), cx));
         Self {
             title_bar,
             status: "".into(),
@@ -871,7 +870,8 @@ impl AppSettings {
     fn settings_file_path() -> Option<PathBuf> {
         #[cfg(target_os = "windows")]
         {
-            env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("soukou").join(SETTINGS_FILE))
+            env::var_os("APPDATA")
+                .map(|appdata| PathBuf::from(appdata).join("soukou").join(SETTINGS_FILE))
         }
 
         #[cfg(not(target_os = "windows"))]

@@ -1,11 +1,15 @@
 use gpui::{
-    AnyElement, App, BoxShadow, ClickEvent, Context, Decorations, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, Rgba, SharedString, StatefulInteractiveElement,
-    Styled, TitlebarOptions, Window, WindowControlArea, div, point, px,
+    AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Entity, Hsla,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba, SharedString,
+    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea, div, point, px,
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use gpui::{WindowButton, WindowButtonLayout, WindowDecorations, prelude::FluentBuilder};
 use theme::Theme;
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+use ui::MenuBar;
+
+pub use ui::{MenuBarItem as TitleBarMenuItem, MenuBarMenu as TitleBarMenu};
 
 const MAC_TRAFFIC_LIGHT_PADDING: f32 = 71.0;
 const SIDE_SLOT_WIDTH: f32 = 160.0;
@@ -89,12 +93,16 @@ impl PlatformStyle {
 
 pub struct TitleBar {
     title: SharedString,
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    menu_bar: Entity<MenuBar>,
 }
 
 impl TitleBar {
-    pub fn new(title: &str, _cx: &mut Context<Self>) -> Self {
+    pub fn new(title: &str, menus: Vec<TitleBarMenu>, cx: &mut Context<Self>) -> Self {
         Self {
             title: title.into(),
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+            menu_bar: cx.new(|cx| MenuBar::new(menus, cx)),
         }
     }
 
@@ -141,20 +149,35 @@ impl TitleBar {
                     .size_full()
                     .child(
                         div()
-                            .w(px(SIDE_SLOT_WIDTH))
-                            .flex_none()
+                            .flex_1()
+                            .min_w(px(SIDE_SLOT_WIDTH))
+                            .px_3()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
                             .justify_start()
-                            .children(left_controls),
+                            .children(left_controls)
+                            .child(self.menu_bar.clone().into_element()),
                     )
                     .child(
                         div()
-                            .w(px(SIDE_SLOT_WIDTH))
-                            .flex_none()
+                            .flex_1()
+                            .text_center()
+                            .text_size(px(12.0))
+                            .text_color(text_color(cx))
+                            .child(self.title.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(SIDE_SLOT_WIDTH))
                             .flex()
                             .flex_row()
                             .justify_end()
                             .items_center()
                             .gap_2()
+                            .px_3()
                             .children(right_controls),
                     ),
             );
