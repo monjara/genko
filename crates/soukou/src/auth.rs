@@ -124,9 +124,10 @@ impl AuthConfig {
             .supabase_url
             .as_deref()
             .ok_or_else(|| "SOUKOU_SUPABASE_URL が設定されていません。".to_string())?;
-        let publishable_key = self.supabase_publishable_key.as_deref().ok_or_else(|| {
-            "SOUKOU_SUPABASE_PUBLISHABLE_KEY が設定されていません。".to_string()
-        })?;
+        let publishable_key = self
+            .supabase_publishable_key
+            .as_deref()
+            .ok_or_else(|| "SOUKOU_SUPABASE_PUBLISHABLE_KEY が設定されていません。".to_string())?;
         Ok((supabase_url, publishable_key))
     }
 }
@@ -170,14 +171,12 @@ pub fn parse_callback(url: &str, expected_scheme: &str) -> Result<Option<AuthCal
 }
 
 fn parse_callback_url(parsed: &Url, expected_scheme: &str) -> Result<Option<AuthCallback>, String> {
-    let is_custom_scheme_callback =
-        parsed.scheme() == expected_scheme
-            && parsed.host_str() == Some("auth")
-            && parsed.path() == "/callback";
-    let is_localhost_callback =
-        (parsed.scheme() == "http" || parsed.scheme() == "https")
-            && matches!(parsed.host_str(), Some("127.0.0.1" | "localhost"))
-            && parsed.path() == "/auth/callback";
+    let is_custom_scheme_callback = parsed.scheme() == expected_scheme
+        && parsed.host_str() == Some("auth")
+        && parsed.path() == "/callback";
+    let is_localhost_callback = (parsed.scheme() == "http" || parsed.scheme() == "https")
+        && matches!(parsed.host_str(), Some("127.0.0.1" | "localhost"))
+        && parsed.path() == "/auth/callback";
 
     if !is_custom_scheme_callback && !is_localhost_callback {
         return Ok(None);
@@ -187,7 +186,10 @@ fn parse_callback_url(parsed: &Url, expected_scheme: &str) -> Result<Option<Auth
     let query = form_urlencoded::parse(query_pairs.as_bytes())
         .into_owned()
         .collect::<Vec<_>>();
-    if query.iter().any(|(key, value)| key == "mode" && value == "signed_out") {
+    if query
+        .iter()
+        .any(|(key, value)| key == "mode" && value == "signed_out")
+    {
         return Ok(Some(AuthCallback::SignedOut));
     }
 
@@ -268,7 +270,10 @@ pub fn restore_session(config: &AuthConfig, refresh_token: &str) -> Result<AuthS
         .map_err(|error| format!("セッション更新レスポンスを解析できませんでした: {error}"))?;
 
     let user = client
-        .get(format!("{}/auth/v1/user", supabase_url.trim_end_matches('/')))
+        .get(format!(
+            "{}/auth/v1/user",
+            supabase_url.trim_end_matches('/')
+        ))
         .header("apikey", publishable_key)
         .bearer_auth(token_response.access_token.as_str())
         .send()
@@ -314,10 +319,12 @@ impl SupabaseUser {
             })
             .or_else(|| self.email.clone())
             .unwrap_or_else(|| "Google ユーザー".to_string());
-        let avatar_url = self
-            .user_metadata
-            .as_ref()
-            .and_then(|metadata| metadata.avatar_url.clone().or_else(|| metadata.picture.clone()));
+        let avatar_url = self.user_metadata.as_ref().and_then(|metadata| {
+            metadata
+                .avatar_url
+                .clone()
+                .or_else(|| metadata.picture.clone())
+        });
 
         AuthUser {
             id: self.id,
