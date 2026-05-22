@@ -9,11 +9,15 @@ args = ["check"]
 command = "cargo"
 args = ["run"]
 
+[tasks.dev.env]
+SOUKOU_DEVELOPMENT_MODE = "1"
+
 [tasks.watch]
 command = "cargo"
 args = ["watch", "-x", "run"]
 
 [tasks.watch.env]
+SOUKOU_DEVELOPMENT_MODE = "1"
 SOUKOU_DEVELOPMENT_WATCH_MODE = "1"
 
 [tasks.test]

@@ -20,7 +20,9 @@ embed-resource = "3"
 
 [dependencies]
 bottom_bar = { workspace = true }
+dotenvy = "0.15"
 editor = { workspace = true, features = ["embedded-ipadic"] }
+env = { workspace = true }
 futures = "0.3"
 gpui = { workspace = true }
 gpui_platform = { workspace = true }

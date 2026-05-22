@@ -224,13 +224,13 @@ impl SoukouApp {
 
     fn sync_title_bar_auth_state(&mut self, cx: &mut Context<Self>) {
         let title_bar_auth_state = match &self.auth_state {
-            auth::AuthState::Authenticated(session) => TitleBarAuthState::Authenticated(
-                TitleBarUser {
+            auth::AuthState::Authenticated(session) => {
+                TitleBarAuthState::Authenticated(TitleBarUser {
                     display_name: session.user.display_name.clone(),
                     email: session.user.email.clone(),
                     avatar_url: session.user.avatar_url.clone(),
-                },
-            ),
+                })
+            }
             auth::AuthState::Anonymous | auth::AuthState::Restoring => TitleBarAuthState::Anonymous,
         };
 
@@ -275,9 +275,12 @@ impl SoukouApp {
 
             match restored_session {
                 Ok(session) => {
-                    let _ =
-                        write_refresh_token(credentials_key.clone(), session.refresh_token.clone(), cx)
-                            .await;
+                    let _ = write_refresh_token(
+                        credentials_key.clone(),
+                        session.refresh_token.clone(),
+                        cx,
+                    )
+                    .await;
                     let _ = this_entity.update(cx, |this, cx| {
                         this.set_auth_state(auth::AuthState::Authenticated(session), cx);
                     });
@@ -298,18 +301,24 @@ impl SoukouApp {
         let credentials_key = self.auth_config.credentials_key().to_string();
 
         for url in urls {
-            let callback = match auth::parse_callback(url.as_str(), self.auth_config.callback_scheme()) {
-                Ok(Some(callback)) => callback,
-                Ok(None) => continue,
-                Err(error) => {
-                    if let Some(window_handle) = window_handle {
-                        let _ = cx.update_window(window_handle, |_, window, cx| {
-                            Self::show_error(window, "ログイン情報を処理できませんでした", error, cx);
-                        });
+            let callback =
+                match auth::parse_callback(url.as_str(), self.auth_config.callback_scheme()) {
+                    Ok(Some(callback)) => callback,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        if let Some(window_handle) = window_handle {
+                            let _ = cx.update_window(window_handle, |_, window, cx| {
+                                Self::show_error(
+                                    window,
+                                    "ログイン情報を処理できませんでした",
+                                    error,
+                                    cx,
+                                );
+                            });
+                        }
+                        continue;
                     }
-                    continue;
-                }
-            };
+                };
 
             match callback {
                 auth::AuthCallback::SignedOut => {
@@ -362,7 +371,10 @@ impl SoukouApp {
                                 }
 
                                 let _ = this_entity.update(cx, |this, cx| {
-                                    this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                                    this.set_auth_state(
+                                        auth::AuthState::Authenticated(session),
+                                        cx,
+                                    );
                                 });
                             }
                             Err(error) => {
@@ -884,6 +896,10 @@ impl Focusable for SoukouApp {
 }
 
 fn main() {
+    if env::development_mode() {
+        let _ = dotenvy::dotenv();
+    }
+
     let (open_url_tx, open_url_rx) = futures::channel::mpsc::unbounded::<Vec<String>>();
     let application = gpui_platform::application();
     application.on_open_urls(move |urls| {
@@ -924,25 +940,25 @@ fn main() {
 
         let main_window = cx
             .open_window(
-            title_bar::configure_window_options(WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(MAIN_WINDOW_WIDTH), px(MAIN_WINDOW_HEIGHT)),
-                    cx,
-                ))),
-                app_id: Some(APP_ID.into()),
-                is_movable: true,
-                is_resizable: true,
-                window_decorations: Some(WindowDecorations::Client),
-                ..Default::default()
-            }),
-            move |_, cx| {
-                let entity = cx.new(SoukouApp::new);
-                *main_app_for_build.borrow_mut() = Some(entity.downgrade());
-                entity
-            },
-        )
-        .expect("Failed to open main window");
+                title_bar::configure_window_options(WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                        None,
+                        size(px(MAIN_WINDOW_WIDTH), px(MAIN_WINDOW_HEIGHT)),
+                        cx,
+                    ))),
+                    app_id: Some(APP_ID.into()),
+                    is_movable: true,
+                    is_resizable: true,
+                    window_decorations: Some(WindowDecorations::Client),
+                    ..Default::default()
+                }),
+                move |_, cx| {
+                    let entity = cx.new(SoukouApp::new);
+                    *main_app_for_build.borrow_mut() = Some(entity.downgrade());
+                    entity
+                },
+            )
+            .expect("Failed to open main window");
 
         main_window
             .update(cx, |view, window, cx| {

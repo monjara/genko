@@ -1,11 +1,11 @@
 use gpui::{
-    Anchor, AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Entity, Hsla,
+    Anchor, AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Hsla,
     InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, Rgba, SharedString,
     StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea, anchored,
     deferred, div, point, prelude::FluentBuilder, px,
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-use gpui::{WindowButton, WindowButtonLayout, WindowDecorations};
+use gpui::{Entity, WindowButton, WindowButtonLayout, WindowDecorations};
 use std::rc::Rc;
 use theme::Theme;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -143,9 +143,11 @@ pub struct TitleBar {
 impl TitleBar {
     pub fn new(
         title: &str,
-        menus: Vec<TitleBarMenu>,
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))] menus: Vec<TitleBarMenu>,
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))] _menus: Vec<TitleBarMenu>,
         auth_actions: Option<TitleBarAuthActions>,
-        cx: &mut Context<Self>,
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))] cx: &mut Context<Self>,
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))] _cx: &mut Context<Self>,
     ) -> Self {
         Self {
             title: title.into(),
@@ -730,6 +732,7 @@ fn mix(left: Rgba, right: Rgba, ratio: f32) -> Rgba {
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 fn rgba(r: f32, g: f32, b: f32, a: f32) -> Rgba {
     Rgba { r, g, b, a }
 }
