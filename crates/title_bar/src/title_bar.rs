@@ -1,11 +1,11 @@
 use gpui::{
-    Anchor, AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Entity,
-    Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, Rgba,
-    SharedString, StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea,
-    anchored, deferred, div, point, px,
+    Anchor, AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Entity, Hsla,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, Rgba, SharedString,
+    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea, anchored,
+    deferred, div, point, prelude::FluentBuilder, px,
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-use gpui::{WindowButton, WindowButtonLayout, WindowDecorations, prelude::FluentBuilder};
+use gpui::{WindowButton, WindowButtonLayout, WindowDecorations};
 use std::rc::Rc;
 use theme::Theme;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -174,7 +174,10 @@ impl TitleBar {
         }
 
         self.auth_menu_open = true;
-        self.auth_menu_position = point(position.x - px(180.0), position.y + AUTH_MENU_VERTICAL_OFFSET);
+        self.auth_menu_position = point(
+            position.x - px(180.0),
+            position.y + AUTH_MENU_VERTICAL_OFFSET,
+        );
         cx.notify();
     }
 
@@ -373,12 +376,7 @@ impl TitleBar {
                                             }),
                                     ),
                             )
-                            .child(
-                                div()
-                                    .h(px(1.0))
-                                    .mx_2()
-                                    .bg(border_color(cx)),
-                            )
+                            .child(div().h(px(1.0)).mx_2().bg(border_color(cx)))
                             .child(
                                 div()
                                     .mt_1()
