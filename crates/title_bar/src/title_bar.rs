@@ -448,19 +448,6 @@ impl TitleBar {
             .bg(background)
             .border_b_1()
             .border_color(border_color(cx))
-            .window_control_area(WindowControlArea::Drag)
-            .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
-                window.start_window_move();
-            })
-            .on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
-                cx.stop_propagation();
-                window.show_window_menu(event.position);
-            })
-            .on_click(|event: &ClickEvent, window, _| {
-                if event.click_count() == 2 {
-                    window.zoom_window();
-                }
-            })
             .child(
                 div()
                     .flex()
@@ -484,6 +471,14 @@ impl TitleBar {
                     .child(
                         div()
                             .flex_1()
+                            .window_control_area(WindowControlArea::Drag)
+                            .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+                                window.start_window_move();
+                            })
+                            .on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
+                                cx.stop_propagation();
+                                window.show_window_menu(event.position);
+                            })
                             .text_center()
                             .text_size(px(12.0))
                             .text_color(text_color(cx))

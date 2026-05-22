@@ -2,6 +2,8 @@ mod auth;
 mod font;
 
 use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+use std::process::Command;
 use std::{cell::RefCell, rc::Rc};
 
 use bottom_bar::BottomBar;
@@ -135,6 +137,38 @@ async fn delete_refresh_token(credentials_key: String, cx: &mut AsyncApp) -> Res
 }
 
 impl SoukouApp {
+    fn open_external_url(&self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        {
+            let launch_result = ["xdg-open", "gio"]
+                .into_iter()
+                .find_map(|program| match program {
+                    "xdg-open" => Command::new(program).arg(url).spawn().ok(),
+                    "gio" => Command::new(program).arg("open").arg(url).spawn().ok(),
+                    _ => None,
+                });
+
+            if launch_result.is_none() {
+                Self::show_error(
+                    window,
+                    "ブラウザを起動できませんでした",
+                    format!(
+                        "URL を開けませんでした。`xdg-open` または `gio open` を利用できる環境か確認してください。\n\n{url}"
+                    ),
+                    cx,
+                );
+                return;
+            }
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+        {
+            cx.open_url(url);
+        }
+
+        window.activate_window();
+    }
+
     fn new(cx: &mut Context<Self>) -> Self {
         cx.bind_keys([
             KeyBinding::new(QUIT_SHORTCUT_MAC, Quit, None),
@@ -421,7 +455,9 @@ impl SoukouApp {
             }
         };
 
-        let url = self.auth_config.sign_in_url(callback_listener.callback_url());
+        let url = self
+            .auth_config
+            .sign_in_url(callback_listener.callback_url());
         let credentials_key = self.auth_config.credentials_key().to_string();
         let window_handle = self.window_handle;
         self.set_auth_state(auth::AuthState::Restoring, cx);
@@ -438,7 +474,12 @@ impl SoukouApp {
             match callback_result {
                 Ok(callback) => {
                     let _ = this_entity.update(cx, |this, cx| {
-                        this.apply_auth_callback(callback, credentials_key.clone(), window_handle, cx);
+                        this.apply_auth_callback(
+                            callback,
+                            credentials_key.clone(),
+                            window_handle,
+                            cx,
+                        );
                     });
                 }
                 Err(error) => {
@@ -455,14 +496,12 @@ impl SoukouApp {
         })
         .detach();
 
-        cx.open_url(url.as_str());
-        window.activate_window();
+        self.open_external_url(url.as_str(), window, cx);
     }
 
     fn open_account_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let url = self.auth_config.account_url();
-        cx.open_url(url.as_str());
-        window.activate_window();
+        self.open_external_url(url.as_str(), window, cx);
     }
 
     fn sign_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -510,8 +549,7 @@ impl SoukouApp {
             }
         })
         .detach();
-        cx.open_url(sign_out_url.as_str());
-        window.activate_window();
+        self.open_external_url(sign_out_url.as_str(), window, cx);
     }
 
     // TODO Future
