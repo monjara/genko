@@ -14,6 +14,7 @@ use crate::editor_canvas::{
     EditorCanvas, GridPathCache, cell_bounds_for_logical_index, content_height_for_window_height,
     logical_index_for_point, rows_per_column_for_window_height, visible_columns_for_window_width,
 };
+use crate::vim::{VimMode, VimNormalMode, VimState};
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
@@ -984,6 +985,11 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if AppSettings::global(cx).vim_mode && VimState::global(cx).mode == VimMode::Insert {
+            window.dispatch_action(Box::new(VimNormalMode), cx);
+            return;
+        }
+
         if self.block_selection.is_some() {
             self.clear_block_selection(cx);
             invalidate_ime_position(window);

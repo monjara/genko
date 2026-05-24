@@ -281,6 +281,12 @@ impl VimController {
             return;
         }
 
+        if event.keystroke.key == "escape" && VimState::global(cx).mode != VimMode::Normal {
+            self.normal_mode(window, cx);
+            cx.stop_propagation();
+            return;
+        }
+
         if VimState::global(cx).mode != VimMode::Normal {
             return;
         }

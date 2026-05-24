@@ -568,14 +568,6 @@ impl TitleBar {
                             .flex_none()
                             .text_size(px(12.0))
                             .text_color(text_color(cx)),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_center()
-                            .text_size(px(12.0))
-                            .text_color(text_color(cx))
-                            .child(self.title.clone()),
                     ),
             )
             .when_some(auth_trigger, |this, auth_trigger| {
