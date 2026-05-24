@@ -41,6 +41,7 @@ pub fn open_settings_window(cx: &mut App) {
 struct SettingsWindow {
     title_bar: Entity<TitleBar>,
     status: SharedString,
+    selected_section: SettingsSection,
 }
 
 impl SettingsWindow {
@@ -49,7 +50,40 @@ impl SettingsWindow {
         Self {
             title_bar,
             status: "".into(),
+            selected_section: SettingsSection::General,
         }
+    }
+
+    fn select_section(&mut self, section: SettingsSection, cx: &mut Context<Self>) {
+        self.selected_section = section;
+        cx.notify();
+    }
+
+    fn show_general_section(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_section(SettingsSection::General, cx);
+    }
+
+    fn show_editor_section(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_section(SettingsSection::Editor, cx);
+    }
+
+    fn show_export_section(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_section(SettingsSection::Export, cx);
     }
 
     fn toggle_grid_lines(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -145,12 +179,7 @@ impl SettingsWindow {
         cx.notify();
     }
 
-    fn set_word_vertical(
-        &mut self,
-        _: &ClickEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn set_word_vertical(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.set_export_writing_mode(ExportTargetFormat::Word, ExportWritingMode::Vertical, cx);
     }
 
@@ -163,12 +192,7 @@ impl SettingsWindow {
         self.set_export_writing_mode(ExportTargetFormat::Word, ExportWritingMode::Horizontal, cx);
     }
 
-    fn set_epub_vertical(
-        &mut self,
-        _: &ClickEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn set_epub_vertical(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.set_export_writing_mode(ExportTargetFormat::Epub, ExportWritingMode::Vertical, cx);
     }
 
@@ -244,11 +268,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .child(
                 div()
                     .flex()
@@ -271,7 +294,7 @@ impl SettingsWindow {
                         .items_center()
                         .justify_center()
                         .rounded_sm()
-                        .bg(Theme::global(cx).white())
+                        .bg(Theme::global(cx).bg_senodary())
                         .child(rows_label),
                 ),
             )
@@ -282,11 +305,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .child(
                 div()
                     .flex()
@@ -371,11 +393,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_grid_lines))
             .child(
@@ -423,11 +444,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_vim_mode))
             .child(
@@ -474,11 +494,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_indent_on_enter))
             .child(
@@ -529,11 +548,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_hanging_punctuation))
             .child(
@@ -609,11 +627,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .child(
                 div()
                     .flex()
@@ -668,7 +685,10 @@ impl SettingsWindow {
         horizontal_listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let selected = AppSettings::global(cx).export_settings.format(format).writing_mode;
+        let selected = AppSettings::global(cx)
+            .export_settings
+            .format(format)
+            .writing_mode;
         let option = |id: SharedString,
                       label: &'static str,
                       active: bool,
@@ -708,11 +728,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .child(
                 div()
                     .flex()
@@ -756,7 +775,11 @@ impl SettingsWindow {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(div().font_weight(FontWeight::BOLD).child("Pro 書き出し設定"))
+                    .child(
+                        div()
+                            .font_weight(FontWeight::BOLD)
+                            .child("Pro 書き出し設定"),
+                    )
                     .child(
                         div()
                             .text_sm()
@@ -794,6 +817,174 @@ impl SettingsWindow {
             .active(|this| this.opacity(0.85))
             .child("適用")
             .on_click(cx.listener(Self::apply))
+    }
+
+    fn render_sidebar_item(
+        &self,
+        id: &'static str,
+        section: SettingsSection,
+        listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = self.selected_section == section;
+        div()
+            .id(id)
+            .w_full()
+            .px_3()
+            .py_2()
+            .flex()
+            .items_center()
+            .rounded_sm()
+            .cursor_pointer()
+            .border_1()
+            .border_color(if active {
+                Theme::global(cx).primary()
+            } else {
+                Theme::global(cx).text_senodary()
+            })
+            .bg(if active {
+                Theme::global(cx).bg_senodary()
+            } else {
+                Theme::global(cx).white()
+            })
+            .text_color(if active {
+                Theme::global(cx).primary()
+            } else {
+                Theme::global(cx).text_primary()
+            })
+            .active(|this| this.opacity(0.85))
+            .child(section.label())
+            .on_click(cx.listener(listener))
+    }
+
+    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .w(px(220.0))
+            .h_full()
+            .p_4()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .border_r_1()
+            .border_color(Theme::global(cx).text_senodary())
+            .bg(Theme::global(cx).bg_senodary())
+            .child(
+                div()
+                    .px_2()
+                    .pb_3()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(Theme::global(cx).text_senodary())
+                    .child("設定"),
+            )
+            .child(self.render_sidebar_item(
+                "settings-sidebar-general",
+                SettingsSection::General,
+                Self::show_general_section,
+                cx,
+            ))
+            .child(self.render_sidebar_item(
+                "settings-sidebar-editor",
+                SettingsSection::Editor,
+                Self::show_editor_section,
+                cx,
+            ))
+            .child(self.render_sidebar_item(
+                "settings-sidebar-export",
+                SettingsSection::Export,
+                Self::show_export_section,
+                cx,
+            ))
+    }
+
+    fn render_content_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_2xl()
+                    .font_weight(FontWeight::BOLD)
+                    .child(self.selected_section.label()),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(Theme::global(cx).text_senodary())
+                    .child(self.selected_section.description()),
+            )
+    }
+
+    fn render_section_group(
+        &self,
+        title: &'static str,
+        description: &'static str,
+        children: Vec<gpui::AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let mut group = div().flex().flex_col().gap_3().child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(div().font_weight(FontWeight::BOLD).child(title))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(Theme::global(cx).text_senodary())
+                        .child(description),
+                ),
+        );
+        for child in children {
+            group = group.child(child);
+        }
+        group
+    }
+
+    fn render_general_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_section_group(
+            "一般",
+            "表示と原稿用紙の基本設定です",
+            vec![
+                self.render_grid_toggle(cx).into_any_element(),
+                self.render_cell_size(cx).into_any_element(),
+                self.render_hanging_punctuation_toggle(cx)
+                    .into_any_element(),
+                self.render_column_number_mode(cx).into_any_element(),
+                self.render_rows_per_column(cx).into_any_element(),
+            ],
+            cx,
+        )
+    }
+
+    fn render_editor_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_section_group(
+            "エディタ",
+            "編集操作と入力時の挙動を設定します",
+            vec![
+                self.render_vim_mode_toggle(cx).into_any_element(),
+                self.render_indent_on_enter_toggle(cx).into_any_element(),
+            ],
+            cx,
+        )
+    }
+
+    fn render_export_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_section_group(
+            "書き出し",
+            "Pro プラン向けのファイル書き出し設定です",
+            vec![self.render_export_settings(cx).into_any_element()],
+            cx,
+        )
+    }
+
+    fn render_selected_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.selected_section {
+            SettingsSection::General => self.render_general_content(cx).into_any_element(),
+            SettingsSection::Editor => self.render_editor_content(cx).into_any_element(),
+            SettingsSection::Export => self.render_export_content(cx).into_any_element(),
+        }
     }
 }
 
@@ -850,57 +1041,72 @@ impl Render for SettingsWindow {
                     .child(self.title_bar.clone())
                     .child(
                         div()
-                            .id("settings-content-scroll")
                             .flex_1()
                             .w_full()
-                            .overflow_y_scroll()
-                            .p_6()
+                            .h_full()
                             .flex()
-                            .flex_col()
-                            .gap_4()
+                            .child(self.render_sidebar(cx))
                             .child(
                                 div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
+                                    .id("settings-content-scroll")
+                                    .flex_1()
+                                    .size_full()
+                                    .overflow_y_scroll()
                                     .child(
                                         div()
-                                            .text_2xl()
-                                            .font_weight(FontWeight::BOLD)
-                                            .child("設定"),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(Theme::global(cx).text_senodary())
-                                            .child("変更はsettings.jsonに保存されます"),
+                                            .p_8()
+                                            .flex()
+                                            .flex_col()
+                                            .gap_6()
+                                            .child(self.render_content_header(cx))
+                                            .child(self.render_selected_content(cx))
+                                            .child(
+                                                div()
+                                                    .pt_2()
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_between()
+                                                    .gap_3()
+                                                    .child(
+                                                        div()
+                                                            .h(px(24.0))
+                                                            .text_sm()
+                                                            .text_color(
+                                                                Theme::global(cx).text_senodary(),
+                                                            )
+                                                            .child(self.status.clone()),
+                                                    )
+                                                    .child(self.render_apply_button(cx)),
+                                            ),
                                     ),
-                            )
-                            .child(self.render_grid_toggle(cx))
-                            .child(self.render_cell_size(cx))
-                            .child(self.render_hanging_punctuation_toggle(cx))
-                            .child(self.render_column_number_mode(cx))
-                            .child(self.render_vim_mode_toggle(cx))
-                            .child(self.render_indent_on_enter_toggle(cx))
-                            .child(self.render_rows_per_column(cx))
-                            .child(self.render_export_settings(cx))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .h(px(24.0))
-                                            .text_sm()
-                                            .text_color(Theme::global(cx).text_senodary())
-                                            .child(self.status.clone()),
-                                    )
-                                    .child(self.render_apply_button(cx)),
                             ),
                     ),
             )
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsSection {
+    General,
+    Editor,
+    Export,
+}
+
+impl SettingsSection {
+    fn label(self) -> &'static str {
+        match self {
+            Self::General => "一般",
+            Self::Editor => "エディタ",
+            Self::Export => "書き出し",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::General => "表示や原稿用紙の基本設定を変更します",
+            Self::Editor => "入力や編集の挙動を変更します",
+            Self::Export => "Pro プラン向けの書き出し設定を変更します",
+        }
     }
 }
 
@@ -1204,7 +1410,10 @@ mod tests {
         assert_eq!(settings.cell_size, DEFAULT_CELL_SIZE);
         assert_eq!(settings.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(!settings.vim_mode);
-        assert_eq!(settings.export_settings.word.writing_mode, ExportWritingMode::Vertical);
+        assert_eq!(
+            settings.export_settings.word.writing_mode,
+            ExportWritingMode::Vertical
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
