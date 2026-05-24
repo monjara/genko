@@ -145,24 +145,6 @@ impl SettingsWindow {
         cx.notify();
     }
 
-    fn set_pdf_vertical(
-        &mut self,
-        _: &ClickEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.set_export_writing_mode(ExportTargetFormat::Pdf, ExportWritingMode::Vertical, cx);
-    }
-
-    fn set_pdf_horizontal(
-        &mut self,
-        _: &ClickEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.set_export_writing_mode(ExportTargetFormat::Pdf, ExportWritingMode::Horizontal, cx);
-    }
-
     fn set_word_vertical(
         &mut self,
         _: &ClickEvent,
@@ -783,14 +765,6 @@ impl SettingsWindow {
                     ),
             )
             .child(self.render_export_writing_mode_control(
-                "PDF",
-                "縦書きは横向きレイアウト、横書きは現在の横書きレイアウトで出力します",
-                ExportTargetFormat::Pdf,
-                Self::set_pdf_vertical,
-                Self::set_pdf_horizontal,
-                cx,
-            ))
-            .child(self.render_export_writing_mode_control(
                 "Word",
                 "縦書きは横向きレイアウト、横書きは現在の横書きレイアウトで出力します",
                 ExportTargetFormat::Word,
@@ -964,7 +938,6 @@ impl ExportWritingMode {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportTargetFormat {
-    Pdf,
     Word,
     Epub,
 }
@@ -972,7 +945,6 @@ pub enum ExportTargetFormat {
 impl ExportTargetFormat {
     fn key(self) -> &'static str {
         match self {
-            Self::Pdf => "pdf",
             Self::Word => "word",
             Self::Epub => "epub",
         }
@@ -996,7 +968,6 @@ impl Default for ExportFormatSettings {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct ExportSettings {
-    pub pdf: ExportFormatSettings,
     pub word: ExportFormatSettings,
     pub epub: ExportFormatSettings,
 }
@@ -1004,7 +975,6 @@ pub struct ExportSettings {
 impl Default for ExportSettings {
     fn default() -> Self {
         Self {
-            pdf: ExportFormatSettings::default(),
             word: ExportFormatSettings::default(),
             epub: ExportFormatSettings::default(),
         }
@@ -1014,7 +984,6 @@ impl Default for ExportSettings {
 impl ExportSettings {
     pub fn format(&self, format: ExportTargetFormat) -> &ExportFormatSettings {
         match format {
-            ExportTargetFormat::Pdf => &self.pdf,
             ExportTargetFormat::Word => &self.word,
             ExportTargetFormat::Epub => &self.epub,
         }
@@ -1022,7 +991,6 @@ impl ExportSettings {
 
     pub fn format_mut(&mut self, format: ExportTargetFormat) -> &mut ExportFormatSettings {
         match format {
-            ExportTargetFormat::Pdf => &mut self.pdf,
             ExportTargetFormat::Word => &mut self.word,
             ExportTargetFormat::Epub => &mut self.epub,
         }
@@ -1236,10 +1204,7 @@ mod tests {
         assert_eq!(settings.cell_size, DEFAULT_CELL_SIZE);
         assert_eq!(settings.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(!settings.vim_mode);
-        assert_eq!(
-            settings.export_settings.pdf.writing_mode,
-            ExportWritingMode::Vertical
-        );
+        assert_eq!(settings.export_settings.word.writing_mode, ExportWritingMode::Vertical);
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1297,9 +1262,6 @@ mod tests {
             vim_mode: true,
             indent_on_enter: true,
             export_settings: ExportSettings {
-                pdf: ExportFormatSettings {
-                    writing_mode: ExportWritingMode::Horizontal,
-                },
                 word: ExportFormatSettings::default(),
                 epub: ExportFormatSettings {
                     writing_mode: ExportWritingMode::Horizontal,
@@ -1317,10 +1279,6 @@ mod tests {
         assert_eq!(reloaded.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(reloaded.vim_mode);
         assert!(reloaded.indent_on_enter);
-        assert_eq!(
-            reloaded.export_settings.pdf.writing_mode,
-            ExportWritingMode::Horizontal
-        );
         assert_eq!(
             reloaded.export_settings.word.writing_mode,
             ExportWritingMode::Vertical
@@ -1387,16 +1345,12 @@ mod tests {
         let dir = test_settings_dir("export_writing_modes");
         fs::write(
             dir.join("settings.json"),
-            r#"{"export_settings":{"pdf":{"writing_mode":"horizontal"},"word":{"writing_mode":"vertical"},"epub":{"writing_mode":"horizontal"}}}"#,
+            r#"{"export_settings":{"word":{"writing_mode":"vertical"},"epub":{"writing_mode":"horizontal"}}}"#,
         )
         .unwrap();
 
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
-        assert_eq!(
-            settings.export_settings.pdf.writing_mode,
-            ExportWritingMode::Horizontal
-        );
         assert_eq!(
             settings.export_settings.word.writing_mode,
             ExportWritingMode::Vertical

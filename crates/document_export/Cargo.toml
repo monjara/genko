@@ -11,5 +11,4 @@ path = "src/lib.rs"
 [dependencies]
 crc32fast = "1"
 richtext = { workspace = true }
-ttf-parser = "0.25"
 xmlwriter = "0.1"

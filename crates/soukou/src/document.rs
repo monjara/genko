@@ -35,7 +35,6 @@ impl DocumentKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFormat {
-    Pdf,
     Word,
     Epub,
 }

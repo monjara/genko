@@ -39,7 +39,6 @@ const CHECK_FOR_UPDATES_MENU_LABEL: &str = "更新を確認";
 const QUIT_MENU_LABEL: &str = "終了";
 const FILE_MENU_LABEL: &str = "ファイル";
 const SAVE_MENU_LABEL: &str = "保存";
-const EXPORT_PDF_MENU_LABEL: &str = "PDFを書き出し";
 const EXPORT_WORD_MENU_LABEL: &str = "Wordを書き出し";
 const EXPORT_EPUB_MENU_LABEL: &str = "EPUBを書き出し";
 const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
@@ -80,7 +79,6 @@ actions!(
         SetHeadingLarge,
         SetHeadingMedium,
         ClearHeading,
-        ExportPdf,
         ExportWord,
         ExportEpub,
         Quit,
@@ -118,7 +116,6 @@ struct SoukouApp {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FeatureGate {
     RichText,
-    ExportPdf,
     ExportWord,
     ExportEpub,
 }
@@ -278,9 +275,6 @@ impl SoukouApp {
                     MenuBarItem::new(SAVE_MENU_LABEL, |window, cx| {
                         window.dispatch_action(Box::new(SaveFile), cx);
                     }),
-                    MenuBarItem::new(EXPORT_PDF_MENU_LABEL, |window, cx| {
-                        window.dispatch_action(Box::new(ExportPdf), cx);
-                    }),
                     MenuBarItem::new(EXPORT_WORD_MENU_LABEL, |window, cx| {
                         window.dispatch_action(Box::new(ExportWord), cx);
                     }),
@@ -345,7 +339,6 @@ impl SoukouApp {
         let plan = self.current_plan_key();
         match feature {
             FeatureGate::RichText
-            | FeatureGate::ExportPdf
             | FeatureGate::ExportWord
             | FeatureGate::ExportEpub => plan.supports_rich_text(),
         }
@@ -1086,7 +1079,6 @@ impl SoukouApp {
     fn prompt_pro_required(&mut self, feature: FeatureGate, window: &mut Window, cx: &mut Context<Self>) {
         let feature_label = match feature {
             FeatureGate::RichText => "リッチテキスト編集",
-            FeatureGate::ExportPdf => "PDF書き出し",
             FeatureGate::ExportWord => "Word書き出し",
             FeatureGate::ExportEpub => "EPUB書き出し",
         };
@@ -1114,7 +1106,6 @@ impl SoukouApp {
 
     fn export_document(&mut self, format: ExportFormat, window: &mut Window, cx: &mut Context<Self>) {
         let feature = match format {
-            ExportFormat::Pdf => FeatureGate::ExportPdf,
             ExportFormat::Word => FeatureGate::ExportWord,
             ExportFormat::Epub => FeatureGate::ExportEpub,
         };
@@ -1135,7 +1126,6 @@ impl SoukouApp {
             "{}.{}",
             base_name,
             match format {
-                ExportFormat::Pdf => export::ExportFormat::Pdf.file_extension(),
                 ExportFormat::Word => export::ExportFormat::Word.file_extension(),
                 ExportFormat::Epub => export::ExportFormat::Epub.file_extension(),
             }
@@ -1154,12 +1144,10 @@ impl SoukouApp {
             .clone()
             .unwrap_or_else(|| RichDocument::new(self.editor_controller.read(cx).snapshot_text(cx)));
         let export_format = match format {
-            ExportFormat::Pdf => export::ExportFormat::Pdf,
             ExportFormat::Word => export::ExportFormat::Word,
             ExportFormat::Epub => export::ExportFormat::Epub,
         };
         let export_target = match format {
-            ExportFormat::Pdf => ExportTargetFormat::Pdf,
             ExportFormat::Word => ExportTargetFormat::Word,
             ExportFormat::Epub => ExportTargetFormat::Epub,
         };
@@ -1254,10 +1242,6 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.apply_block_kind(BlockKind::Body, window, cx);
-    }
-
-    fn export_pdf_action(&mut self, _: &ExportPdf, window: &mut Window, cx: &mut Context<Self>) {
-        self.export_document(ExportFormat::Pdf, window, cx);
     }
 
     fn export_word_action(
@@ -1501,7 +1485,6 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::set_heading_large_action))
                     .on_action(cx.listener(Self::set_heading_medium_action))
                     .on_action(cx.listener(Self::clear_heading_action))
-                    .on_action(cx.listener(Self::export_pdf_action))
                     .on_action(cx.listener(Self::export_word_action))
                     .on_action(cx.listener(Self::export_epub_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
@@ -1573,7 +1556,6 @@ fn main() {
                         MenuItem::action(OPEN_PROMPT_LABEL, OpenFile),
                         MenuItem::action(SAVE_MENU_LABEL, SaveFile),
                         MenuItem::separator(),
-                        MenuItem::action(EXPORT_PDF_MENU_LABEL, ExportPdf),
                         MenuItem::action(EXPORT_WORD_MENU_LABEL, ExportWord),
                         MenuItem::action(EXPORT_EPUB_MENU_LABEL, ExportEpub),
                     ],
