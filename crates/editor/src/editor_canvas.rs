@@ -804,7 +804,7 @@ fn paint_corner_punctuation(
         font_size,
         text_run(
             &cell_text.text,
-            punctuation_text_font(style.font()),
+            vertical_text_font(style.font()),
             Theme::global(cx).text_primary(),
             cx,
         ),
@@ -948,18 +948,27 @@ fn shape_text(
 }
 
 fn vertical_text_paint_offset(line: &gpui::ShapedLine) -> gpui::Point<Pixels> {
-    let (min_x, min_y) = line
-        .runs
-        .iter()
-        .flat_map(|run| run.glyphs.iter())
-        .fold((0.0f32, 0.0f32), |(min_x, min_y), glyph| {
-            (
-                min_x.min(glyph.position.x.as_f32()),
-                min_y.min(glyph.position.y.as_f32()),
-            )
-        });
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = line;
+        point(px(0.0), px(0.0))
+    }
 
-    point(px(-min_x), px(-min_y))
+    #[cfg(target_os = "macos")]
+    {
+        let (min_x, min_y) = line
+            .runs
+            .iter()
+            .flat_map(|run| run.glyphs.iter())
+            .fold((0.0f32, 0.0f32), |(min_x, min_y), glyph| {
+                (
+                    min_x.min(glyph.position.x.as_f32()),
+                    min_y.min(glyph.position.y.as_f32()),
+                )
+            });
+
+        point(px(-min_x), px(-min_y))
+    }
 }
 
 fn log_prolonged_sound_mark_shaping(
