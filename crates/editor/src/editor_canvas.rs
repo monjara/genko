@@ -998,7 +998,7 @@ fn log_prolonged_sound_mark_shaping(
             .flat_map(|run| {
                 run.glyphs
                     .iter()
-                    .map(|glyph| (glyph.position.x.0, glyph.position.y.0))
+                    .map(|glyph| (glyph.position.x.as_f32(), glyph.position.y.as_f32()))
             })
             .collect();
         let vertical_glyph_positions: Vec<(f32, f32)> = vertical_line
@@ -1007,7 +1007,7 @@ fn log_prolonged_sound_mark_shaping(
             .flat_map(|run| {
                 run.glyphs
                     .iter()
-                    .map(|glyph| (glyph.position.x.0, glyph.position.y.0))
+                    .map(|glyph| (glyph.position.x.as_f32(), glyph.position.y.as_f32()))
             })
             .collect();
         let plain_font_ids: Vec<usize> = plain_line.runs.iter().map(|run| run.font_id.0).collect();
