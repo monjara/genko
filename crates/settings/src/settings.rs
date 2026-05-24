@@ -7,8 +7,8 @@ use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, Bounds, ClickEvent, Context, Decorations, Entity, FontWeight, Global,
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowDecorations, WindowOptions,
-    WindowControlArea, div, px, size, transparent_black,
+    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowControlArea, WindowDecorations,
+    WindowOptions, div, px, size, transparent_black,
 };
 use serde::{Deserialize, Serialize};
 use theme::{APP_FONT_FAMILY, Theme};
@@ -1214,7 +1214,7 @@ impl Default for AppSettings {
         Self {
             show_grid_lines: true,
             hanging_punctuation: true,
-            column_number_mode: ColumnNumberMode::Hidden,
+            column_number_mode: ColumnNumberMode::EveryFive,
             cell_size: DEFAULT_CELL_SIZE,
             rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: false,
