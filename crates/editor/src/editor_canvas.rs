@@ -630,9 +630,10 @@ fn paint_cell_text(
             cx,
         ),
     );
+    let paint_offset = vertical_text_paint_offset(&line);
     let text_origin = point(
-        cell_bounds.left() + (px(cell_size) - line.width) / 2.0,
-        cell_bounds.top() + (px(cell_size) - line_height) / 2.0,
+        cell_bounds.left() + (px(cell_size) - line.width) / 2.0 + paint_offset.x,
+        cell_bounds.top() + (px(cell_size) - line_height) / 2.0 + paint_offset.y,
     );
     line.paint(
         text_origin,
@@ -766,9 +767,10 @@ fn paint_attached_punctuation(
             cx,
         ),
     );
+    let paint_offset = vertical_text_paint_offset(&line);
     let text_origin = point(
-        cell_bounds.right() - line.width - px(3.0),
-        cell_bounds.bottom() - line_height - px(1.0),
+        cell_bounds.right() - line.width - px(3.0) + paint_offset.x,
+        cell_bounds.bottom() - line_height - px(1.0) + paint_offset.y,
     );
     line.paint(
         text_origin,
@@ -942,6 +944,21 @@ fn shape_text(
         .shape_line_by_hash(text_hash, text.len(), font_size, &[run], None, || {
             text.to_owned().into()
         })
+}
+
+fn vertical_text_paint_offset(line: &gpui::ShapedLine) -> gpui::Point<Pixels> {
+    let (min_x, min_y) = line
+        .runs
+        .iter()
+        .flat_map(|run| run.glyphs.iter())
+        .fold((0.0f32, 0.0f32), |(min_x, min_y), glyph| {
+            (
+                min_x.min(glyph.position.x.as_f32()),
+                min_y.min(glyph.position.y.as_f32()),
+            )
+        });
+
+    point(px(-min_x), px(-min_y))
 }
 
 fn log_prolonged_sound_mark_shaping(
