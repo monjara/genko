@@ -992,12 +992,37 @@ fn log_prolonged_sound_mark_shaping(
             .iter()
             .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.id.0))
             .collect();
+        let plain_glyph_positions: Vec<(f32, f32)> = plain_line
+            .runs
+            .iter()
+            .flat_map(|run| {
+                run.glyphs
+                    .iter()
+                    .map(|glyph| (glyph.position.x.0, glyph.position.y.0))
+            })
+            .collect();
+        let vertical_glyph_positions: Vec<(f32, f32)> = vertical_line
+            .runs
+            .iter()
+            .flat_map(|run| {
+                run.glyphs
+                    .iter()
+                    .map(|glyph| (glyph.position.x.0, glyph.position.y.0))
+            })
+            .collect();
+        let plain_font_ids: Vec<usize> = plain_line.runs.iter().map(|run| run.font_id.0).collect();
+        let vertical_font_ids: Vec<usize> =
+            vertical_line.runs.iter().map(|run| run.font_id.0).collect();
 
         eprintln!(
-            "soukou vertical shaping debug: text={:?} plain_glyph_ids={:?} vertical_glyph_ids={:?} plain_width={:?} vertical_width={:?}",
+            "soukou vertical shaping debug: text={:?} plain_font_ids={:?} vertical_font_ids={:?} plain_glyph_ids={:?} vertical_glyph_ids={:?} plain_glyph_positions={:?} vertical_glyph_positions={:?} plain_width={:?} vertical_width={:?}",
             _cell_text.text,
+            plain_font_ids,
+            vertical_font_ids,
             plain_glyph_ids,
             vertical_glyph_ids,
+            plain_glyph_positions,
+            vertical_glyph_positions,
             plain_line.width(),
             vertical_line.width(),
         );
