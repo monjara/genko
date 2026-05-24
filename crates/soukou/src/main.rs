@@ -1,6 +1,7 @@
 mod auth;
 mod document;
 mod font;
+mod text_input;
 
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -20,13 +21,14 @@ use gpui::{
     anchored, deferred, div, point, prelude::FluentBuilder, px, size, transparent_black,
     svg,
 };
-use richtext::{BlockKind, InlineStyle, RichDocument, single_change};
+use richtext::{BlockKind, EpubMetadata, InlineStyle, RichDocument, single_change};
 use semver::Version;
 use serde::Deserialize;
 use settings::{AppSettings, ExportTargetFormat, ExportWritingMode, open_settings_window};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::{TitleBar, TitleBarAuthActions, TitleBarAuthState, TitleBarMenu, TitleBarUser};
 use ui::{MenuBarItem, MenuBarMenu};
+use text_input::TextInput;
 
 const APP_NAME: &str = "草稿";
 const APP_ID: &str = "dev.monj.soukou";
@@ -45,6 +47,7 @@ const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでし�
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
+const EPUB_METADATA_TITLE: &str = "EPUBメタデータ";
 const PRO_REQUIRED_TITLE: &str = "Proプランが必要です";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
@@ -114,6 +117,7 @@ struct SoukouApp {
     rich_document: Option<RichDocument>,
     last_richtext_revision: u64,
     active_modal: Option<AppModal>,
+    epub_metadata_form: Option<EpubMetadataForm>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
     window_handle: Option<gpui::AnyWindowHandle>,
@@ -147,6 +151,19 @@ enum AppModal {
     ProRequired {
         feature: FeatureGate,
     },
+}
+
+#[derive(Clone)]
+struct EpubMetadataForm {
+    title: Entity<TextInput>,
+    creators: Entity<TextInput>,
+    language: Entity<TextInput>,
+    identifier: Entity<TextInput>,
+    description: Entity<TextInput>,
+    publisher: Entity<TextInput>,
+    rights: Entity<TextInput>,
+    published_at: Entity<TextInput>,
+    error_message: Option<String>,
 }
 
 async fn read_stored_refresh_token(
@@ -239,7 +256,203 @@ impl SoukouApp {
         cx.notify();
     }
 
+    fn current_epub_metadata_defaults(&self, cx: &App) -> EpubMetadata {
+        let metadata = self
+            .rich_document
+            .as_ref()
+            .and_then(|document| document.epub_metadata.clone());
+        let fallback_title = self
+            .first_heading_title_from_current_document(cx)
+            .or_else(|| {
+                self.active_document
+                    .path()
+                    .and_then(Path::file_stem)
+                    .and_then(|stem| stem.to_str())
+                    .map(ToString::to_string)
+            })
+            .unwrap_or_else(|| APP_NAME.to_string());
+
+        let mut metadata = metadata.unwrap_or_default();
+        if metadata.title.trim().is_empty() {
+            metadata.title = fallback_title;
+        }
+        if metadata.language.trim().is_empty() {
+            metadata.language = "ja".to_string();
+        }
+        if metadata.identifier.trim().is_empty() {
+            metadata.identifier = Self::generate_epub_identifier();
+        }
+        metadata
+    }
+
+    fn first_heading_title_from_current_document(&self, cx: &App) -> Option<String> {
+        self.rich_document
+            .as_ref()
+            .and_then(|document| {
+                document.resolved_blocks().into_iter().find_map(|block| {
+                    matches!(block.kind, BlockKind::HeadingLarge | BlockKind::HeadingMedium)
+                        .then(|| document.plain_text()[block.range.clone()].trim().to_string())
+                        .filter(|title| !title.is_empty())
+                })
+            })
+            .or_else(|| {
+                self.editor_controller
+                    .read(cx)
+                    .snapshot_text(cx)
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+                    .map(ToString::to_string)
+            })
+    }
+
+    fn generate_epub_identifier() -> String {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        format!(
+            "urn:soukou:{}-{}",
+            timestamp.as_secs(),
+            timestamp.subsec_nanos()
+        )
+    }
+
+    fn make_text_input(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        placeholder: &str,
+        value: &str,
+    ) -> Entity<TextInput> {
+        let input = cx.new(TextInput::new);
+        input.update(cx, |input, cx| {
+            input.set_placeholder(placeholder, cx);
+            input.set_text(value, cx);
+        });
+        window.focus(&input.focus_handle(cx), cx);
+        input
+    }
+
+    fn open_epub_metadata_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let metadata = self.current_epub_metadata_defaults(cx);
+        let creators = metadata.creators.join(", ");
+        let description = metadata.description.clone().unwrap_or_default();
+        let publisher = metadata.publisher.clone().unwrap_or_default();
+        let rights = metadata.rights.clone().unwrap_or_default();
+        let published_at = metadata.published_at.clone().unwrap_or_default();
+
+        let title = Self::make_text_input(window, cx, "書籍タイトル", metadata.title.as_str());
+        let creators_input =
+            Self::make_text_input(window, cx, "著者名（複数の場合はカンマ区切り）", creators.as_str());
+        let language =
+            Self::make_text_input(window, cx, "言語コード", metadata.language.as_str());
+        let identifier =
+            Self::make_text_input(window, cx, "識別子", metadata.identifier.as_str());
+        let description_input =
+            Self::make_text_input(window, cx, "説明文", description.as_str());
+        let publisher_input =
+            Self::make_text_input(window, cx, "出版者", publisher.as_str());
+        let rights_input = Self::make_text_input(window, cx, "権利表記", rights.as_str());
+        let published_at_input =
+            Self::make_text_input(window, cx, "公開日 (YYYY-MM-DD)", published_at.as_str());
+
+        self.epub_metadata_form = Some(EpubMetadataForm {
+            title,
+            creators: creators_input,
+            language,
+            identifier,
+            description: description_input,
+            publisher: publisher_input,
+            rights: rights_input,
+            published_at: published_at_input,
+            error_message: None,
+        });
+        if let Some(form) = self.epub_metadata_form.as_ref() {
+            window.focus(&form.title.focus_handle(cx), cx);
+        }
+        cx.notify();
+    }
+
+    fn dismiss_epub_metadata_modal(
+        &mut self,
+        _: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.epub_metadata_form = None;
+        cx.notify();
+    }
+
+    fn collect_epub_metadata(&self, cx: &mut Context<Self>) -> EpubMetadata {
+        let form = self.epub_metadata_form.as_ref().expect("EPUB form should exist");
+        let title = form.title.read(cx).text().trim().to_string();
+        let creators = form
+            .creators
+            .read(cx)
+            .text()
+            .split([',', '、'])
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let language = form.language.read(cx).text().trim().to_string();
+        let identifier = form.identifier.read(cx).text().trim().to_string();
+        let description = non_empty_option(form.description.read(cx).text());
+        let publisher = non_empty_option(form.publisher.read(cx).text());
+        let rights = non_empty_option(form.rights.read(cx).text());
+        let published_at = non_empty_option(form.published_at.read(cx).text());
+
+        EpubMetadata {
+            title,
+            creators,
+            language,
+            identifier,
+            description,
+            publisher,
+            rights,
+            published_at,
+        }
+    }
+
+    fn confirm_epub_metadata_modal(
+        &mut self,
+        _: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let metadata = self.collect_epub_metadata(cx);
+        let error_message = if metadata.title.is_empty() {
+            Some("タイトルを入力してください。".to_string())
+        } else if metadata.creators.is_empty() {
+            Some("著者名を 1 つ以上入力してください。".to_string())
+        } else if metadata.language.is_empty() {
+            Some("言語コードを入力してください。".to_string())
+        } else if metadata.identifier.is_empty() {
+            Some("識別子を入力してください。".to_string())
+        } else {
+            None
+        };
+
+        if let Some(error_message) = error_message {
+            if let Some(form) = self.epub_metadata_form.as_mut() {
+                form.error_message = Some(error_message);
+            }
+            cx.notify();
+            return;
+        }
+
+        if self.active_document.kind() == DocumentKind::RichText
+            && let Some(document) = self.rich_document.as_mut()
+        {
+            document.epub_metadata = Some(metadata.clone());
+        }
+
+        self.epub_metadata_form = None;
+        cx.notify();
+        self.start_export_document(ExportFormat::Epub, Some(metadata), window, cx);
+    }
+
     fn new(cx: &mut Context<Self>) -> Self {
+        text_input::init(cx);
         cx.bind_keys([
             KeyBinding::new(QUIT_SHORTCUT_MAC, Quit, None),
             KeyBinding::new(OPEN_SETTINGS_SHORTCUT_CTRL, OpenSettings, None),
@@ -279,6 +492,7 @@ impl SoukouApp {
             rich_document: None,
             last_richtext_revision: 0,
             active_modal: None,
+            epub_metadata_form: None,
             title_bar,
             bottom_bar,
             window_handle: None,
@@ -411,7 +625,9 @@ impl SoukouApp {
             if let Some((range, replacement)) = single_change(document.plain_text(), &text) {
                 document.replace_text(range, replacement.as_str());
             } else if document.plain_text() != text {
+                let epub_metadata = document.epub_metadata.clone();
                 *document = RichDocument::new(text);
+                document.epub_metadata = epub_metadata;
             }
         }
 
@@ -1100,21 +1316,13 @@ impl SoukouApp {
         }
     }
 
-    fn export_document(
+    fn start_export_document(
         &mut self,
         format: ExportFormat,
+        epub_metadata: Option<EpubMetadata>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let feature = match format {
-            ExportFormat::Word => FeatureGate::ExportWord,
-            ExportFormat::Epub => FeatureGate::ExportEpub,
-        };
-
-        if !self.is_feature_available(feature) {
-            self.prompt_pro_required(feature, window, cx);
-            return;
-        }
         self.sync_richtext_from_editor(cx);
 
         let base_name = self
@@ -1160,6 +1368,7 @@ impl SoukouApp {
                 ExportWritingMode::Vertical => export::ExportWritingMode::Vertical,
                 ExportWritingMode::Horizontal => export::ExportWritingMode::Horizontal,
             },
+            epub_metadata,
         };
         let this = cx.entity().downgrade();
 
@@ -1208,6 +1417,28 @@ impl SoukouApp {
             }
         })
         .detach();
+    }
+
+    fn export_document(
+        &mut self,
+        format: ExportFormat,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let feature = match format {
+            ExportFormat::Word => FeatureGate::ExportWord,
+            ExportFormat::Epub => FeatureGate::ExportEpub,
+        };
+
+        if !self.is_feature_available(feature) {
+            self.prompt_pro_required(feature, window, cx);
+            return;
+        }
+
+        match format {
+            ExportFormat::Word => self.start_export_document(format, None, window, cx),
+            ExportFormat::Epub => self.open_epub_metadata_modal(window, cx),
+        }
     }
 
     fn export_txt_document(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1649,6 +1880,150 @@ impl SoukouApp {
                 ),
         )
     }
+
+    fn render_epub_metadata_modal(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let form = self.epub_metadata_form.as_ref()?;
+
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .bg(Hsla {
+                    h: 0.61,
+                    s: 0.32,
+                    l: 0.08,
+                    a: 0.58,
+                })
+                .flex()
+                .items_center()
+                .justify_center()
+                .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                    cx.stop_propagation();
+                })
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(Self::dismiss_epub_metadata_modal),
+                )
+                .child(
+                    div()
+                        .w(px(560.0))
+                        .max_h(px(720.0))
+                        .p_6()
+                        .flex()
+                        .flex_col()
+                        .gap_5()
+                        .bg(Theme::global(cx).white())
+                        .border_1()
+                        .border_color(toolbar_border_color(cx))
+                        .rounded_lg()
+                        .shadow(vec![BoxShadow {
+                            color: Hsla {
+                                h: 0.0,
+                                s: 0.0,
+                                l: 0.0,
+                                a: 0.18,
+                            },
+                            offset: point(px(0.0), px(18.0)),
+                            blur_radius: px(42.0),
+                            spread_radius: px(0.0),
+                        }])
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_size(px(24.0))
+                                        .font_weight(FontWeight::BOLD)
+                                        .child(EPUB_METADATA_TITLE),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(Theme::global(cx).text_senodary())
+                                        .child(
+                                            "EPUB に埋め込むタイトル、著者、言語などの情報を入力します。",
+                                        ),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_3()
+                                .children([
+                                    render_metadata_field("タイトル", form.title.clone()),
+                                    render_metadata_field("著者名", form.creators.clone()),
+                                    render_metadata_field("言語", form.language.clone()),
+                                    render_metadata_field("識別子", form.identifier.clone()),
+                                    render_metadata_field("説明文", form.description.clone()),
+                                    render_metadata_field("出版者", form.publisher.clone()),
+                                    render_metadata_field("権利表記", form.rights.clone()),
+                                    render_metadata_field("公開日", form.published_at.clone()),
+                                ]),
+                        )
+                        .when_some(form.error_message.clone(), |this, error| {
+                            this.child(
+                                div()
+                                    .w_full()
+                                    .px_4()
+                                    .py_3()
+                                    .rounded_md()
+                                    .bg(mix(
+                                        Theme::global(cx).primary(),
+                                        Theme::global(cx).white(),
+                                        0.9,
+                                    ))
+                                    .text_sm()
+                                    .child(error),
+                            )
+                        })
+                        .child(
+                            div()
+                                .flex()
+                                .justify_end()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .px_4()
+                                        .py_2()
+                                        .rounded_sm()
+                                        .border_1()
+                                        .border_color(toolbar_border_color(cx))
+                                        .cursor_pointer()
+                                        .hover(|style| style.bg(gpui::rgb(0xf4f5f6)))
+                                        .on_mouse_down(
+                                            gpui::MouseButton::Left,
+                                            cx.listener(Self::dismiss_epub_metadata_modal),
+                                        )
+                                        .child("キャンセル"),
+                                )
+                                .child(
+                                    div()
+                                        .px_4()
+                                        .py_2()
+                                        .rounded_sm()
+                                        .bg(Theme::global(cx).primary())
+                                        .text_color(Theme::global(cx).white())
+                                        .cursor_pointer()
+                                        .hover(|style| style.opacity(0.92))
+                                        .on_mouse_down(
+                                            gpui::MouseButton::Left,
+                                            cx.listener(Self::confirm_epub_metadata_modal),
+                                        )
+                                        .child("保存先を選ぶ"),
+                                ),
+                        ),
+                ),
+        )
+    }
 }
 
 fn toolbar_button(
@@ -1667,6 +2042,33 @@ fn toolbar_button(
             on_click(window, cx);
         })
         .child(label)
+}
+
+fn render_metadata_field(label: &'static str, input: Entity<TextInput>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::BOLD)
+                .child(label),
+        )
+        .child(
+            div()
+                .w_full()
+                .border_1()
+                .border_color(gpui::rgba(0x00000022))
+                .rounded_md()
+                .overflow_hidden()
+                .child(input),
+        )
+}
+
+fn non_empty_option(value: String) -> Option<String> {
+    let value = value.trim().to_string();
+    (!value.is_empty()).then_some(value)
 }
 
 fn toolbar_border_color(cx: &App) -> gpui::Hsla {
@@ -1778,6 +2180,9 @@ impl Render for SoukouApp {
                     )
                     .when_some(self.render_richtext_toolbar(cx), |this, toolbar| {
                         this.child(toolbar)
+                    })
+                    .when_some(self.render_epub_metadata_modal(cx), |this, modal| {
+                        this.child(modal)
                     })
                     .when_some(self.render_active_modal(cx), |this, modal| {
                         this.child(modal)

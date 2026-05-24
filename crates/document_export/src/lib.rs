@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use crc32fast::Hasher;
-use richtext::{BlockKind, InlineStyle, RichDocument};
+use richtext::{BlockKind, EpubMetadata, InlineStyle, RichDocument};
 use xmlwriter::{Options as XmlOptions, XmlWriter};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,9 +18,10 @@ pub enum ExportWritingMode {
     Horizontal,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExportOptions {
     pub writing_mode: ExportWritingMode,
+    pub epub_metadata: Option<EpubMetadata>,
 }
 
 impl ExportFormat {
@@ -94,12 +95,12 @@ fn export_epub(document: &RichDocument, options: ExportOptions) -> Vec<u8> {
     );
     zip.push_stored(
         "OEBPS/content.opf",
-        build_epub_package_xml(&export, options).into_bytes(),
+        build_epub_package_xml(&export, &options).into_bytes(),
     );
     zip.push_stored("OEBPS/nav.xhtml", build_epub_nav_xml().into_bytes());
     zip.push_stored(
         "OEBPS/text.xhtml",
-        build_epub_text_xml(&export, options).into_bytes(),
+        build_epub_text_xml(&export, &options).into_bytes(),
     );
     zip.finish()
 }
@@ -377,31 +378,68 @@ fn build_epub_container_xml() -> String {
         .to_string()
 }
 
-fn build_epub_package_xml(document: &ExportDocument, options: ExportOptions) -> String {
-    let title = first_heading_title(document).unwrap_or_else(|| "草稿".to_string());
+fn build_epub_package_xml(document: &ExportDocument, options: &ExportOptions) -> String {
+    let metadata = resolved_epub_metadata(document, options.epub_metadata.as_ref());
     let page_progression = if options.writing_mode == ExportWritingMode::Vertical {
         r#" page-progression-direction="rtl""#
     } else {
         ""
     };
+    let creators = metadata
+        .creators
+        .iter()
+        .map(|creator| format!("    <dc:creator>{}</dc:creator>\n", xml_escape(creator)))
+        .collect::<String>();
+    let description = metadata
+        .description
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("    <dc:description>{}</dc:description>\n", xml_escape(value)))
+        .unwrap_or_default();
+    let publisher = metadata
+        .publisher
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("    <dc:publisher>{}</dc:publisher>\n", xml_escape(value)))
+        .unwrap_or_default();
+    let rights = metadata
+        .rights
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("    <dc:rights>{}</dc:rights>\n", xml_escape(value)))
+        .unwrap_or_default();
+    let published_at = metadata
+        .published_at
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("    <dc:date>{}</dc:date>\n", xml_escape(value)))
+        .unwrap_or_default();
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
-<package version="3.0" unique-identifier="bookid" xmlns="http://www.idpf.org/2007/opf"{}>
+<package version="3.0" unique-identifier="bookid" xmlns="http://www.idpf.org/2007/opf">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="bookid">urn:soukou:export</dc:identifier>
+    <dc:identifier id="bookid">{}</dc:identifier>
     <dc:title>{}</dc:title>
-    <dc:language>ja</dc:language>
+{}    <dc:language>{}</dc:language>
+{}{}{}{}
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="text" href="text.xhtml" media-type="application/xhtml+xml"/>
   </manifest>
-  <spine>
+  <spine{}>
     <itemref idref="text"/>
   </spine>
 </package>"#,
+        xml_escape(metadata.identifier.as_str()),
+        xml_escape(metadata.title.as_str()),
+        creators,
+        xml_escape(metadata.language.as_str()),
+        description,
+        publisher,
+        rights,
+        published_at,
         page_progression,
-        xml_escape(title.as_str())
     )
 }
 
@@ -418,7 +456,8 @@ fn build_epub_nav_xml() -> String {
         .to_string()
 }
 
-fn build_epub_text_xml(document: &ExportDocument, options: ExportOptions) -> String {
+fn build_epub_text_xml(document: &ExportDocument, options: &ExportOptions) -> String {
+    let metadata = resolved_epub_metadata(document, options.epub_metadata.as_ref());
     let body_style = match options.writing_mode {
         ExportWritingMode::Vertical => {
             "font-family: serif; line-height: 1.8; margin: 2em; writing-mode: vertical-rl;"
@@ -427,9 +466,9 @@ fn build_epub_text_xml(document: &ExportDocument, options: ExportOptions) -> Str
     };
     let mut html = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" lang="ja">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="{}">
   <head>
-    <title>草稿</title>
+    <title>{}</title>
     <style>
       body {{ {} }}
       h1 {{ font-size: 2em; margin: 1.6em 0 0.8em; }}
@@ -441,6 +480,8 @@ fn build_epub_text_xml(document: &ExportDocument, options: ExportOptions) -> Str
   </head>
   <body>
 "#,
+        xml_escape(metadata.language.as_str()),
+        xml_escape(metadata.title.as_str()),
         body_style
     );
 
@@ -475,6 +516,29 @@ fn build_epub_text_xml(document: &ExportDocument, options: ExportOptions) -> Str
 
     html.push_str("  </body>\n</html>");
     html
+}
+
+fn resolved_epub_metadata(
+    document: &ExportDocument,
+    metadata: Option<&EpubMetadata>,
+) -> EpubMetadata {
+    let mut resolved = metadata.cloned().unwrap_or_default();
+    if resolved.title.trim().is_empty() {
+        resolved.title = first_heading_title(document).unwrap_or_else(|| "草稿".to_string());
+    }
+    resolved.creators = resolved
+        .creators
+        .into_iter()
+        .map(|creator| creator.trim().to_string())
+        .filter(|creator| !creator.is_empty())
+        .collect();
+    if resolved.language.trim().is_empty() {
+        resolved.language = "ja".to_string();
+    }
+    if resolved.identifier.trim().is_empty() {
+        resolved.identifier = "urn:soukou:export".to_string();
+    }
+    resolved
 }
 
 fn first_heading_title(document: &ExportDocument) -> Option<String> {
@@ -622,8 +686,8 @@ fn write_end_of_central_directory(
 
 #[cfg(test)]
 mod tests {
-    use super::{ExportDocument, ExportFormat, ExportOptions, ExportWritingMode, build_epub_text_xml, export_docx, export_epub};
-    use richtext::{BlockKind, InlineStyle, RichDocument};
+    use super::{ExportDocument, ExportFormat, ExportOptions, ExportWritingMode, build_epub_package_xml, build_epub_text_xml, export_docx, export_epub};
+    use richtext::{BlockKind, EpubMetadata, InlineStyle, RichDocument};
 
     fn sample_document() -> RichDocument {
         let mut document = RichDocument::new("大見出し\n本文です\n".to_string());
@@ -650,8 +714,9 @@ mod tests {
     fn vertical_epub_uses_vertical_writing_mode_css() {
         let html = build_epub_text_xml(
             &ExportDocument::from(&sample_document()),
-            ExportOptions {
+            &ExportOptions {
                 writing_mode: ExportWritingMode::Vertical,
+                epub_metadata: None,
             },
         );
         assert!(html.contains("writing-mode: vertical-rl;"));
@@ -661,5 +726,44 @@ mod tests {
     fn export_format_extensions_are_stable() {
         assert_eq!(ExportFormat::Word.file_extension(), "docx");
         assert_eq!(ExportFormat::Epub.file_extension(), "epub");
+    }
+
+    #[test]
+    fn epub_package_xml_uses_metadata() {
+        let package = build_epub_package_xml(
+            &ExportDocument::from(&sample_document()),
+            &ExportOptions {
+                epub_metadata: Some(EpubMetadata {
+                    title: "本の題名".to_string(),
+                    creators: vec!["著者名".to_string()],
+                    language: "ja".to_string(),
+                    identifier: "urn:test:book".to_string(),
+                    description: Some("説明".to_string()),
+                    publisher: Some("出版社".to_string()),
+                    rights: Some("All rights reserved".to_string()),
+                    published_at: Some("2026-05-24".to_string()),
+                }),
+                ..ExportOptions::default()
+            },
+        );
+
+        assert!(package.contains("<dc:title>本の題名</dc:title>"));
+        assert!(package.contains("<dc:creator>著者名</dc:creator>"));
+        assert!(package.contains("<dc:identifier id=\"bookid\">urn:test:book</dc:identifier>"));
+        assert!(package.contains("<dc:publisher>出版社</dc:publisher>"));
+    }
+
+    #[test]
+    fn vertical_epub_sets_rtl_page_progression_on_spine() {
+        let package = build_epub_package_xml(
+            &ExportDocument::from(&sample_document()),
+            &ExportOptions {
+                writing_mode: ExportWritingMode::Vertical,
+                epub_metadata: None,
+            },
+        );
+
+        assert!(package.contains(r#"<spine page-progression-direction="rtl">"#));
+        assert!(!package.contains(r#"<package version="3.0" unique-identifier="bookid" xmlns="http://www.idpf.org/2007/opf" page-progression-direction="rtl">"#));
     }
 }

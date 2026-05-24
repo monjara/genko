@@ -5917,6 +5917,7 @@ dependencies = [
  "theme",
  "title_bar",
  "ui",
+ "unicode-segmentation",
  "url",
  "urlencoding",
  "xdg",

@@ -47,6 +47,18 @@ pub struct BlockMark {
     pub kind: BlockKind,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EpubMetadata {
+    pub title: String,
+    pub creators: Vec<String>,
+    pub language: String,
+    pub identifier: String,
+    pub description: Option<String>,
+    pub publisher: Option<String>,
+    pub rights: Option<String>,
+    pub published_at: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedBlock {
     pub range: Range<usize>,
@@ -58,6 +70,8 @@ pub struct RichDocument {
     pub version: u32,
     pub kind: DocumentKind,
     pub text: String,
+    #[serde(default)]
+    pub epub_metadata: Option<EpubMetadata>,
     pub blocks: Vec<BlockMark>,
     pub spans: Vec<InlineMark>,
 }
@@ -74,6 +88,7 @@ impl RichDocument {
             version: 1,
             kind: DocumentKind::RichText,
             text,
+            epub_metadata: None,
             blocks: Vec::new(),
             spans: Vec::new(),
         };

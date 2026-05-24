@@ -39,4 +39,5 @@ title_bar = { workspace = true }
 ui = { workspace = true }
 url = "2"
 urlencoding = "2"
+unicode-segmentation = "1"
 xdg = { workspace = true }
