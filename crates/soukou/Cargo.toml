@@ -1,6 +1,6 @@
 [package]
 name = "soukou"
-version = "0.2.0"
+version = "0.2.2"
 edition = "2024"
 
 [package.metadata.bundle]
@@ -15,9 +15,6 @@ osx_info_plist_exts = ["resources/info/*"]
 name = "soukou"
 path = "src/main.rs"
 
-[build-dependencies]
-embed-resource = "3"
-
 [dependencies]
 bottom_bar = { workspace = true }
 document_export = { workspace = true }
@@ -27,7 +24,11 @@ env = { workspace = true }
 futures = "0.3"
 gpui = { workspace = true }
 gpui_platform = { workspace = true }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "blocking",
+  "json",
+  "rustls-tls"
+] }
 richtext = { workspace = true }
 rope = { workspace = true }
 semver = "1"
@@ -37,7 +38,10 @@ settings = { workspace = true }
 theme = { workspace = true }
 title_bar = { workspace = true }
 ui = { workspace = true }
+unicode-segmentation = "1"
 url = "2"
 urlencoding = "2"
-unicode-segmentation = "1"
 xdg = { workspace = true }
+
+[build-dependencies]
+embed-resource = "3"
