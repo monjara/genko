@@ -846,51 +846,9 @@ impl SoukouApp {
             return;
         }
 
-        let callback_listener = match auth::start_local_callback_server() {
-            Ok(callback_listener) => callback_listener,
-            Err(error) => {
-                let _ = window;
-                self.show_error_modal("ログインを開始できませんでした", error, cx);
-                return;
-            }
-        };
-
         let url = self
             .auth_config
-            .sign_in_url(callback_listener.callback_url());
-        let credentials_key = self.auth_config.credentials_key().to_string();
-        let _window_handle = self.window_handle;
-        self.set_auth_state(auth::AuthState::Restoring, cx);
-
-        cx.spawn(async move |this, cx| {
-            let callback_result = cx
-                .background_spawn(async move { callback_listener.wait_for_callback() })
-                .await;
-
-            let Some(this_entity) = this.upgrade() else {
-                return;
-            };
-
-            match callback_result {
-                Ok(callback) => {
-                    let _ = this_entity.update(cx, |this, cx| {
-                        this.apply_auth_callback(
-                            callback,
-                            credentials_key.clone(),
-                            _window_handle,
-                            cx,
-                        );
-                    });
-                }
-                Err(error) => {
-                    let _ = this_entity.update(cx, |this, cx| {
-                        this.set_auth_state(auth::AuthState::Anonymous, cx);
-                        this.show_error_modal("ログインに失敗しました", error, cx);
-                    });
-                }
-            }
-        })
-        .detach();
+            .sign_in_url(self.auth_config.callback_url().as_str());
 
         self.open_external_url(url.as_str(), window, cx);
     }
@@ -900,23 +858,9 @@ impl SoukouApp {
         self.open_external_url(url.as_str(), window, cx);
     }
 
-    fn sign_out(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn sign_out(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.set_auth_state(auth::AuthState::Anonymous, cx);
-
-        let callback_listener = match auth::start_local_callback_server() {
-            Ok(callback_listener) => callback_listener,
-            Err(error) => {
-                let _ = window;
-                self.show_error_modal("ログアウトを開始できませんでした", error, cx);
-                return;
-            }
-        };
-
-        let mut redirect_url = callback_listener.callback_url().to_string();
-        redirect_url.push_str("?mode=signed_out");
-        let sign_out_url = self.auth_config.sign_out_url(redirect_url.as_str());
         let credentials_key = self.auth_config.credentials_key().to_string();
-        let _window_handle = self.window_handle;
 
         cx.spawn(move |_, cx: &mut AsyncApp| {
             let mut app = cx.clone();
@@ -925,24 +869,6 @@ impl SoukouApp {
             }
         })
         .detach();
-
-        cx.spawn(async move |this, cx| {
-            let callback_result = cx
-                .background_spawn(async move { callback_listener.wait_for_callback() })
-                .await;
-
-            let Some(this_entity) = this.upgrade() else {
-                return;
-            };
-
-            if let Err(error) = callback_result {
-                let _ = this_entity.update(cx, |this, cx| {
-                    this.show_error_modal("ログアウトを完了できませんでした", error, cx);
-                });
-            }
-        })
-        .detach();
-        self.open_external_url(sign_out_url.as_str(), window, cx);
     }
 
     fn is_supported_document_path(path: &Path) -> bool {
