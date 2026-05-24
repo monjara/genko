@@ -1,5 +1,7 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFeatures,
@@ -12,6 +14,9 @@ use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, Theme};
 
 use crate::editor::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor, RichTextDecorations};
+
+#[cfg(target_os = "macos")]
+static LOGGED_PROLONGED_SOUND_MARK_SHAPING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CellPaintKind {
@@ -613,6 +618,7 @@ fn paint_cell_text(
     let style = window.text_style();
     let font_size = px((cell_size * rich_style.font_scale()).round());
     let line_height = px((cell_size * 0.86).round());
+    log_prolonged_sound_mark_shaping(cell_text, font_size, style.font(), window, cx);
     let line = shape_text(
         window,
         &cell_text.text,
@@ -936,6 +942,66 @@ fn shape_text(
         .shape_line_by_hash(text_hash, text.len(), font_size, &[run], None, || {
             text.to_owned().into()
         })
+}
+
+fn log_prolonged_sound_mark_shaping(
+    _cell_text: &CellText,
+    _font_size: Pixels,
+    _font: Font,
+    _window: &mut Window,
+    _cx: &mut App,
+) {
+    #[cfg(target_os = "macos")]
+    {
+        if _cell_text.text != "ー"
+            || LOGGED_PROLONGED_SOUND_MARK_SHAPING.swap(true, Ordering::Relaxed)
+        {
+            return;
+        }
+
+        let plain_line = shape_text(
+            _window,
+            &_cell_text.text,
+            _font_size,
+            text_run(
+                &_cell_text.text,
+                punctuation_text_font(_font.clone()),
+                Theme::global(_cx).text_primary(),
+                _cx,
+            ),
+        );
+        let vertical_line = shape_text(
+            _window,
+            &_cell_text.text,
+            _font_size,
+            text_run(
+                &_cell_text.text,
+                vertical_text_font(_font),
+                Theme::global(_cx).text_primary(),
+                _cx,
+            ),
+        );
+
+        let plain_glyph_ids: Vec<u32> = plain_line
+            .runs()
+            .iter()
+            .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.id.0))
+            .collect();
+        let vertical_glyph_ids: Vec<u32> = vertical_line
+            .runs()
+            .iter()
+            .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.id.0))
+            .collect();
+
+        eprintln!(
+            "soukou vertical shaping debug: text={:?} plain_glyph_ids={:?} vertical_glyph_ids={:?} plain_width={:?} vertical_width={:?}",
+            _cell_text.text,
+            plain_glyph_ids,
+            vertical_glyph_ids,
+            plain_line.width(),
+            vertical_line.width(),
+        );
+    }
 }
 
 fn text_layout_hash(text: &str) -> u64 {
