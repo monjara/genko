@@ -1,6 +1,7 @@
 mod editor;
 mod editor_controller;
 mod editor_canvas;
+mod perf;
 pub mod vim;
 
 pub use editor_controller::EditorController;
