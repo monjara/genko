@@ -809,12 +809,13 @@ fn paint_corner_punctuation(
             cx,
         ),
     );
+    let paint_offset = vertical_text_paint_offset(&line);
     let text_origin = point(
-        cell_bounds.left() + (px(cell_size) - line.width) / 2.0,
+        cell_bounds.left() + (px(cell_size) - line.width) / 2.0 + paint_offset.x,
         if align_top {
-            cell_bounds.top() + (px(cell_size) - line_height) / 2.0
+            cell_bounds.top() + (px(cell_size) - line_height) / 2.0 + paint_offset.y
         } else {
-            cell_bounds.bottom() - (px(cell_size) - line_height) / 2.0
+            cell_bounds.bottom() - (px(cell_size) - line_height) / 2.0 + paint_offset.y
         },
     );
     line.paint(
