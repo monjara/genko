@@ -983,12 +983,12 @@ fn log_prolonged_sound_mark_shaping(
         );
 
         let plain_glyph_ids: Vec<u32> = plain_line
-            .runs()
+            .runs
             .iter()
             .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.id.0))
             .collect();
         let vertical_glyph_ids: Vec<u32> = vertical_line
-            .runs()
+            .runs
             .iter()
             .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.id.0))
             .collect();
