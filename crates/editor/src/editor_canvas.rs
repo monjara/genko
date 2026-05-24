@@ -1,7 +1,5 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
-#[cfg(target_os = "macos")]
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFeatures,
@@ -14,9 +12,6 @@ use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, Theme};
 
 use crate::editor::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor, RichTextDecorations};
-
-#[cfg(target_os = "macos")]
-static LOGGED_PROLONGED_SOUND_MARK_SHAPING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CellPaintKind {
@@ -618,7 +613,6 @@ fn paint_cell_text(
     let style = window.text_style();
     let font_size = px((cell_size * rich_style.font_scale()).round());
     let line_height = px((cell_size * 0.86).round());
-    log_prolonged_sound_mark_shaping(cell_text, font_size, style.font(), window, cx);
     let line = shape_text(
         window,
         &cell_text.text,
@@ -835,12 +829,6 @@ fn vertical_text_font(mut font: Font) -> Font {
     font
 }
 
-fn punctuation_text_font(mut font: Font) -> Font {
-    font.family = APP_FONT_FAMILY.into();
-    font.features = FontFeatures::default();
-    font
-}
-
 fn cell_paint_kind(cell_text: &CellText) -> CellPaintKind {
     if is_corner_punctuation(&cell_text.text) {
         if cell_text.attached_to_previous {
@@ -968,91 +956,6 @@ fn vertical_text_paint_offset(line: &gpui::ShapedLine) -> gpui::Point<Pixels> {
             });
 
         point(px(-min_x), px(-min_y))
-    }
-}
-
-fn log_prolonged_sound_mark_shaping(
-    _cell_text: &CellText,
-    _font_size: Pixels,
-    _font: Font,
-    _window: &mut Window,
-    _cx: &mut App,
-) {
-    #[cfg(target_os = "macos")]
-    {
-        if _cell_text.text != "ー"
-            || LOGGED_PROLONGED_SOUND_MARK_SHAPING.swap(true, Ordering::Relaxed)
-        {
-            return;
-        }
-
-        let plain_line = shape_text(
-            _window,
-            &_cell_text.text,
-            _font_size,
-            text_run(
-                &_cell_text.text,
-                punctuation_text_font(_font.clone()),
-                Theme::global(_cx).text_primary(),
-                _cx,
-            ),
-        );
-        let vertical_line = shape_text(
-            _window,
-            &_cell_text.text,
-            _font_size,
-            text_run(
-                &_cell_text.text,
-                vertical_text_font(_font),
-                Theme::global(_cx).text_primary(),
-                _cx,
-            ),
-        );
-
-        let plain_glyph_ids: Vec<u32> = plain_line
-            .runs
-            .iter()
-            .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.id.0))
-            .collect();
-        let vertical_glyph_ids: Vec<u32> = vertical_line
-            .runs
-            .iter()
-            .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.id.0))
-            .collect();
-        let plain_glyph_positions: Vec<(f32, f32)> = plain_line
-            .runs
-            .iter()
-            .flat_map(|run| {
-                run.glyphs
-                    .iter()
-                    .map(|glyph| (glyph.position.x.as_f32(), glyph.position.y.as_f32()))
-            })
-            .collect();
-        let vertical_glyph_positions: Vec<(f32, f32)> = vertical_line
-            .runs
-            .iter()
-            .flat_map(|run| {
-                run.glyphs
-                    .iter()
-                    .map(|glyph| (glyph.position.x.as_f32(), glyph.position.y.as_f32()))
-            })
-            .collect();
-        let plain_font_ids: Vec<usize> = plain_line.runs.iter().map(|run| run.font_id.0).collect();
-        let vertical_font_ids: Vec<usize> =
-            vertical_line.runs.iter().map(|run| run.font_id.0).collect();
-
-        eprintln!(
-            "soukou vertical shaping debug: text={:?} plain_font_ids={:?} vertical_font_ids={:?} plain_glyph_ids={:?} vertical_glyph_ids={:?} plain_glyph_positions={:?} vertical_glyph_positions={:?} plain_width={:?} vertical_width={:?}",
-            _cell_text.text,
-            plain_font_ids,
-            vertical_font_ids,
-            plain_glyph_ids,
-            vertical_glyph_ids,
-            plain_glyph_positions,
-            vertical_glyph_positions,
-            plain_line.width(),
-            vertical_line.width(),
-        );
     }
 }
 
@@ -1458,14 +1361,6 @@ mod tests {
 
         assert_eq!(font.family.as_ref(), APP_FONT_FAMILY);
         assert_eq!(font.features, FontFeatures::vertical_alternates());
-    }
-
-    #[test]
-    fn punctuation_text_font_uses_app_font_without_vertical_alternates() {
-        let font = punctuation_text_font(Font::default());
-
-        assert_eq!(font.family.as_ref(), APP_FONT_FAMILY);
-        assert_eq!(font.features, FontFeatures::default());
     }
 
     #[test]
