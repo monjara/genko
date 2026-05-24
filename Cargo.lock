@@ -5896,7 +5896,7 @@ dependencies = [
 
 [[package]]
 name = "soukou"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "bottom_bar",
  "document_export",

@@ -722,11 +722,7 @@ struct StrikeSegment {
     end_bounds: Bounds<Pixels>,
 }
 
-fn flush_strike_segment(
-    segment: &mut Option<StrikeSegment>,
-    window: &mut Window,
-    cx: &mut App,
-) {
+fn flush_strike_segment(segment: &mut Option<StrikeSegment>, window: &mut Window, cx: &mut App) {
     let Some(segment) = segment.take() else {
         return;
     };
@@ -800,7 +796,7 @@ fn paint_corner_punctuation(
         font_size,
         text_run(
             &cell_text.text,
-            vertical_text_font(style.font()),
+            punctuation_text_font(style.font()),
             Theme::global(cx).text_primary(),
             cx,
         ),
@@ -827,6 +823,12 @@ fn paint_corner_punctuation(
 fn vertical_text_font(mut font: Font) -> Font {
     font.family = APP_FONT_FAMILY.into();
     font.features = FontFeatures::vertical_alternates();
+    font
+}
+
+fn punctuation_text_font(mut font: Font) -> Font {
+    font.family = APP_FONT_FAMILY.into();
+    font.features = FontFeatures::default();
     font
 }
 
@@ -880,10 +882,18 @@ impl CellRichStyle {
     fn color(self, cx: &App) -> gpui::Rgba {
         match self.block_kind {
             BlockKind::HeadingLarge => Theme::global(cx).text_primary(),
-            BlockKind::HeadingMedium => mix(Theme::global(cx).text_primary(), Theme::global(cx).primary(), 0.22),
+            BlockKind::HeadingMedium => mix(
+                Theme::global(cx).text_primary(),
+                Theme::global(cx).primary(),
+                0.22,
+            ),
             BlockKind::Body => {
                 if self.bold {
-                    mix(Theme::global(cx).text_primary(), Theme::global(cx).black(), 0.12)
+                    mix(
+                        Theme::global(cx).text_primary(),
+                        Theme::global(cx).black(),
+                        0.12,
+                    )
                 } else {
                     Theme::global(cx).text_primary()
                 }
@@ -1330,6 +1340,14 @@ mod tests {
 
         assert_eq!(font.family.as_ref(), APP_FONT_FAMILY);
         assert_eq!(font.features, FontFeatures::vertical_alternates());
+    }
+
+    #[test]
+    fn punctuation_text_font_uses_app_font_without_vertical_alternates() {
+        let font = punctuation_text_font(Font::default());
+
+        assert_eq!(font.family.as_ref(), APP_FONT_FAMILY);
+        assert_eq!(font.features, FontFeatures::default());
     }
 
     #[test]
