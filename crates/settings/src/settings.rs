@@ -8,7 +8,7 @@ use gpui::{
     App, AppContext, Bounds, ClickEvent, Context, Decorations, Entity, FontWeight, Global,
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Window, WindowBounds, WindowDecorations, WindowOptions,
-    div, px, size, transparent_black,
+    WindowControlArea, div, px, size, transparent_black,
 };
 use serde::{Deserialize, Serialize};
 use theme::{APP_FONT_FAMILY, Theme};
@@ -87,17 +87,15 @@ impl SettingsWindow {
     }
 
     fn toggle_grid_lines(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        // TODO AppSettings内で関数を作成
-        AppSettings::global_mut(cx).show_grid_lines = !AppSettings::global(cx).show_grid_lines;
-        self.status = "".into();
-        cx.notify();
+        let current = AppSettings::global(cx).show_grid_lines;
+        AppSettings::global_mut(cx).show_grid_lines = !current;
+        self.persist_settings(cx);
     }
 
     fn toggle_vim_mode(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        // TODO AppSettings内で関数を作成
-        AppSettings::global_mut(cx).vim_mode = !AppSettings::global(cx).vim_mode;
-        self.status = "".into();
-        cx.notify();
+        let current = AppSettings::global(cx).vim_mode;
+        AppSettings::global_mut(cx).vim_mode = !current;
+        self.persist_settings(cx);
     }
 
     fn toggle_indent_on_enter(
@@ -106,9 +104,9 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).indent_on_enter = !AppSettings::global(cx).indent_on_enter;
-        self.status = "".into();
-        cx.notify();
+        let current = AppSettings::global(cx).indent_on_enter;
+        AppSettings::global_mut(cx).indent_on_enter = !current;
+        self.persist_settings(cx);
     }
 
     fn toggle_hanging_punctuation(
@@ -117,16 +115,14 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).hanging_punctuation =
-            !AppSettings::global(cx).hanging_punctuation;
-        self.status = "".into();
-        cx.notify();
+        let current = AppSettings::global(cx).hanging_punctuation;
+        AppSettings::global_mut(cx).hanging_punctuation = !current;
+        self.persist_settings(cx);
     }
 
     fn set_column_number_mode(&mut self, mode: ColumnNumberMode, cx: &mut Context<Self>) {
         AppSettings::global_mut(cx).column_number_mode = mode;
-        self.status = "".into();
-        cx.notify();
+        self.persist_settings(cx);
     }
 
     fn set_column_number_hidden(
@@ -175,8 +171,7 @@ impl SettingsWindow {
             .export_settings
             .format_mut(format)
             .writing_mode = mode;
-        self.status = "".into();
-        cx.notify();
+        self.persist_settings(cx);
     }
 
     fn set_word_vertical(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -215,8 +210,7 @@ impl SettingsWindow {
             .cell_size
             .saturating_sub(1)
             .max(AppSettings::min_cell_size());
-        self.status = "".into();
-        cx.notify();
+        self.persist_settings(cx);
     }
 
     fn increment_cell_size(
@@ -227,34 +221,14 @@ impl SettingsWindow {
     ) {
         AppSettings::global_mut(cx).cell_size =
             (AppSettings::global(cx).cell_size + 1).min(AppSettings::max_cell_size());
-        self.status = "".into();
-        cx.notify();
+        self.persist_settings(cx);
     }
 
-    fn apply(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        match AppSettings::global(cx).save() {
-            Ok(()) => {
-                let settings = AppSettings::load();
-                self.apply_settings(settings, cx);
-                self.status = "保存しました".into();
-            }
-            Err(error) => {
-                self.status = error.into();
-            }
-        }
-        cx.notify();
-    }
-
-    fn apply_settings(&mut self, settings: AppSettings, cx: &mut Context<Self>) {
-        let row_settings = AppSettings::global_mut(cx);
-        row_settings.cell_size = settings.cell_size;
-        row_settings.hanging_punctuation = settings.hanging_punctuation;
-        row_settings.column_number_mode = settings.column_number_mode;
-        row_settings.show_grid_lines = settings.show_grid_lines;
-        row_settings.vim_mode = settings.vim_mode;
-        row_settings.rows_per_column = settings.rows_per_column;
-        row_settings.indent_on_enter = settings.indent_on_enter;
-        row_settings.export_settings = settings.export_settings;
+    fn persist_settings(&mut self, cx: &mut Context<Self>) {
+        self.status = match AppSettings::global(cx).save() {
+            Ok(()) => "自動保存済み".into(),
+            Err(error) => error.into(),
+        };
         cx.notify();
     }
 
@@ -805,20 +779,6 @@ impl SettingsWindow {
             ))
     }
 
-    fn render_apply_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .id("settings-apply")
-            .px_4()
-            .py_2()
-            .bg(Theme::global(cx).primary())
-            .text_color(Theme::global(cx).white())
-            .rounded_sm()
-            .cursor_pointer()
-            .active(|this| this.opacity(0.85))
-            .child("適用")
-            .on_click(cx.listener(Self::apply))
-    }
-
     fn render_sidebar_item(
         &self,
         id: &'static str,
@@ -1038,7 +998,18 @@ impl Render for SettingsWindow {
                                 this.shadow(app_title_bar::client_window_shadow())
                             }),
                     })
-                    .child(self.title_bar.clone())
+                    .child(
+                        div()
+                            .window_control_area(WindowControlArea::Drag)
+                            .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+                                window.start_window_move();
+                            })
+                            .on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
+                                cx.stop_propagation();
+                                window.show_window_menu(event.position);
+                            })
+                            .child(self.title_bar.clone()),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -1065,8 +1036,7 @@ impl Render for SettingsWindow {
                                                     .pt_2()
                                                     .flex()
                                                     .items_center()
-                                                    .justify_between()
-                                                    .gap_3()
+                                                    .justify_end()
                                                     .child(
                                                         div()
                                                             .h(px(24.0))
@@ -1075,8 +1045,7 @@ impl Render for SettingsWindow {
                                                                 Theme::global(cx).text_senodary(),
                                                             )
                                                             .child(self.status.clone()),
-                                                    )
-                                                    .child(self.render_apply_button(cx)),
+                                                    ),
                                             ),
                                     ),
                             ),
