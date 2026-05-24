@@ -261,7 +261,7 @@ fi
 
 bundle_directory="target/${target_triple}/${target_dir}"
 dmg_staging_dir="${bundle_directory}/dmg"
-dmg_path="${bundle_directory}/草稿-${arch_suffix}.dmg"
+dmg_path="${bundle_directory}/soukou-${arch_suffix}.dmg"
 
 rm -rf "$dmg_staging_dir"
 mkdir -p "$dmg_staging_dir"
