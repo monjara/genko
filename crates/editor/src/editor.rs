@@ -103,10 +103,24 @@ pub(crate) struct BlockSelection {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct EditOperation {
+pub struct EditOperation {
     pub(crate) start: usize,
     pub(crate) removed_text: String,
     pub(crate) inserted_text: String,
+}
+
+impl EditOperation {
+    pub fn start(&self) -> usize {
+        self.start
+    }
+
+    pub fn removed_text(&self) -> &str {
+        self.removed_text.as_str()
+    }
+
+    pub fn inserted_text(&self) -> &str {
+        self.inserted_text.as_str()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,6 +134,22 @@ pub(crate) struct EditTransaction {
 pub(crate) struct PendingTransaction {
     pub(crate) before: EditorViewState,
     pub(crate) edits: Vec<EditOperation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppliedEditBatch {
+    revision: u64,
+    edits: Vec<EditOperation>,
+}
+
+impl AppliedEditBatch {
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub fn edits(&self) -> &[EditOperation] {
+        &self.edits
+    }
 }
 
 #[derive(Default)]
@@ -164,6 +194,7 @@ pub(crate) struct Editor {
     pub(crate) history: EditorHistory,
     pub(crate) richtext_decorations: RichTextDecorations,
     visible_text_cache: Option<VisibleTextCache>,
+    last_applied_edit_batch: Option<AppliedEditBatch>,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) grid_path_cache: Option<GridPathCache>,
@@ -194,6 +225,7 @@ impl Editor {
             history: EditorHistory::default(),
             richtext_decorations: RichTextDecorations::default(),
             visible_text_cache: None,
+            last_applied_edit_batch: None,
             focus_handle: cx.focus_handle(),
             grid_path_cache: None,
             last_board_bounds: None,
@@ -493,6 +525,10 @@ impl Editor {
         self.draft.slice(0..self.draft.len_bytes())
     }
 
+    pub fn last_applied_edit_batch(&self) -> Option<AppliedEditBatch> {
+        self.last_applied_edit_batch.clone()
+    }
+
     pub fn draft_revision(&self) -> u64 {
         self.draft_revision
     }
@@ -510,6 +546,7 @@ impl Editor {
         self.draft = draft;
         self.bump_draft_revision();
         self.history = EditorHistory::default();
+        self.last_applied_edit_batch = None;
         self.scroll_column = 0;
         self.scroll_row = 0;
         self.scroll_remainder_columns = 0.0;
@@ -658,6 +695,10 @@ impl Editor {
         self.history.undo_stack.push(EditTransaction {
             before: pending.before,
             after,
+            edits: pending.edits.clone(),
+        });
+        self.last_applied_edit_batch = Some(AppliedEditBatch {
+            revision: self.draft_revision,
             edits: pending.edits,
         });
         self.history.redo_stack.clear();
@@ -692,6 +733,10 @@ impl Editor {
         }
         self.bump_draft_revision();
         self.restore_view_state(transaction.before.clone());
+        self.last_applied_edit_batch = Some(AppliedEditBatch {
+            revision: self.draft_revision,
+            edits: inverse_edit_operations(&transaction.edits),
+        });
         self.history.redo_stack.push(transaction);
         cx.notify();
         true
@@ -710,6 +755,10 @@ impl Editor {
         }
         self.bump_draft_revision();
         self.restore_view_state(transaction.after.clone());
+        self.last_applied_edit_batch = Some(AppliedEditBatch {
+            revision: self.draft_revision,
+            edits: transaction.edits.clone(),
+        });
         self.history.undo_stack.push(transaction);
         cx.notify();
         true
@@ -787,9 +836,12 @@ impl Editor {
         let cursor = range.start + new_text.len();
         self.set_cursor_from_offset(cursor);
         if implicit_transaction {
-            let _ = self.commit_transaction(cx);
+            if !self.commit_transaction(cx) {
+                cx.notify();
+            }
+        } else {
+            cx.notify();
         }
-        cx.notify();
     }
 
     fn replace_text_in_byte_range_owned(
@@ -820,9 +872,12 @@ impl Editor {
         self.bump_draft_revision();
         self.set_cursor_from_offset(cursor);
         if implicit_transaction {
-            let _ = self.commit_transaction(cx);
+            if !self.commit_transaction(cx) {
+                cx.notify();
+            }
+        } else {
+            cx.notify();
         }
-        cx.notify();
     }
 
     fn scroll_columns_by(&mut self, delta_columns: isize, cx: &mut Context<Self>) {
@@ -1326,4 +1381,15 @@ impl Focusable for Editor {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
+}
+
+fn inverse_edit_operations(edits: &[EditOperation]) -> Vec<EditOperation> {
+    edits.iter()
+        .rev()
+        .map(|edit| EditOperation {
+            start: edit.start,
+            removed_text: edit.inserted_text.clone(),
+            inserted_text: edit.removed_text.clone(),
+        })
+        .collect()
 }

@@ -620,14 +620,24 @@ impl SoukouApp {
             return;
         }
 
-        let text = self.editor_controller.read(cx).snapshot_text(cx);
         if let Some(document) = self.rich_document.as_mut() {
-            if let Some((range, replacement)) = single_change(document.plain_text(), &text) {
-                document.replace_text(range, replacement.as_str());
-            } else if document.plain_text() != text {
-                let epub_metadata = document.epub_metadata.clone();
-                *document = RichDocument::new(text);
-                document.epub_metadata = epub_metadata;
+            let applied_edit_batch = self.editor_controller.read(cx).last_applied_edit_batch(cx);
+            if let Some(batch) = applied_edit_batch
+                && batch.revision() == revision
+            {
+                for edit in batch.edits() {
+                    let range = edit.start()..edit.start() + edit.removed_text().len();
+                    document.replace_text(range, edit.inserted_text());
+                }
+            } else {
+                let text = self.editor_controller.read(cx).snapshot_text(cx);
+                if let Some((range, replacement)) = single_change(document.plain_text(), &text) {
+                    document.replace_text(range, replacement.as_str());
+                } else if document.plain_text() != text {
+                    let epub_metadata = document.epub_metadata.clone();
+                    *document = RichDocument::new(text);
+                    document.epub_metadata = epub_metadata;
+                }
             }
         }
 

@@ -1,3 +1,4 @@
+use crate::editor::AppliedEditBatch;
 use crate::vim::VimController;
 use gpui::{
     App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement, ParentElement,
@@ -27,6 +28,10 @@ impl EditorController {
 
     pub fn draft_revision(&self, cx: &App) -> u64 {
         self.vim_controller.read(cx).draft_revision(cx)
+    }
+
+    pub fn last_applied_edit_batch(&self, cx: &App) -> Option<AppliedEditBatch> {
+        self.vim_controller.read(cx).last_applied_edit_batch(cx)
     }
 
     pub fn selected_byte_range(&self, cx: &App) -> Range<usize> {

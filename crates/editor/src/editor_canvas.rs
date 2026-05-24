@@ -37,6 +37,12 @@ struct PaintState {
     ruby_gutter_size: f32,
 }
 
+#[derive(Clone, Copy)]
+struct PreparedCellPaint {
+    bounds: Option<Bounds<Pixels>>,
+    rich_style: CellRichStyle,
+}
+
 #[derive(Clone)]
 pub(crate) struct GridPathCache {
     bounds: Bounds<Pixels>,
@@ -173,6 +179,18 @@ impl Element for EditorCanvas {
             cell_size,
             ruby_gutter_size,
         } = paint_state;
+        let prepared_cells = prepare_cell_paint_data(
+            &visible_text,
+            &richtext_decorations,
+            content_bounds,
+            scroll_column,
+            scroll_row,
+            rows_per_column,
+            visible_columns,
+            visible_rows,
+            cell_size,
+            ruby_gutter_size,
+        );
 
         paint_paper(bounds, window, cx);
         paint_column_numbers(
@@ -236,29 +254,16 @@ impl Element for EditorCanvas {
         }
         paint_text(
             &visible_text,
-            &richtext_decorations,
-            content_bounds,
-            scroll_column,
-            scroll_row,
-            rows_per_column,
-            visible_columns,
-            visible_rows,
-            cell_size,
-            ruby_gutter_size,
+            &prepared_cells,
             window,
             cx,
         );
         paint_strikethrough_overlay(
             &visible_text,
-            &richtext_decorations,
-            content_bounds,
-            scroll_column,
-            scroll_row,
             rows_per_column,
+            scroll_column,
             visible_columns,
-            visible_rows,
-            cell_size,
-            ruby_gutter_size,
+            &prepared_cells,
             window,
             cx,
         );
@@ -553,30 +558,12 @@ fn paint_selection(
 
 fn paint_text(
     visible_text: &[CellText],
-    richtext_decorations: &RichTextDecorations,
-    bounds: Bounds<Pixels>,
-    scroll_column: usize,
-    first_visible_row: usize,
-    rows_per_column: usize,
-    visible_columns: usize,
-    visible_rows: usize,
-    cell_size: f32,
-    ruby_gutter_size: f32,
+    prepared_cells: &[PreparedCellPaint],
     window: &mut Window,
     cx: &mut App,
 ) {
-    for cell_text in visible_text {
-        let Some(cell_bounds) = cell_bounds_for_logical_index(
-            bounds,
-            cell_text.logical_index,
-            scroll_column,
-            first_visible_row,
-            rows_per_column,
-            visible_columns,
-            visible_rows,
-            cell_size,
-            ruby_gutter_size,
-        ) else {
+    for (cell_text, prepared) in visible_text.iter().zip(prepared_cells.iter()) {
+        let Some(cell_bounds) = prepared.bounds else {
             continue;
         };
 
@@ -584,8 +571,8 @@ fn paint_text(
             CellPaintKind::Main => paint_cell_text(
                 cell_text,
                 cell_bounds,
-                cell_size,
-                rich_style_for_range(richtext_decorations, cell_text.range.clone()),
+                cell_bounds.size.width.as_f32(),
+                prepared.rich_style,
                 window,
                 cx,
             ),
@@ -642,37 +629,21 @@ fn paint_cell_text(
 
 fn paint_strikethrough_overlay(
     visible_text: &[CellText],
-    richtext_decorations: &RichTextDecorations,
-    bounds: Bounds<Pixels>,
     scroll_column: usize,
-    first_visible_row: usize,
     rows_per_column: usize,
     visible_columns: usize,
-    visible_rows: usize,
-    cell_size: f32,
-    ruby_gutter_size: f32,
+    prepared_cells: &[PreparedCellPaint],
     window: &mut Window,
     cx: &mut App,
 ) {
     let mut current_segment: Option<StrikeSegment> = None;
 
-    for cell_text in visible_text {
-        let rich_style = rich_style_for_range(richtext_decorations, cell_text.range.clone());
-        let Some(cell_bounds) = cell_bounds_for_logical_index(
-            bounds,
-            cell_text.logical_index,
-            scroll_column,
-            first_visible_row,
-            rows_per_column,
-            visible_columns,
-            visible_rows,
-            cell_size,
-            ruby_gutter_size,
-        ) else {
+    for (cell_text, prepared) in visible_text.iter().zip(prepared_cells.iter()) {
+        let Some(cell_bounds) = prepared.bounds else {
             continue;
         };
 
-        if !rich_style.strikethrough {
+        if !prepared.rich_style.strikethrough {
             flush_strike_segment(&mut current_segment, window, cx);
             continue;
         }
@@ -691,7 +662,7 @@ fn paint_strikethrough_overlay(
             Some(segment)
                 if segment.column == column
                     && segment.last_row + 1 == row
-                    && segment.style == rich_style =>
+                    && segment.style == prepared.rich_style =>
             {
                 segment.last_row = row;
                 segment.end_bounds = cell_bounds;
@@ -702,7 +673,7 @@ fn paint_strikethrough_overlay(
                     column,
                     first_row: row,
                     last_row: row,
-                    style: rich_style,
+                    style: prepared.rich_style,
                     start_bounds: cell_bounds,
                     end_bounds: cell_bounds,
                 });
@@ -711,6 +682,37 @@ fn paint_strikethrough_overlay(
     }
 
     flush_strike_segment(&mut current_segment, window, cx);
+}
+
+fn prepare_cell_paint_data(
+    visible_text: &[CellText],
+    richtext_decorations: &RichTextDecorations,
+    bounds: Bounds<Pixels>,
+    scroll_column: usize,
+    first_visible_row: usize,
+    rows_per_column: usize,
+    visible_columns: usize,
+    visible_rows: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
+) -> Vec<PreparedCellPaint> {
+    visible_text
+        .iter()
+        .map(|cell_text| PreparedCellPaint {
+            bounds: cell_bounds_for_logical_index(
+                bounds,
+                cell_text.logical_index,
+                scroll_column,
+                first_visible_row,
+                rows_per_column,
+                visible_columns,
+                visible_rows,
+                cell_size,
+                ruby_gutter_size,
+            ),
+            rich_style: rich_style_for_range(richtext_decorations, &cell_text.range),
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -899,7 +901,7 @@ impl CellRichStyle {
     }
 }
 
-fn rich_style_for_range(decorations: &RichTextDecorations, range: Range<usize>) -> CellRichStyle {
+fn rich_style_for_range(decorations: &RichTextDecorations, range: &Range<usize>) -> CellRichStyle {
     let mut style = CellRichStyle::default();
     for mark in &decorations.inline_marks {
         if mark.start < range.end && range.start < mark.end {
@@ -909,7 +911,7 @@ fn rich_style_for_range(decorations: &RichTextDecorations, range: Range<usize>) 
             }
         }
     }
-    style.block_kind = block_kind_for_range(&decorations.blocks, &range);
+    style.block_kind = block_kind_for_range(&decorations.blocks, range);
     style
 }
 

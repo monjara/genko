@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::editor::Editor;
+use crate::editor::{AppliedEditBatch, Editor};
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Window,
@@ -131,6 +131,10 @@ impl VimController {
 
     pub fn draft_revision(&self, cx: &App) -> u64 {
         self.editor.read(cx).draft_revision()
+    }
+
+    pub fn last_applied_edit_batch(&self, cx: &App) -> Option<AppliedEditBatch> {
+        self.editor.read(cx).last_applied_edit_batch()
     }
 
     pub fn selected_byte_range(&self, cx: &App) -> Range<usize> {
