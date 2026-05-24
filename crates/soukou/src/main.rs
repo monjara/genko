@@ -1,4 +1,5 @@
 mod auth;
+mod document;
 mod font;
 
 use std::path::{Path, PathBuf};
@@ -7,18 +8,21 @@ use std::process::Command;
 use std::{cell::RefCell, rc::Rc};
 
 use bottom_bar::BottomBar;
+use document::{ActiveDocument, DocumentKind, ExportFormat};
+use document_export as export;
 use editor::{EditorController, VimCommandQuit, VimCommandWrite};
 use futures::StreamExt;
 use gpui::{
-    App, AppContext, AsyncApp, Bounds, Context, Decorations, Entity, ExternalPaths, FocusHandle,
-    Focusable, InteractiveElement, IntoElement, KeyBinding, Menu, MenuItem, ParentElement,
-    PathPromptOptions, PromptLevel, Render, Styled, WeakEntity, Window, WindowBounds,
-    WindowDecorations, WindowOptions, actions, div, prelude::FluentBuilder, px, size,
-    transparent_black,
+    Anchor, App, AppContext, AsyncApp, Bounds, BoxShadow, Context, Decorations, Entity,
+    ExternalPaths, FocusHandle, Focusable, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    Menu, MenuItem, ParentElement, PathPromptOptions, PromptLevel, Render, Styled, WeakEntity,
+    Window, WindowBounds, WindowDecorations, WindowOptions, actions, anchored, deferred, div,
+    point, prelude::FluentBuilder, px, size, transparent_black,
 };
+use richtext::{BlockKind, InlineStyle, RichDocument, single_change};
 use semver::Version;
 use serde::Deserialize;
-use settings::open_settings_window;
+use settings::{AppSettings, ExportTargetFormat, ExportWritingMode, open_settings_window};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::{TitleBar, TitleBarAuthActions, TitleBarAuthState, TitleBarMenu, TitleBarUser};
 use ui::{MenuBarItem, MenuBarMenu};
@@ -35,16 +39,18 @@ const CHECK_FOR_UPDATES_MENU_LABEL: &str = "更新を確認";
 const QUIT_MENU_LABEL: &str = "終了";
 const FILE_MENU_LABEL: &str = "ファイル";
 const SAVE_MENU_LABEL: &str = "保存";
+const EXPORT_PDF_MENU_LABEL: &str = "PDFを書き出し";
+const EXPORT_WORD_MENU_LABEL: &str = "Wordを書き出し";
+const EXPORT_EPUB_MENU_LABEL: &str = "EPUBを書き出し";
 const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
 const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
+const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
+const PRO_REQUIRED_TITLE: &str = "Proプランが必要です";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
 const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
-const UNSUPPORTED_TEXT_FILE_ERROR_DETAIL: &str = "現在は .txt ファイルのみ対応しています";
-const SUPPORTED_TEXT_FILE_EXTENSION: &str = "txt";
-const DEFAULT_NEW_FILE_NAME: &str = "untitled.txt";
 const CURRENT_DIRECTORY_FALLBACK: &str = ".";
 const WINDOW_TITLE_SEPARATOR: &str = " - ";
 const MAIN_WINDOW_WIDTH: f32 = 1200.0;
@@ -53,6 +59,10 @@ const OPEN_FILE_SHORTCUT_MAC: &str = "cmd-o";
 const OPEN_FILE_SHORTCUT_CTRL: &str = "ctrl-o";
 const SAVE_FILE_SHORTCUT_MAC: &str = "cmd-s";
 const SAVE_FILE_SHORTCUT_CTRL: &str = "ctrl-s";
+const TOGGLE_BOLD_SHORTCUT_MAC: &str = "cmd-b";
+const TOGGLE_BOLD_SHORTCUT_CTRL: &str = "ctrl-b";
+const TOGGLE_STRIKETHROUGH_SHORTCUT_MAC: &str = "cmd-shift-x";
+const TOGGLE_STRIKETHROUGH_SHORTCUT_CTRL: &str = "ctrl-shift-x";
 const QUIT_SHORTCUT_MAC: &str = "cmd-q";
 const OPEN_SETTINGS_SHORTCUT_CTRL: &str = "ctrl-,";
 const RELEASES_LATEST_API_URL: &str =
@@ -65,6 +75,14 @@ actions!(
         CheckForUpdates,
         OpenFile,
         SaveFile,
+        ToggleBold,
+        ToggleStrikethrough,
+        SetHeadingLarge,
+        SetHeadingMedium,
+        ClearHeading,
+        ExportPdf,
+        ExportWord,
+        ExportEpub,
         Quit,
         SignIn,
         OpenAccountSettings,
@@ -86,12 +104,23 @@ struct AvailableUpdate {
 
 struct SoukouApp {
     editor_controller: Entity<EditorController>,
-    active_file: Option<PathBuf>,
+    active_document: ActiveDocument,
+    rich_document: Option<RichDocument>,
+    last_richtext_revision: u64,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
     window_handle: Option<gpui::AnyWindowHandle>,
     auth_state: auth::AuthState,
     auth_config: auth::AuthConfig,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FeatureGate {
+    RichText,
+    ExportPdf,
+    ExportWord,
+    ExportEpub,
 }
 
 async fn read_stored_refresh_token(
@@ -177,6 +206,18 @@ impl SoukouApp {
             KeyBinding::new(OPEN_FILE_SHORTCUT_CTRL, OpenFile, None),
             KeyBinding::new(SAVE_FILE_SHORTCUT_MAC, SaveFile, None),
             KeyBinding::new(SAVE_FILE_SHORTCUT_CTRL, SaveFile, None),
+            KeyBinding::new(TOGGLE_BOLD_SHORTCUT_MAC, ToggleBold, None),
+            KeyBinding::new(TOGGLE_BOLD_SHORTCUT_CTRL, ToggleBold, None),
+            KeyBinding::new(
+                TOGGLE_STRIKETHROUGH_SHORTCUT_MAC,
+                ToggleStrikethrough,
+                None,
+            ),
+            KeyBinding::new(
+                TOGGLE_STRIKETHROUGH_SHORTCUT_CTRL,
+                ToggleStrikethrough,
+                None,
+            ),
         ]);
 
         let editor_controller = cx.new(EditorController::new);
@@ -197,7 +238,9 @@ impl SoukouApp {
 
         let mut app = Self {
             editor_controller,
-            active_file: None,
+            active_document: ActiveDocument::default(),
+            rich_document: None,
+            last_richtext_revision: 0,
             title_bar,
             bottom_bar,
             window_handle: None,
@@ -205,6 +248,7 @@ impl SoukouApp {
             auth_config,
         };
         app.sync_title_bar_auth_state(cx);
+        app.sync_bottom_bar_plan(cx);
         app.restore_auth_session(cx);
         app
     }
@@ -234,13 +278,22 @@ impl SoukouApp {
                     MenuBarItem::new(SAVE_MENU_LABEL, |window, cx| {
                         window.dispatch_action(Box::new(SaveFile), cx);
                     }),
+                    MenuBarItem::new(EXPORT_PDF_MENU_LABEL, |window, cx| {
+                        window.dispatch_action(Box::new(ExportPdf), cx);
+                    }),
+                    MenuBarItem::new(EXPORT_WORD_MENU_LABEL, |window, cx| {
+                        window.dispatch_action(Box::new(ExportWord), cx);
+                    }),
+                    MenuBarItem::new(EXPORT_EPUB_MENU_LABEL, |window, cx| {
+                        window.dispatch_action(Box::new(ExportEpub), cx);
+                    }),
                 ],
             ),
         ]
     }
 
     fn window_title(&self, _cx: &App) -> String {
-        match &self.active_file {
+        match self.active_document.path() {
             Some(path) => format!("{APP_NAME}{WINDOW_TITLE_SEPARATOR}{}", path.display()),
             _ => APP_NAME.to_string(),
         }
@@ -253,6 +306,7 @@ impl SoukouApp {
     fn set_auth_state(&mut self, auth_state: auth::AuthState, cx: &mut Context<Self>) {
         self.auth_state = auth_state;
         self.sync_title_bar_auth_state(cx);
+        self.sync_bottom_bar_plan(cx);
         cx.notify();
     }
 
@@ -271,6 +325,123 @@ impl SoukouApp {
         self.title_bar.update(cx, |title_bar, cx| {
             title_bar.set_auth_state(title_bar_auth_state, cx);
         });
+    }
+
+    fn sync_bottom_bar_plan(&mut self, cx: &mut Context<Self>) {
+        let label = self.current_plan_key().label().to_string();
+        self.bottom_bar.update(cx, |bottom_bar, cx| {
+            bottom_bar.set_plan_label(label, cx);
+        });
+    }
+
+    fn current_plan_key(&self) -> auth::PlanKey {
+        match &self.auth_state {
+            auth::AuthState::Authenticated(session) => session.user.plan.plan_key,
+            auth::AuthState::Anonymous | auth::AuthState::Restoring => auth::PlanKey::Free,
+        }
+    }
+
+    fn is_feature_available(&self, feature: FeatureGate) -> bool {
+        let plan = self.current_plan_key();
+        match feature {
+            FeatureGate::RichText
+            | FeatureGate::ExportPdf
+            | FeatureGate::ExportWord
+            | FeatureGate::ExportEpub => plan.supports_rich_text(),
+        }
+    }
+
+    fn sync_editor_richtext_projection(&mut self, cx: &mut Context<Self>) {
+        let rich_document = self.rich_document.clone();
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.set_richtext_document(rich_document.as_ref(), cx);
+        });
+        self.last_richtext_revision = self.editor_controller.read(cx).draft_revision(cx);
+    }
+
+    fn sync_richtext_from_editor(&mut self, cx: &mut Context<Self>) {
+        if self.active_document.kind() != DocumentKind::RichText {
+            return;
+        }
+
+        let revision = self.editor_controller.read(cx).draft_revision(cx);
+        if revision == self.last_richtext_revision {
+            return;
+        }
+
+        let text = self.editor_controller.read(cx).snapshot_text(cx);
+        if let Some(document) = self.rich_document.as_mut() {
+            if let Some((range, replacement)) = single_change(document.plain_text(), &text) {
+                document.replace_text(range, replacement.as_str());
+            } else if document.plain_text() != text {
+                *document = RichDocument::new(text);
+            }
+        }
+
+        self.sync_editor_richtext_projection(cx);
+    }
+
+    fn ensure_richtext_document(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.is_feature_available(FeatureGate::RichText) {
+            return false;
+        }
+
+        self.sync_richtext_from_editor(cx);
+        if self.active_document.kind() == DocumentKind::RichText && self.rich_document.is_some() {
+            return true;
+        }
+
+        let text = self.editor_controller.read(cx).snapshot_text(cx);
+        self.active_document.set_kind(DocumentKind::RichText);
+        self.rich_document = Some(RichDocument::new(text));
+        self.sync_editor_richtext_projection(cx);
+        true
+    }
+
+    fn apply_inline_style(
+        &mut self,
+        style: InlineStyle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.is_feature_available(FeatureGate::RichText) {
+            self.prompt_pro_required(FeatureGate::RichText, window, cx);
+            return;
+        }
+        if !self.ensure_richtext_document(cx) {
+            return;
+        }
+
+        let selected_range = self.editor_controller.read(cx).selected_byte_range(cx);
+        if selected_range.is_empty() {
+            return;
+        }
+
+        if let Some(document) = self.rich_document.as_mut() {
+            document.toggle_inline_style(selected_range, style);
+        }
+        self.sync_editor_richtext_projection(cx);
+    }
+
+    fn apply_block_kind(
+        &mut self,
+        kind: BlockKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.is_feature_available(FeatureGate::RichText) {
+            self.prompt_pro_required(FeatureGate::RichText, window, cx);
+            return;
+        }
+        if !self.ensure_richtext_document(cx) {
+            return;
+        }
+
+        let selected_range = self.editor_controller.read(cx).selected_byte_range(cx);
+        if let Some(document) = self.rich_document.as_mut() {
+            document.set_block_kind_for_range(selected_range, kind);
+        }
+        self.sync_editor_richtext_projection(cx);
     }
 
     fn restore_auth_session(&mut self, cx: &mut Context<Self>) {
@@ -563,24 +734,39 @@ impl SoukouApp {
         );
     }
 
-    fn is_supported_text_file(path: &Path) -> bool {
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| extension.eq_ignore_ascii_case(SUPPORTED_TEXT_FILE_EXTENSION))
+    fn is_supported_document_path(path: &Path) -> bool {
+        DocumentKind::from_path(path).is_some()
     }
 
-    fn load_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
+    fn load_plain_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.load_text(text, cx)
         });
-        self.active_file = Some(path);
+        self.rich_document = None;
+        self.active_document.set_path(path);
+        self.sync_editor_richtext_projection(cx);
     }
 
-    fn open_standalone_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
+    fn load_rich_document(&mut self, path: PathBuf, document: RichDocument, cx: &mut Context<Self>) {
         self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.load_text(text, cx)
+            editor_controller.load_text(document.plain_text(), cx)
         });
-        self.active_file = Some(path);
+        self.rich_document = Some(document);
+        self.active_document.set_path(path);
+        self.sync_editor_richtext_projection(cx);
+    }
+
+    fn open_standalone_plain_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
+        self.load_plain_document(path, text, cx);
+    }
+
+    fn open_standalone_rich_document(
+        &mut self,
+        path: PathBuf,
+        document: RichDocument,
+        cx: &mut Context<Self>,
+    ) {
+        self.load_rich_document(path, document, cx);
     }
 
     fn release_tag_to_version(tag_name: &str) -> Result<Version, String> {
@@ -679,7 +865,7 @@ impl SoukouApp {
             match result {
                 Ok(path) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.active_file = Some(path);
+                        this.active_document.set_path(path);
                         cx.notify();
                     });
                 }
@@ -701,17 +887,17 @@ impl SoukouApp {
         window_handle: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        if !Self::is_supported_text_file(path.as_path()) {
+        let Some(document_kind) = DocumentKind::from_path(path.as_path()) else {
             let _ = cx.update_window(window_handle, |_, window, cx| {
                 Self::show_error(
                     window,
                     FILE_OPEN_ERROR_TITLE,
-                    UNSUPPORTED_TEXT_FILE_ERROR_DETAIL.into(),
+                    DocumentKind::supported_open_error_detail().into(),
                     cx,
                 );
             });
             return;
-        }
+        };
 
         cx.spawn(async move |this, cx| {
             let path_for_read = path.clone();
@@ -724,10 +910,42 @@ impl SoukouApp {
             match result {
                 Ok((path, text)) => {
                     let _ = this.update(cx, |this, cx| {
-                        if preserve_workspace {
-                            this.load_document(path, &text, cx);
-                        } else {
-                            this.open_standalone_document(path, &text, cx);
+                        match document_kind {
+                            DocumentKind::PlainText => {
+                                if preserve_workspace {
+                                    this.load_plain_document(path, &text, cx);
+                                } else {
+                                    this.open_standalone_plain_document(path, &text, cx);
+                                }
+                            }
+                            DocumentKind::RichText => {
+                                match RichDocument::from_json(text.as_str()) {
+                                    Ok(document) => {
+                                        if preserve_workspace {
+                                            this.load_rich_document(path, document, cx);
+                                        } else {
+                                            this.open_standalone_rich_document(path, document, cx);
+                                        }
+                                    }
+                                    Err(error) => {
+                                        if let Some(window_handle) = this.window_handle {
+                                            let detail =
+                                                format!("リッチテキスト文書を解析できませんでした: {error}");
+                                            let _ = cx.update_window(
+                                                window_handle,
+                                                |_, window, cx| {
+                                                    Self::show_error(
+                                                        window,
+                                                        FILE_OPEN_ERROR_TITLE,
+                                                        detail,
+                                                        cx,
+                                                    );
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
                         }
                     });
                 }
@@ -785,13 +1003,13 @@ impl SoukouApp {
         let Some(path) = paths
             .paths()
             .iter()
-            .find(|path| Self::is_supported_text_file(path.as_path()))
+            .find(|path| Self::is_supported_document_path(path.as_path()))
             .cloned()
         else {
             Self::show_error(
                 window,
                 FILE_OPEN_ERROR_TITLE,
-                UNSUPPORTED_TEXT_FILE_ERROR_DETAIL.into(),
+                DocumentKind::supported_open_error_detail().into(),
                 cx,
             );
             return;
@@ -801,27 +1019,42 @@ impl SoukouApp {
     }
 
     fn save_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let contents = self.editor_controller.read(cx).snapshot_text(cx);
+        self.sync_richtext_from_editor(cx);
         let window_handle = window.window_handle();
+        let contents = match self.active_document.kind() {
+            DocumentKind::PlainText => self.editor_controller.read(cx).snapshot_text(cx),
+            DocumentKind::RichText => match self.rich_document.as_ref().and_then(|document| document.to_json().ok()) {
+                Some(json) => json,
+                None => {
+                    Self::show_error(
+                        window,
+                        FILE_SAVE_ERROR_TITLE,
+                        "リッチテキスト文書を保存形式へ変換できませんでした".to_string(),
+                        cx,
+                    );
+                    return;
+                }
+            },
+        };
 
-        if let Some(path) = self.active_file.clone() {
+        if let Some(path) = self.active_document.path().map(Path::to_path_buf) {
             self.save_document_to_path(path, contents, window_handle, cx);
             return;
         }
 
         let initial_directory = self
-            .active_file
-            .as_deref()
+            .active_document
+            .path()
             .and_then(Path::parent)
             .map(Path::to_path_buf)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from(CURRENT_DIRECTORY_FALLBACK));
         let suggested_name = self
-            .active_file
-            .as_deref()
+            .active_document
+            .path()
             .and_then(Path::file_name)
             .and_then(|name| name.to_str())
-            .unwrap_or(DEFAULT_NEW_FILE_NAME)
+            .unwrap_or(self.active_document.kind().default_file_name())
             .to_string();
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
 
@@ -850,12 +1083,199 @@ impl SoukouApp {
         .detach();
     }
 
+    fn prompt_pro_required(&mut self, feature: FeatureGate, window: &mut Window, cx: &mut Context<Self>) {
+        let feature_label = match feature {
+            FeatureGate::RichText => "リッチテキスト編集",
+            FeatureGate::ExportPdf => "PDF書き出し",
+            FeatureGate::ExportWord => "Word書き出し",
+            FeatureGate::ExportEpub => "EPUB書き出し",
+        };
+        let detail = format!(
+            "{feature_label} は Pro プランで利用できます。\n\nアカウント設定を開いてプラン管理を確認しますか？"
+        );
+        let account_url = self.auth_config.account_url();
+
+        cx.spawn_in(window, async move |_, cx| {
+            let answer = cx.prompt(
+                PromptLevel::Info,
+                PRO_REQUIRED_TITLE,
+                Some(detail.as_str()),
+                &["アカウント設定", CANCEL_BUTTON_LABEL],
+            );
+
+            if answer.await.ok() == Some(0) {
+                let _ = cx.update(|_, cx| {
+                    cx.open_url(account_url.as_str());
+                });
+            }
+        })
+        .detach();
+    }
+
+    fn export_document(&mut self, format: ExportFormat, window: &mut Window, cx: &mut Context<Self>) {
+        let feature = match format {
+            ExportFormat::Pdf => FeatureGate::ExportPdf,
+            ExportFormat::Word => FeatureGate::ExportWord,
+            ExportFormat::Epub => FeatureGate::ExportEpub,
+        };
+
+        if !self.is_feature_available(feature) {
+            self.prompt_pro_required(feature, window, cx);
+            return;
+        }
+        self.sync_richtext_from_editor(cx);
+
+        let base_name = self
+            .active_document
+            .path()
+            .and_then(Path::file_stem)
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("untitled");
+        let suggested_name = format!(
+            "{}.{}",
+            base_name,
+            match format {
+                ExportFormat::Pdf => export::ExportFormat::Pdf.file_extension(),
+                ExportFormat::Word => export::ExportFormat::Word.file_extension(),
+                ExportFormat::Epub => export::ExportFormat::Epub.file_extension(),
+            }
+        );
+        let initial_directory = self
+            .active_document
+            .path()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from(CURRENT_DIRECTORY_FALLBACK));
+        let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
+        let window_handle = window.window_handle();
+        let rich_document = self
+            .rich_document
+            .clone()
+            .unwrap_or_else(|| RichDocument::new(self.editor_controller.read(cx).snapshot_text(cx)));
+        let export_format = match format {
+            ExportFormat::Pdf => export::ExportFormat::Pdf,
+            ExportFormat::Word => export::ExportFormat::Word,
+            ExportFormat::Epub => export::ExportFormat::Epub,
+        };
+        let export_target = match format {
+            ExportFormat::Pdf => ExportTargetFormat::Pdf,
+            ExportFormat::Word => ExportTargetFormat::Word,
+            ExportFormat::Epub => ExportTargetFormat::Epub,
+        };
+        let export_options = export::ExportOptions {
+            writing_mode: match AppSettings::global(cx)
+                .export_settings
+                .format(export_target)
+                .writing_mode
+            {
+                ExportWritingMode::Vertical => export::ExportWritingMode::Vertical,
+                ExportWritingMode::Horizontal => export::ExportWritingMode::Horizontal,
+            },
+        };
+
+        cx.spawn(async move |_, cx| {
+            let Ok(result) = receiver.await else {
+                return;
+            };
+
+            let Some(path) = (match result {
+                Ok(path) => path,
+                Err(error) => {
+                    let detail = error.to_string();
+                    let _ = cx.update_window(window_handle, |_, window, cx| {
+                        Self::show_error(window, SAVE_PATH_PICKER_ERROR_TITLE, detail, cx);
+                    });
+                    None
+                }
+            }) else {
+                return;
+            };
+
+            let write_result = cx
+                .background_spawn(async move {
+                    export::write_export(path.as_path(), export_format, &rich_document, export_options)
+                })
+                .await;
+
+            if let Err(error) = write_result {
+                let detail = error.to_string();
+                let _ = cx.update_window(window_handle, |_, window, cx| {
+                    Self::show_error(window, EXPORT_ERROR_TITLE, detail, cx);
+                });
+            }
+        })
+        .detach();
+    }
+
     fn open_file_action(&mut self, _: &OpenFile, window: &mut Window, cx: &mut Context<Self>) {
         self.open_file(window, cx);
     }
 
     fn save_file_action(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
         self.save_file(window, cx);
+    }
+
+    fn toggle_bold_action(&mut self, _: &ToggleBold, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_inline_style(InlineStyle::Bold, window, cx);
+    }
+
+    fn toggle_strikethrough_action(
+        &mut self,
+        _: &ToggleStrikethrough,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_inline_style(InlineStyle::Strikethrough, window, cx);
+    }
+
+    fn set_heading_large_action(
+        &mut self,
+        _: &SetHeadingLarge,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_kind(BlockKind::HeadingLarge, window, cx);
+    }
+
+    fn set_heading_medium_action(
+        &mut self,
+        _: &SetHeadingMedium,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_kind(BlockKind::HeadingMedium, window, cx);
+    }
+
+    fn clear_heading_action(
+        &mut self,
+        _: &ClearHeading,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_block_kind(BlockKind::Body, window, cx);
+    }
+
+    fn export_pdf_action(&mut self, _: &ExportPdf, window: &mut Window, cx: &mut Context<Self>) {
+        self.export_document(ExportFormat::Pdf, window, cx);
+    }
+
+    fn export_word_action(
+        &mut self,
+        _: &ExportWord,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.export_document(ExportFormat::Word, window, cx);
+    }
+
+    fn export_epub_action(
+        &mut self,
+        _: &ExportEpub,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.export_document(ExportFormat::Epub, window, cx);
     }
 
     fn check_for_updates_action(
@@ -910,10 +1330,109 @@ impl SoukouApp {
     fn sign_out_action(&mut self, _: &SignOut, window: &mut Window, cx: &mut Context<Self>) {
         self.sign_out(window, cx);
     }
+
+    fn render_richtext_toolbar(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        if !self.is_feature_available(FeatureGate::RichText) {
+            return None;
+        }
+
+        let selected_range = self.editor_controller.read(cx).selected_byte_range(cx);
+        if selected_range.is_empty() {
+            return None;
+        }
+        let selection_bounds = self.editor_controller.read(cx).selection_bounds(cx)?;
+        let popup_position = point(
+            selection_bounds.left(),
+            selection_bounds.top() - px(56.0),
+        );
+
+        Some(deferred(
+            anchored()
+                .position(popup_position)
+                .anchor(Anchor::TopLeft)
+                .child(
+                    div()
+                        .id("richtext-toolbar")
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .px_2()
+                        .py_2()
+                        .bg(Theme::global(cx).white())
+                        .border_1()
+                        .border_color(toolbar_border_color(cx))
+                        .rounded_md()
+                        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .shadow(vec![BoxShadow {
+                            color: Hsla {
+                                h: 0.0,
+                                s: 0.0,
+                                l: 0.0,
+                                a: 0.16,
+                            },
+                            offset: point(px(0.0), px(10.0)),
+                            blur_radius: px(24.0),
+                            spread_radius: px(0.0),
+                        }])
+                        .child(toolbar_button("B", |window, cx| {
+                            window.dispatch_action(Box::new(ToggleBold), cx);
+                        }))
+                        .child(toolbar_button("S", |window, cx| {
+                            window.dispatch_action(Box::new(ToggleStrikethrough), cx);
+                        }))
+                        .child(toolbar_button("大見出し", |window, cx| {
+                            window.dispatch_action(Box::new(SetHeadingLarge), cx);
+                        }))
+                        .child(toolbar_button("小見出し", |window, cx| {
+                            window.dispatch_action(Box::new(SetHeadingMedium), cx);
+                        }))
+                        .child(toolbar_button("本文", |window, cx| {
+                            window.dispatch_action(Box::new(ClearHeading), cx);
+                        })),
+                ),
+        ))
+    }
+}
+
+fn toolbar_button(
+    label: &'static str,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .px_2()
+        .py_1()
+        .rounded_sm()
+        .text_size(px(12.0))
+        .cursor_pointer()
+        .hover(|style| style.bg(gpui::rgb(0xf3f5f7)))
+        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+            cx.stop_propagation();
+            on_click(window, cx);
+        })
+        .child(label)
+}
+
+fn toolbar_border_color(cx: &App) -> gpui::Hsla {
+    mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.72).into()
+}
+
+fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {
+    let ratio = ratio.clamp(0.0, 1.0);
+    let inv = 1.0 - ratio;
+    gpui::Rgba {
+        r: left.r * inv + right.r * ratio,
+        g: left.g * inv + right.g * ratio,
+        b: left.b * inv + right.b * ratio,
+        a: left.a * inv + right.a * ratio,
+    }
 }
 
 impl Render for SoukouApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_richtext_from_editor(cx);
         title_bar::sync_client_window_inset(window);
         self.window_handle = Some(window.window_handle());
         self.sync_window_title(window, cx);
@@ -977,6 +1496,14 @@ impl Render for SoukouApp {
                     .on_drop(cx.listener(Self::drop_external_paths))
                     .on_action(cx.listener(Self::open_file_action))
                     .on_action(cx.listener(Self::save_file_action))
+                    .on_action(cx.listener(Self::toggle_bold_action))
+                    .on_action(cx.listener(Self::toggle_strikethrough_action))
+                    .on_action(cx.listener(Self::set_heading_large_action))
+                    .on_action(cx.listener(Self::set_heading_medium_action))
+                    .on_action(cx.listener(Self::clear_heading_action))
+                    .on_action(cx.listener(Self::export_pdf_action))
+                    .on_action(cx.listener(Self::export_word_action))
+                    .on_action(cx.listener(Self::export_epub_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
@@ -995,6 +1522,9 @@ impl Render for SoukouApp {
                                 .child(content),
                         ),
                     )
+                    .when_some(self.render_richtext_toolbar(cx), |this, toolbar| {
+                        this.child(toolbar)
+                    })
                     .child(self.bottom_bar.clone().into_element()),
             )
     }
@@ -1042,6 +1572,10 @@ fn main() {
                     items: vec![
                         MenuItem::action(OPEN_PROMPT_LABEL, OpenFile),
                         MenuItem::action(SAVE_MENU_LABEL, SaveFile),
+                        MenuItem::separator(),
+                        MenuItem::action(EXPORT_PDF_MENU_LABEL, ExportPdf),
+                        MenuItem::action(EXPORT_WORD_MENU_LABEL, ExportWord),
+                        MenuItem::action(EXPORT_EPUB_MENU_LABEL, ExportEpub),
                     ],
                 },
             ]);

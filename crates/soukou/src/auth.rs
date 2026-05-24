@@ -27,6 +27,7 @@ pub struct AuthUser {
     pub email: Option<String>,
     pub display_name: String,
     pub avatar_url: Option<String>,
+    pub plan: AccountPlan,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +42,42 @@ pub enum AuthState {
     Anonymous,
     Restoring,
     Authenticated(AuthSession),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlanKey {
+    #[default]
+    Free,
+    Pro,
+    Studio,
+}
+
+impl PlanKey {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Free => "Free",
+            Self::Pro => "Pro",
+            Self::Studio => "Studio",
+        }
+    }
+
+    pub fn supports_rich_text(self) -> bool {
+        matches!(self, Self::Pro | Self::Studio)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AccountPlan {
+    pub plan_key: PlanKey,
+    pub subscription: Option<SubscriptionSummary>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubscriptionSummary {
+    pub plan_key: PlanKey,
+    pub status: String,
+    pub billing_interval: String,
+    pub cancel_at_period_end: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -80,10 +117,6 @@ impl AuthConfig {
 
     pub fn credentials_key(&self) -> &'static str {
         CREDENTIALS_KEY
-    }
-
-    pub fn callback_url(&self) -> String {
-        format!("{}://auth/callback", self.callback_scheme)
     }
 
     pub fn callback_scheme(&self) -> &str {
@@ -284,11 +317,86 @@ pub fn restore_session(config: &AuthConfig, refresh_token: &str) -> Result<AuthS
         .map_err(|error| format!("ユーザー情報の取得に失敗しました: {error}"))?
         .json::<SupabaseUser>()
         .map_err(|error| format!("ユーザー情報レスポンスを解析できませんでした: {error}"))?;
+    let plan = fetch_account_plan(
+        &client,
+        supabase_url.trim_end_matches('/'),
+        publishable_key,
+        token_response.access_token.as_str(),
+        user.id.as_str(),
+    )
+    .unwrap_or_default();
 
     Ok(AuthSession {
         access_token: token_response.access_token,
         refresh_token: token_response.refresh_token,
-        user: user.into_auth_user(),
+        user: user.into_auth_user(plan),
+    })
+}
+
+fn fetch_account_plan(
+    client: &Client,
+    supabase_url: &str,
+    publishable_key: &str,
+    access_token: &str,
+    user_id: &str,
+) -> Result<AccountPlan, String> {
+    let profile = client
+        .get(format!("{supabase_url}/rest/v1/profiles"))
+        .header("apikey", publishable_key)
+        .bearer_auth(access_token)
+        .header("Accept", "application/json")
+        .query(&[
+            ("select", "plan_key"),
+            ("id", &format!("eq.{user_id}")),
+            ("limit", "1"),
+        ])
+        .send()
+        .map_err(|error| format!("プロフィール情報の取得に失敗しました: {error}"))?;
+
+    let profile = profile
+        .error_for_status()
+        .map_err(|error| format!("プロフィール情報の取得に失敗しました: {error}"))?
+        .json::<Vec<ProfileRow>>()
+        .map_err(|error| format!("プロフィール情報レスポンスを解析できませんでした: {error}"))?;
+
+    let subscription = client
+        .get(format!("{supabase_url}/rest/v1/subscriptions"))
+        .header("apikey", publishable_key)
+        .bearer_auth(access_token)
+        .header("Accept", "application/json")
+        .query(&[
+            (
+                "select",
+                "plan_key,status,billing_interval,cancel_at_period_end",
+            ),
+            ("user_id", &format!("eq.{user_id}")),
+            ("status", "in.(trialing,active,past_due,incomplete)"),
+            ("order", "created_at.desc"),
+            ("limit", "1"),
+        ])
+        .send()
+        .map_err(|error| format!("サブスクリプション情報の取得に失敗しました: {error}"))?;
+
+    let subscription = subscription
+        .error_for_status()
+        .map_err(|error| format!("サブスクリプション情報の取得に失敗しました: {error}"))?
+        .json::<Vec<SubscriptionRow>>()
+        .map_err(|error| format!("サブスクリプション情報レスポンスを解析できませんでした: {error}"))?;
+
+    let profile_plan = profile
+        .into_iter()
+        .next()
+        .map(|row| row.plan_key)
+        .unwrap_or_default();
+    let subscription = subscription.into_iter().next().map(Into::into);
+    let plan_key = subscription
+        .as_ref()
+        .map(|subscription: &SubscriptionSummary| subscription.plan_key)
+        .unwrap_or(profile_plan);
+
+    Ok(AccountPlan {
+        plan_key,
+        subscription,
     })
 }
 
@@ -306,7 +414,7 @@ struct SupabaseUser {
 }
 
 impl SupabaseUser {
-    fn into_auth_user(self) -> AuthUser {
+    fn into_auth_user(self, plan: AccountPlan) -> AuthUser {
         let display_name = self
             .user_metadata
             .as_ref()
@@ -331,7 +439,49 @@ impl SupabaseUser {
             email: self.email,
             display_name,
             avatar_url,
+            plan,
         }
+    }
+}
+
+#[derive(Deserialize)]
+struct ProfileRow {
+    #[serde(default)]
+    plan_key: PlanKey,
+}
+
+#[derive(Deserialize)]
+struct SubscriptionRow {
+    #[serde(default)]
+    plan_key: PlanKey,
+    status: String,
+    billing_interval: String,
+    #[serde(default)]
+    cancel_at_period_end: bool,
+}
+
+impl From<SubscriptionRow> for SubscriptionSummary {
+    fn from(value: SubscriptionRow) -> Self {
+        Self {
+            plan_key: value.plan_key,
+            status: value.status,
+            billing_interval: value.billing_interval,
+            cancel_at_period_end: value.cancel_at_period_end,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PlanKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "pro" => Self::Pro,
+            "studio" => Self::Studio,
+            _ => Self::Free,
+        })
     }
 }
 

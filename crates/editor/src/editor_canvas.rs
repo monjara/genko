@@ -6,11 +6,12 @@ use gpui::{
     GlobalElementId, IntoElement, LayoutId, Path, PathBuilder, Pixels, Style, TextAlign, TextRun,
     Window, fill, point, px, size,
 };
+use richtext::{BlockKind, InlineStyle, ResolvedBlock};
 use rope::CellText;
 use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, Theme};
 
-use crate::editor::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor};
+use crate::editor::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor, RichTextDecorations};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CellPaintKind {
@@ -22,6 +23,7 @@ enum CellPaintKind {
 
 struct PaintState {
     visible_text: std::sync::Arc<[CellText]>,
+    richtext_decorations: RichTextDecorations,
     selected_range: Range<usize>,
     marked_range: Option<Range<usize>>,
     block_selection: Option<crate::editor::BlockSelection>,
@@ -143,6 +145,7 @@ impl Element for EditorCanvas {
         let show_grid = AppSettings::global(cx).show_grid_lines;
         let paint_state = self.editor.update(cx, |editor, _cx| PaintState {
             visible_text: editor.visible_text(),
+            richtext_decorations: editor.richtext_decorations.clone(),
             selected_range: editor.selected_range.clone(),
             marked_range: editor.marked_range.clone(),
             block_selection: editor.block_selection,
@@ -157,6 +160,7 @@ impl Element for EditorCanvas {
         });
         let PaintState {
             visible_text,
+            richtext_decorations,
             selected_range,
             marked_range,
             block_selection,
@@ -232,6 +236,21 @@ impl Element for EditorCanvas {
         }
         paint_text(
             &visible_text,
+            &richtext_decorations,
+            content_bounds,
+            scroll_column,
+            scroll_row,
+            rows_per_column,
+            visible_columns,
+            visible_rows,
+            cell_size,
+            ruby_gutter_size,
+            window,
+            cx,
+        );
+        paint_strikethrough_overlay(
+            &visible_text,
+            &richtext_decorations,
             content_bounds,
             scroll_column,
             scroll_row,
@@ -534,6 +553,7 @@ fn paint_selection(
 
 fn paint_text(
     visible_text: &[CellText],
+    richtext_decorations: &RichTextDecorations,
     bounds: Bounds<Pixels>,
     scroll_column: usize,
     first_visible_row: usize,
@@ -561,7 +581,14 @@ fn paint_text(
         };
 
         match cell_paint_kind(cell_text) {
-            CellPaintKind::Main => paint_cell_text(cell_text, cell_bounds, cell_size, window, cx),
+            CellPaintKind::Main => paint_cell_text(
+                cell_text,
+                cell_bounds,
+                cell_size,
+                rich_style_for_range(richtext_decorations, cell_text.range.clone()),
+                window,
+                cx,
+            ),
             CellPaintKind::Attached => {
                 paint_attached_punctuation(cell_text, cell_bounds, window, cx)
             }
@@ -579,17 +606,23 @@ fn paint_cell_text(
     cell_text: &CellText,
     cell_bounds: Bounds<Pixels>,
     cell_size: f32,
+    rich_style: CellRichStyle,
     window: &mut Window,
     cx: &mut App,
 ) {
     let style = window.text_style();
-    let font_size = px((cell_size * 0.75).round());
+    let font_size = px((cell_size * rich_style.font_scale()).round());
     let line_height = px((cell_size * 0.86).round());
     let line = shape_text(
         window,
         &cell_text.text,
         font_size,
-        text_run(&cell_text.text, vertical_text_font(style.font()), cx),
+        text_run(
+            &cell_text.text,
+            vertical_text_font(style.font()),
+            rich_style.color(cx),
+            cx,
+        ),
     );
     let text_origin = point(
         cell_bounds.left() + (px(cell_size) - line.width) / 2.0,
@@ -606,6 +639,110 @@ fn paint_cell_text(
     .ok();
 }
 
+fn paint_strikethrough_overlay(
+    visible_text: &[CellText],
+    richtext_decorations: &RichTextDecorations,
+    bounds: Bounds<Pixels>,
+    scroll_column: usize,
+    first_visible_row: usize,
+    rows_per_column: usize,
+    visible_columns: usize,
+    visible_rows: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let mut current_segment: Option<StrikeSegment> = None;
+
+    for cell_text in visible_text {
+        let rich_style = rich_style_for_range(richtext_decorations, cell_text.range.clone());
+        let Some(cell_bounds) = cell_bounds_for_logical_index(
+            bounds,
+            cell_text.logical_index,
+            scroll_column,
+            first_visible_row,
+            rows_per_column,
+            visible_columns,
+            visible_rows,
+            cell_size,
+            ruby_gutter_size,
+        ) else {
+            continue;
+        };
+
+        if !rich_style.strikethrough {
+            flush_strike_segment(&mut current_segment, window, cx);
+            continue;
+        }
+
+        let Some((row, column)) = row_column_for_logical_index(
+            cell_text.logical_index,
+            scroll_column,
+            rows_per_column,
+            visible_columns,
+        ) else {
+            flush_strike_segment(&mut current_segment, window, cx);
+            continue;
+        };
+
+        match current_segment.as_mut() {
+            Some(segment)
+                if segment.column == column
+                    && segment.last_row + 1 == row
+                    && segment.style == rich_style =>
+            {
+                segment.last_row = row;
+                segment.end_bounds = cell_bounds;
+            }
+            _ => {
+                flush_strike_segment(&mut current_segment, window, cx);
+                current_segment = Some(StrikeSegment {
+                    column,
+                    first_row: row,
+                    last_row: row,
+                    style: rich_style,
+                    start_bounds: cell_bounds,
+                    end_bounds: cell_bounds,
+                });
+            }
+        }
+    }
+
+    flush_strike_segment(&mut current_segment, window, cx);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StrikeSegment {
+    column: usize,
+    first_row: usize,
+    last_row: usize,
+    style: CellRichStyle,
+    start_bounds: Bounds<Pixels>,
+    end_bounds: Bounds<Pixels>,
+}
+
+fn flush_strike_segment(
+    segment: &mut Option<StrikeSegment>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(segment) = segment.take() else {
+        return;
+    };
+
+    let width = px(2.0);
+    let inset = px((segment.start_bounds.size.width.as_f32() * 0.16).round());
+    let center_x = segment.start_bounds.left() + segment.start_bounds.size.width / 2.0;
+    let top = segment.start_bounds.top() + inset;
+    let bottom = segment.end_bounds.bottom() - inset;
+    let left = center_x - width / 2.0;
+    window.paint_quad(fill(
+        Bounds::new(point(left, top), size(width, bottom - top)),
+        segment.style.color(cx),
+    ));
+}
+
 fn paint_attached_punctuation(
     cell_text: &CellText,
     cell_bounds: Bounds<Pixels>,
@@ -620,7 +757,12 @@ fn paint_attached_punctuation(
         window,
         &cell_text.text,
         font_size,
-        text_run(&cell_text.text, vertical_text_font(style.font()), cx),
+        text_run(
+            &cell_text.text,
+            vertical_text_font(style.font()),
+            Theme::global(cx).text_primary(),
+            cx,
+        ),
     );
     let text_origin = point(
         cell_bounds.right() - line.width - px(3.0),
@@ -656,7 +798,12 @@ fn paint_corner_punctuation(
         window,
         &cell_text.text,
         font_size,
-        text_run(&cell_text.text, vertical_text_font(style.font()), cx),
+        text_run(
+            &cell_text.text,
+            vertical_text_font(style.font()),
+            Theme::global(cx).text_primary(),
+            cx,
+        ),
     );
     let text_origin = point(
         cell_bounds.left() + (px(cell_size) - line.width) / 2.0,
@@ -697,15 +844,74 @@ fn cell_paint_kind(cell_text: &CellText) -> CellPaintKind {
     }
 }
 
-fn text_run(text: &str, font: Font, cx: &mut App) -> TextRun {
+fn text_run(text: &str, font: Font, color: gpui::Rgba, _cx: &mut App) -> TextRun {
     TextRun {
         len: text.len(),
         font,
-        color: Theme::global(cx).text_primary().into(),
+        color: color.into(),
         background_color: None,
         underline: None,
         strikethrough: None,
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CellRichStyle {
+    bold: bool,
+    strikethrough: bool,
+    block_kind: BlockKind,
+}
+
+impl CellRichStyle {
+    fn font_scale(self) -> f32 {
+        match self.block_kind {
+            BlockKind::HeadingLarge => 0.94,
+            BlockKind::HeadingMedium => 0.84,
+            BlockKind::Body => {
+                if self.bold {
+                    0.8
+                } else {
+                    0.75
+                }
+            }
+        }
+    }
+
+    fn color(self, cx: &App) -> gpui::Rgba {
+        match self.block_kind {
+            BlockKind::HeadingLarge => Theme::global(cx).text_primary(),
+            BlockKind::HeadingMedium => mix(Theme::global(cx).text_primary(), Theme::global(cx).primary(), 0.22),
+            BlockKind::Body => {
+                if self.bold {
+                    mix(Theme::global(cx).text_primary(), Theme::global(cx).black(), 0.12)
+                } else {
+                    Theme::global(cx).text_primary()
+                }
+            }
+        }
+    }
+}
+
+fn rich_style_for_range(decorations: &RichTextDecorations, range: Range<usize>) -> CellRichStyle {
+    let mut style = CellRichStyle::default();
+    for mark in &decorations.inline_marks {
+        if mark.start < range.end && range.start < mark.end {
+            match mark.style {
+                InlineStyle::Bold => style.bold = true,
+                InlineStyle::Strikethrough => style.strikethrough = true,
+            }
+        }
+    }
+    style.block_kind = block_kind_for_range(&decorations.blocks, &range);
+    style
+}
+
+fn block_kind_for_range(blocks: &[ResolvedBlock], range: &Range<usize>) -> BlockKind {
+    blocks
+        .iter()
+        .find(|block| block.range.start < range.end && range.start < block.range.end)
+        .map(|block| block.kind)
+        .unwrap_or(BlockKind::Body)
 }
 
 fn shape_text(
@@ -726,6 +932,17 @@ fn text_layout_hash(text: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut hasher);
     hasher.finish()
+}
+
+fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {
+    let ratio = ratio.clamp(0.0, 1.0);
+    let inv = 1.0 - ratio;
+    gpui::Rgba {
+        r: left.r * inv + right.r * ratio,
+        g: left.g * inv + right.g * ratio,
+        b: left.b * inv + right.b * ratio,
+        a: left.a * inv + right.a * ratio,
+    }
 }
 
 fn paint_cursor(

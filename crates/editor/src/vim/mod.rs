@@ -2,9 +2,11 @@ use std::ops::Range;
 
 use crate::editor::Editor;
 use gpui::{
-    App, AppContext, ClipboardItem, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, KeyDownEvent, ParentElement, Render, Styled, Window, actions, div,
+    App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
+    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Window,
+    actions, div,
 };
+use richtext::RichDocument;
 use rope::BLANK_CELL;
 use settings::AppSettings;
 
@@ -125,6 +127,27 @@ impl VimController {
 
     pub fn snapshot_text(&self, cx: &App) -> String {
         self.editor.read(cx).snapshot_text()
+    }
+
+    pub fn draft_revision(&self, cx: &App) -> u64 {
+        self.editor.read(cx).draft_revision()
+    }
+
+    pub fn selected_byte_range(&self, cx: &App) -> Range<usize> {
+        self.editor.read(cx).selected_byte_range()
+    }
+
+    pub fn selection_bounds(&self, cx: &App) -> Option<Bounds<Pixels>> {
+        self.editor.read(cx).selection_bounds()
+    }
+
+    pub fn set_richtext_document(
+        &mut self,
+        document: Option<&RichDocument>,
+        cx: &mut Context<Self>,
+    ) {
+        self.editor
+            .update(cx, |editor, cx| editor.set_richtext_document(document, cx));
     }
 
     pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {

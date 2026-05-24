@@ -9,6 +9,7 @@ name = "editor"
 
 [dependencies]
 gpui = { workspace = true }
+richtext = { workspace = true }
 rope = { workspace = true }
 settings = { workspace = true }
 theme = { workspace = true }

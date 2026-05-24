@@ -1,5 +1,4 @@
 use std::{
-    env,
     fs,
     path::{Path, PathBuf},
 };
@@ -132,6 +131,74 @@ impl SettingsWindow {
         self.set_column_number_mode(ColumnNumberMode::All, cx);
     }
 
+    fn set_export_writing_mode(
+        &mut self,
+        format: ExportTargetFormat,
+        mode: ExportWritingMode,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx)
+            .export_settings
+            .format_mut(format)
+            .writing_mode = mode;
+        self.status = "".into();
+        cx.notify();
+    }
+
+    fn set_pdf_vertical(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_export_writing_mode(ExportTargetFormat::Pdf, ExportWritingMode::Vertical, cx);
+    }
+
+    fn set_pdf_horizontal(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_export_writing_mode(ExportTargetFormat::Pdf, ExportWritingMode::Horizontal, cx);
+    }
+
+    fn set_word_vertical(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_export_writing_mode(ExportTargetFormat::Word, ExportWritingMode::Vertical, cx);
+    }
+
+    fn set_word_horizontal(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_export_writing_mode(ExportTargetFormat::Word, ExportWritingMode::Horizontal, cx);
+    }
+
+    fn set_epub_vertical(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_export_writing_mode(ExportTargetFormat::Epub, ExportWritingMode::Vertical, cx);
+    }
+
+    fn set_epub_horizontal(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_export_writing_mode(ExportTargetFormat::Epub, ExportWritingMode::Horizontal, cx);
+    }
+
     fn decrement_cell_size(
         &mut self,
         _: &ClickEvent,
@@ -180,6 +247,8 @@ impl SettingsWindow {
         row_settings.show_grid_lines = settings.show_grid_lines;
         row_settings.vim_mode = settings.vim_mode;
         row_settings.rows_per_column = settings.rows_per_column;
+        row_settings.indent_on_enter = settings.indent_on_enter;
+        row_settings.export_settings = settings.export_settings;
         cx.notify();
     }
 
@@ -608,6 +677,137 @@ impl SettingsWindow {
             )
     }
 
+    fn render_export_writing_mode_control(
+        &self,
+        title: &'static str,
+        description: &'static str,
+        format: ExportTargetFormat,
+        vertical_listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        horizontal_listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = AppSettings::global(cx).export_settings.format(format).writing_mode;
+        let option = |id: SharedString,
+                      label: &'static str,
+                      active: bool,
+                      listener: fn(
+            &mut SettingsWindow,
+            &ClickEvent,
+            &mut Window,
+            &mut Context<Self>,
+        )| {
+            div()
+                .id(id)
+                .px_3()
+                .h(px(32.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_sm()
+                .border_1()
+                .border_color(Theme::global(cx).primary())
+                .bg(if active {
+                    Theme::global(cx).primary()
+                } else {
+                    Theme::global(cx).white()
+                })
+                .text_color(if active {
+                    Theme::global(cx).white()
+                } else {
+                    Theme::global(cx).text_primary()
+                })
+                .cursor_pointer()
+                .active(|this| this.opacity(0.85))
+                .child(label)
+                .on_click(cx.listener(listener))
+        };
+
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_4()
+            .p_3()
+            .border_1()
+            .border_color(Theme::global(cx).primary())
+            .rounded_sm()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(Theme::global(cx).text_senodary())
+                            .child(description),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(option(
+                        format!("settings-export-{}-vertical", format.key()).into(),
+                        ExportWritingMode::Vertical.label(),
+                        selected == ExportWritingMode::Vertical,
+                        vertical_listener,
+                    ))
+                    .child(option(
+                        format!("settings-export-{}-horizontal", format.key()).into(),
+                        ExportWritingMode::Horizontal.label(),
+                        selected == ExportWritingMode::Horizontal,
+                        horizontal_listener,
+                    )),
+            )
+    }
+
+    fn render_export_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().font_weight(FontWeight::BOLD).child("Pro 書き出し設定"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(Theme::global(cx).text_senodary())
+                            .child("各形式ごとに縦書きか横書きの出力方向を選べます"),
+                    ),
+            )
+            .child(self.render_export_writing_mode_control(
+                "PDF",
+                "縦書きは横向きレイアウト、横書きは現在の横書きレイアウトで出力します",
+                ExportTargetFormat::Pdf,
+                Self::set_pdf_vertical,
+                Self::set_pdf_horizontal,
+                cx,
+            ))
+            .child(self.render_export_writing_mode_control(
+                "Word",
+                "縦書きは横向きレイアウト、横書きは現在の横書きレイアウトで出力します",
+                ExportTargetFormat::Word,
+                Self::set_word_vertical,
+                Self::set_word_horizontal,
+                cx,
+            ))
+            .child(self.render_export_writing_mode_control(
+                "EPUB",
+                "縦書きは縦書き表示対応リーダー向け、横書きは現在の横書きレイアウトで出力します",
+                ExportTargetFormat::Epub,
+                Self::set_epub_vertical,
+                Self::set_epub_horizontal,
+                cx,
+            ))
+    }
+
     fn render_apply_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("settings-apply")
@@ -709,6 +909,7 @@ impl Render for SettingsWindow {
                             .child(self.render_vim_mode_toggle(cx))
                             .child(self.render_indent_on_enter_toggle(cx))
                             .child(self.render_rows_per_column(cx))
+                            .child(self.render_export_settings(cx))
                             .child(
                                 div()
                                     .flex()
@@ -744,6 +945,90 @@ pub enum ColumnNumberMode {
     All,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportWritingMode {
+    Vertical,
+    Horizontal,
+}
+
+impl ExportWritingMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Vertical => "縦書き",
+            Self::Horizontal => "横書き",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportTargetFormat {
+    Pdf,
+    Word,
+    Epub,
+}
+
+impl ExportTargetFormat {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Pdf => "pdf",
+            Self::Word => "word",
+            Self::Epub => "epub",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ExportFormatSettings {
+    pub writing_mode: ExportWritingMode,
+}
+
+impl Default for ExportFormatSettings {
+    fn default() -> Self {
+        Self {
+            writing_mode: ExportWritingMode::Vertical,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ExportSettings {
+    pub pdf: ExportFormatSettings,
+    pub word: ExportFormatSettings,
+    pub epub: ExportFormatSettings,
+}
+
+impl Default for ExportSettings {
+    fn default() -> Self {
+        Self {
+            pdf: ExportFormatSettings::default(),
+            word: ExportFormatSettings::default(),
+            epub: ExportFormatSettings::default(),
+        }
+    }
+}
+
+impl ExportSettings {
+    pub fn format(&self, format: ExportTargetFormat) -> &ExportFormatSettings {
+        match format {
+            ExportTargetFormat::Pdf => &self.pdf,
+            ExportTargetFormat::Word => &self.word,
+            ExportTargetFormat::Epub => &self.epub,
+        }
+    }
+
+    pub fn format_mut(&mut self, format: ExportTargetFormat) -> &mut ExportFormatSettings {
+        match format {
+            ExportTargetFormat::Pdf => &mut self.pdf,
+            ExportTargetFormat::Word => &mut self.word,
+            ExportTargetFormat::Epub => &mut self.epub,
+        }
+    }
+}
+
 impl ColumnNumberMode {
     fn label(self) -> &'static str {
         match self {
@@ -776,6 +1061,7 @@ pub struct AppSettings {
     pub vim_mode: bool,
     #[serde(rename = "indentOnEnter")]
     pub indent_on_enter: bool,
+    pub export_settings: ExportSettings,
 }
 
 impl Global for AppSettings {}
@@ -790,6 +1076,7 @@ impl Default for AppSettings {
             rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: false,
             indent_on_enter: false,
+            export_settings: ExportSettings::default(),
         }
     }
 }
@@ -852,6 +1139,7 @@ impl AppSettings {
             rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: self.vim_mode,
             indent_on_enter: self.indent_on_enter,
+            export_settings: self.export_settings.clone(),
         }
     }
 
@@ -871,7 +1159,7 @@ impl AppSettings {
     fn settings_file_path() -> Option<PathBuf> {
         #[cfg(target_os = "windows")]
         {
-            env::var_os("APPDATA")
+            std::env::var_os("APPDATA")
                 .map(|appdata| PathBuf::from(appdata).join("soukou").join(SETTINGS_FILE))
         }
 
@@ -948,6 +1236,10 @@ mod tests {
         assert_eq!(settings.cell_size, DEFAULT_CELL_SIZE);
         assert_eq!(settings.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(!settings.vim_mode);
+        assert_eq!(
+            settings.export_settings.pdf.writing_mode,
+            ExportWritingMode::Vertical
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1004,6 +1296,15 @@ mod tests {
             rows_per_column: Some(24),
             vim_mode: true,
             indent_on_enter: true,
+            export_settings: ExportSettings {
+                pdf: ExportFormatSettings {
+                    writing_mode: ExportWritingMode::Horizontal,
+                },
+                word: ExportFormatSettings::default(),
+                epub: ExportFormatSettings {
+                    writing_mode: ExportWritingMode::Horizontal,
+                },
+            },
         };
 
         settings.save_to_file(&settings_path).unwrap();
@@ -1016,6 +1317,18 @@ mod tests {
         assert_eq!(reloaded.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(reloaded.vim_mode);
         assert!(reloaded.indent_on_enter);
+        assert_eq!(
+            reloaded.export_settings.pdf.writing_mode,
+            ExportWritingMode::Horizontal
+        );
+        assert_eq!(
+            reloaded.export_settings.word.writing_mode,
+            ExportWritingMode::Vertical
+        );
+        assert_eq!(
+            reloaded.export_settings.epub.writing_mode,
+            ExportWritingMode::Horizontal
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1065,6 +1378,33 @@ mod tests {
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
         assert_eq!(settings.cell_size, MAX_CELL_SIZE);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loads_export_writing_modes_from_settings_file() {
+        let dir = test_settings_dir("export_writing_modes");
+        fs::write(
+            dir.join("settings.json"),
+            r#"{"export_settings":{"pdf":{"writing_mode":"horizontal"},"word":{"writing_mode":"vertical"},"epub":{"writing_mode":"horizontal"}}}"#,
+        )
+        .unwrap();
+
+        let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
+
+        assert_eq!(
+            settings.export_settings.pdf.writing_mode,
+            ExportWritingMode::Horizontal
+        );
+        assert_eq!(
+            settings.export_settings.word.writing_mode,
+            ExportWritingMode::Vertical
+        );
+        assert_eq!(
+            settings.export_settings.epub.writing_mode,
+            ExportWritingMode::Horizontal
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
