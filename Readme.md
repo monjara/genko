@@ -4,7 +4,7 @@
 
 ## roadmap
 
-### Version 0.1
+### Version 0.2
 
 - [ ] 日本語IME入力
 - [ ] 変換中表示

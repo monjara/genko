@@ -10,12 +10,21 @@ const SIDE_SLOT_WIDTH: f32 = 160.0;
 
 pub struct BottomBar {
     vim_mode_status: Entity<VimModeLabel>,
+    plan_label: String,
 }
 
 impl BottomBar {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let vim_mode_status = cx.new(VimModeLabel::new);
-        Self { vim_mode_status }
+        Self {
+            vim_mode_status,
+            plan_label: "Free".to_string(),
+        }
+    }
+
+    pub fn set_plan_label(&mut self, plan_label: impl Into<String>, cx: &mut Context<Self>) {
+        self.plan_label = plan_label.into();
+        cx.notify();
     }
 }
 
@@ -39,6 +48,23 @@ impl Render for BottomBar {
                     .items_center()
                     .justify_between()
                     .px_3()
+                    .child(
+                        div()
+                            .w(px(SIDE_SLOT_WIDTH))
+                            .flex_none()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .child(
+                                div()
+                                    .px_2()
+                                    .py_1()
+                                    .rounded_sm()
+                                    .bg(Theme::global(cx).bg_primary())
+                                    .text_size(px(11.0))
+                                    .child(format!("Plan {}", self.plan_label)),
+                            ),
+                    )
                     .when(AppSettings::global(cx).vim_mode, |this| {
                         this.child(
                             div()

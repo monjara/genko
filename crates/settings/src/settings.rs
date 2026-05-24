@@ -1,5 +1,4 @@
 use std::{
-    env,
     fs,
     path::{Path, PathBuf},
 };
@@ -9,7 +8,7 @@ use gpui::{
     App, AppContext, Bounds, ClickEvent, Context, Decorations, Entity, FontWeight, Global,
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Window, WindowBounds, WindowDecorations, WindowOptions,
-    div, px, size, transparent_black,
+    WindowControlArea, div, px, size, transparent_black,
 };
 use serde::{Deserialize, Serialize};
 use theme::{APP_FONT_FAMILY, Theme};
@@ -42,29 +41,61 @@ pub fn open_settings_window(cx: &mut App) {
 struct SettingsWindow {
     title_bar: Entity<TitleBar>,
     status: SharedString,
+    selected_section: SettingsSection,
 }
 
 impl SettingsWindow {
     fn new(cx: &mut Context<Self>) -> Self {
-        let title_bar = cx.new(|cx| TitleBar::new("設定", cx));
+        let title_bar = cx.new(|cx| TitleBar::new("設定", Vec::new(), None, cx));
         Self {
             title_bar,
             status: "".into(),
+            selected_section: SettingsSection::General,
         }
     }
 
-    fn toggle_grid_lines(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        // TODO AppSettings内で関数を作成
-        AppSettings::global_mut(cx).show_grid_lines = !AppSettings::global(cx).show_grid_lines;
-        self.status = "".into();
+    fn select_section(&mut self, section: SettingsSection, cx: &mut Context<Self>) {
+        self.selected_section = section;
         cx.notify();
     }
 
+    fn show_general_section(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_section(SettingsSection::General, cx);
+    }
+
+    fn show_editor_section(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_section(SettingsSection::Editor, cx);
+    }
+
+    fn show_export_section(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_section(SettingsSection::Export, cx);
+    }
+
+    fn toggle_grid_lines(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let current = AppSettings::global(cx).show_grid_lines;
+        AppSettings::global_mut(cx).show_grid_lines = !current;
+        self.persist_settings(cx);
+    }
+
     fn toggle_vim_mode(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        // TODO AppSettings内で関数を作成
-        AppSettings::global_mut(cx).vim_mode = !AppSettings::global(cx).vim_mode;
-        self.status = "".into();
-        cx.notify();
+        let current = AppSettings::global(cx).vim_mode;
+        AppSettings::global_mut(cx).vim_mode = !current;
+        self.persist_settings(cx);
     }
 
     fn toggle_indent_on_enter(
@@ -73,9 +104,9 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).indent_on_enter = !AppSettings::global(cx).indent_on_enter;
-        self.status = "".into();
-        cx.notify();
+        let current = AppSettings::global(cx).indent_on_enter;
+        AppSettings::global_mut(cx).indent_on_enter = !current;
+        self.persist_settings(cx);
     }
 
     fn toggle_hanging_punctuation(
@@ -84,16 +115,14 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).hanging_punctuation =
-            !AppSettings::global(cx).hanging_punctuation;
-        self.status = "".into();
-        cx.notify();
+        let current = AppSettings::global(cx).hanging_punctuation;
+        AppSettings::global_mut(cx).hanging_punctuation = !current;
+        self.persist_settings(cx);
     }
 
     fn set_column_number_mode(&mut self, mode: ColumnNumberMode, cx: &mut Context<Self>) {
         AppSettings::global_mut(cx).column_number_mode = mode;
-        self.status = "".into();
-        cx.notify();
+        self.persist_settings(cx);
     }
 
     fn set_column_number_hidden(
@@ -132,6 +161,45 @@ impl SettingsWindow {
         self.set_column_number_mode(ColumnNumberMode::All, cx);
     }
 
+    fn set_export_writing_mode(
+        &mut self,
+        format: ExportTargetFormat,
+        mode: ExportWritingMode,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx)
+            .export_settings
+            .format_mut(format)
+            .writing_mode = mode;
+        self.persist_settings(cx);
+    }
+
+    fn set_word_vertical(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.set_export_writing_mode(ExportTargetFormat::Word, ExportWritingMode::Vertical, cx);
+    }
+
+    fn set_word_horizontal(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_export_writing_mode(ExportTargetFormat::Word, ExportWritingMode::Horizontal, cx);
+    }
+
+    fn set_epub_vertical(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.set_export_writing_mode(ExportTargetFormat::Epub, ExportWritingMode::Vertical, cx);
+    }
+
+    fn set_epub_horizontal(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_export_writing_mode(ExportTargetFormat::Epub, ExportWritingMode::Horizontal, cx);
+    }
+
     fn decrement_cell_size(
         &mut self,
         _: &ClickEvent,
@@ -142,8 +210,7 @@ impl SettingsWindow {
             .cell_size
             .saturating_sub(1)
             .max(AppSettings::min_cell_size());
-        self.status = "".into();
-        cx.notify();
+        self.persist_settings(cx);
     }
 
     fn increment_cell_size(
@@ -154,32 +221,14 @@ impl SettingsWindow {
     ) {
         AppSettings::global_mut(cx).cell_size =
             (AppSettings::global(cx).cell_size + 1).min(AppSettings::max_cell_size());
-        self.status = "".into();
-        cx.notify();
+        self.persist_settings(cx);
     }
 
-    fn apply(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        match AppSettings::global(cx).save() {
-            Ok(()) => {
-                let settings = AppSettings::load();
-                self.apply_settings(settings, cx);
-                self.status = "保存しました".into();
-            }
-            Err(error) => {
-                self.status = error.into();
-            }
-        }
-        cx.notify();
-    }
-
-    fn apply_settings(&mut self, settings: AppSettings, cx: &mut Context<Self>) {
-        let row_settings = AppSettings::global_mut(cx);
-        row_settings.cell_size = settings.cell_size;
-        row_settings.hanging_punctuation = settings.hanging_punctuation;
-        row_settings.column_number_mode = settings.column_number_mode;
-        row_settings.show_grid_lines = settings.show_grid_lines;
-        row_settings.vim_mode = settings.vim_mode;
-        row_settings.rows_per_column = settings.rows_per_column;
+    fn persist_settings(&mut self, cx: &mut Context<Self>) {
+        self.status = match AppSettings::global(cx).save() {
+            Ok(()) => "自動保存済み".into(),
+            Err(error) => error.into(),
+        };
         cx.notify();
     }
 
@@ -193,11 +242,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .child(
                 div()
                     .flex()
@@ -220,7 +268,7 @@ impl SettingsWindow {
                         .items_center()
                         .justify_center()
                         .rounded_sm()
-                        .bg(Theme::global(cx).white())
+                        .bg(Theme::global(cx).bg_senodary())
                         .child(rows_label),
                 ),
             )
@@ -231,11 +279,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .child(
                 div()
                     .flex()
@@ -320,11 +367,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_grid_lines))
             .child(
@@ -372,11 +418,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_vim_mode))
             .child(
@@ -423,11 +468,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_indent_on_enter))
             .child(
@@ -478,11 +522,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .cursor_pointer()
             .on_click(cx.listener(Self::toggle_hanging_punctuation))
             .child(
@@ -558,11 +601,10 @@ impl SettingsWindow {
             .flex()
             .items_center()
             .justify_between()
-            .gap_4()
-            .p_3()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .rounded_sm()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
             .child(
                 div()
                     .flex()
@@ -608,18 +650,301 @@ impl SettingsWindow {
             )
     }
 
-    fn render_apply_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_export_writing_mode_control(
+        &self,
+        title: &'static str,
+        description: &'static str,
+        format: ExportTargetFormat,
+        vertical_listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        horizontal_listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = AppSettings::global(cx)
+            .export_settings
+            .format(format)
+            .writing_mode;
+        let option = |id: SharedString,
+                      label: &'static str,
+                      active: bool,
+                      listener: fn(
+            &mut SettingsWindow,
+            &ClickEvent,
+            &mut Window,
+            &mut Context<Self>,
+        )| {
+            div()
+                .id(id)
+                .px_3()
+                .h(px(32.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_sm()
+                .border_1()
+                .border_color(Theme::global(cx).primary())
+                .bg(if active {
+                    Theme::global(cx).primary()
+                } else {
+                    Theme::global(cx).white()
+                })
+                .text_color(if active {
+                    Theme::global(cx).white()
+                } else {
+                    Theme::global(cx).text_primary()
+                })
+                .cursor_pointer()
+                .active(|this| this.opacity(0.85))
+                .child(label)
+                .on_click(cx.listener(listener))
+        };
+
         div()
-            .id("settings-apply")
-            .px_4()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_6()
+            .py_5()
+            .border_b_1()
+            .border_color(Theme::global(cx).text_senodary())
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(Theme::global(cx).text_senodary())
+                            .child(description),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(option(
+                        format!("settings-export-{}-vertical", format.key()).into(),
+                        ExportWritingMode::Vertical.label(),
+                        selected == ExportWritingMode::Vertical,
+                        vertical_listener,
+                    ))
+                    .child(option(
+                        format!("settings-export-{}-horizontal", format.key()).into(),
+                        ExportWritingMode::Horizontal.label(),
+                        selected == ExportWritingMode::Horizontal,
+                        horizontal_listener,
+                    )),
+            )
+    }
+
+    fn render_export_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::BOLD)
+                            .child("Pro 書き出し設定"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(Theme::global(cx).text_senodary())
+                            .child("各形式ごとに縦書きか横書きの出力方向を選べます"),
+                    ),
+            )
+            .child(self.render_export_writing_mode_control(
+                "Word",
+                "縦書きは横向きレイアウト、横書きは現在の横書きレイアウトで出力します",
+                ExportTargetFormat::Word,
+                Self::set_word_vertical,
+                Self::set_word_horizontal,
+                cx,
+            ))
+            .child(self.render_export_writing_mode_control(
+                "EPUB",
+                "縦書きは縦書き表示対応リーダー向け、横書きは現在の横書きレイアウトで出力します",
+                ExportTargetFormat::Epub,
+                Self::set_epub_vertical,
+                Self::set_epub_horizontal,
+                cx,
+            ))
+    }
+
+    fn render_sidebar_item(
+        &self,
+        id: &'static str,
+        section: SettingsSection,
+        listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let active = self.selected_section == section;
+        div()
+            .id(id)
+            .w_full()
+            .px_3()
             .py_2()
-            .bg(Theme::global(cx).primary())
-            .text_color(Theme::global(cx).white())
+            .flex()
+            .items_center()
             .rounded_sm()
             .cursor_pointer()
+            .border_1()
+            .border_color(if active {
+                Theme::global(cx).primary()
+            } else {
+                Theme::global(cx).text_senodary()
+            })
+            .bg(if active {
+                Theme::global(cx).bg_senodary()
+            } else {
+                Theme::global(cx).white()
+            })
+            .text_color(if active {
+                Theme::global(cx).primary()
+            } else {
+                Theme::global(cx).text_primary()
+            })
             .active(|this| this.opacity(0.85))
-            .child("適用")
-            .on_click(cx.listener(Self::apply))
+            .child(section.label())
+            .on_click(cx.listener(listener))
+    }
+
+    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .w(px(220.0))
+            .h_full()
+            .p_4()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .border_r_1()
+            .border_color(Theme::global(cx).text_senodary())
+            .bg(Theme::global(cx).bg_senodary())
+            .child(
+                div()
+                    .px_2()
+                    .pb_3()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(Theme::global(cx).text_senodary())
+                    .child("設定"),
+            )
+            .child(self.render_sidebar_item(
+                "settings-sidebar-general",
+                SettingsSection::General,
+                Self::show_general_section,
+                cx,
+            ))
+            .child(self.render_sidebar_item(
+                "settings-sidebar-editor",
+                SettingsSection::Editor,
+                Self::show_editor_section,
+                cx,
+            ))
+            .child(self.render_sidebar_item(
+                "settings-sidebar-export",
+                SettingsSection::Export,
+                Self::show_export_section,
+                cx,
+            ))
+    }
+
+    fn render_content_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_2xl()
+                    .font_weight(FontWeight::BOLD)
+                    .child(self.selected_section.label()),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(Theme::global(cx).text_senodary())
+                    .child(self.selected_section.description()),
+            )
+    }
+
+    fn render_section_group(
+        &self,
+        title: &'static str,
+        description: &'static str,
+        children: Vec<gpui::AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let mut group = div().flex().flex_col().gap_3().child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(div().font_weight(FontWeight::BOLD).child(title))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(Theme::global(cx).text_senodary())
+                        .child(description),
+                ),
+        );
+        for child in children {
+            group = group.child(child);
+        }
+        group
+    }
+
+    fn render_general_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_section_group(
+            "一般",
+            "表示と原稿用紙の基本設定です",
+            vec![
+                self.render_grid_toggle(cx).into_any_element(),
+                self.render_cell_size(cx).into_any_element(),
+                self.render_hanging_punctuation_toggle(cx)
+                    .into_any_element(),
+                self.render_column_number_mode(cx).into_any_element(),
+                self.render_rows_per_column(cx).into_any_element(),
+            ],
+            cx,
+        )
+    }
+
+    fn render_editor_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_section_group(
+            "エディタ",
+            "編集操作と入力時の挙動を設定します",
+            vec![
+                self.render_vim_mode_toggle(cx).into_any_element(),
+                self.render_indent_on_enter_toggle(cx).into_any_element(),
+            ],
+            cx,
+        )
+    }
+
+    fn render_export_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_section_group(
+            "書き出し",
+            "Pro プラン向けのファイル書き出し設定です",
+            vec![self.render_export_settings(cx).into_any_element()],
+            cx,
+        )
+    }
+
+    fn render_selected_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        match self.selected_section {
+            SettingsSection::General => self.render_general_content(cx).into_any_element(),
+            SettingsSection::Editor => self.render_editor_content(cx).into_any_element(),
+            SettingsSection::Export => self.render_export_content(cx).into_any_element(),
+        }
     }
 }
 
@@ -673,59 +998,84 @@ impl Render for SettingsWindow {
                                 this.shadow(app_title_bar::client_window_shadow())
                             }),
                     })
-                    .child(self.title_bar.clone())
                     .child(
                         div()
-                            .id("settings-content-scroll")
+                            .window_control_area(WindowControlArea::Drag)
+                            .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+                                window.start_window_move();
+                            })
+                            .on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
+                                cx.stop_propagation();
+                                window.show_window_menu(event.position);
+                            })
+                            .child(self.title_bar.clone()),
+                    )
+                    .child(
+                        div()
                             .flex_1()
                             .w_full()
-                            .overflow_y_scroll()
-                            .p_6()
+                            .h_full()
                             .flex()
-                            .flex_col()
-                            .gap_4()
+                            .child(self.render_sidebar(cx))
                             .child(
                                 div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
+                                    .id("settings-content-scroll")
+                                    .flex_1()
+                                    .size_full()
+                                    .overflow_y_scroll()
                                     .child(
                                         div()
-                                            .text_2xl()
-                                            .font_weight(FontWeight::BOLD)
-                                            .child("設定"),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(Theme::global(cx).text_senodary())
-                                            .child("変更はsettings.jsonに保存されます"),
+                                            .p_8()
+                                            .flex()
+                                            .flex_col()
+                                            .gap_6()
+                                            .child(self.render_content_header(cx))
+                                            .child(self.render_selected_content(cx))
+                                            .child(
+                                                div()
+                                                    .pt_2()
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_end()
+                                                    .child(
+                                                        div()
+                                                            .h(px(24.0))
+                                                            .text_sm()
+                                                            .text_color(
+                                                                Theme::global(cx).text_senodary(),
+                                                            )
+                                                            .child(self.status.clone()),
+                                                    ),
+                                            ),
                                     ),
-                            )
-                            .child(self.render_grid_toggle(cx))
-                            .child(self.render_cell_size(cx))
-                            .child(self.render_hanging_punctuation_toggle(cx))
-                            .child(self.render_column_number_mode(cx))
-                            .child(self.render_vim_mode_toggle(cx))
-                            .child(self.render_indent_on_enter_toggle(cx))
-                            .child(self.render_rows_per_column(cx))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap_3()
-                                    .child(
-                                        div()
-                                            .h(px(24.0))
-                                            .text_sm()
-                                            .text_color(Theme::global(cx).text_senodary())
-                                            .child(self.status.clone()),
-                                    )
-                                    .child(self.render_apply_button(cx)),
                             ),
                     ),
             )
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsSection {
+    General,
+    Editor,
+    Export,
+}
+
+impl SettingsSection {
+    fn label(self) -> &'static str {
+        match self {
+            Self::General => "一般",
+            Self::Editor => "エディタ",
+            Self::Export => "書き出し",
+        }
+    }
+
+    fn description(self) -> &'static str {
+        match self {
+            Self::General => "表示や原稿用紙の基本設定を変更します",
+            Self::Editor => "入力や編集の挙動を変更します",
+            Self::Export => "Pro プラン向けの書き出し設定を変更します",
+        }
     }
 }
 
@@ -742,6 +1092,84 @@ pub enum ColumnNumberMode {
     EveryFive,
     EveryTen,
     All,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportWritingMode {
+    Vertical,
+    Horizontal,
+}
+
+impl ExportWritingMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Vertical => "縦書き",
+            Self::Horizontal => "横書き",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportTargetFormat {
+    Word,
+    Epub,
+}
+
+impl ExportTargetFormat {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Word => "word",
+            Self::Epub => "epub",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ExportFormatSettings {
+    pub writing_mode: ExportWritingMode,
+}
+
+impl Default for ExportFormatSettings {
+    fn default() -> Self {
+        Self {
+            writing_mode: ExportWritingMode::Vertical,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ExportSettings {
+    pub word: ExportFormatSettings,
+    pub epub: ExportFormatSettings,
+}
+
+impl Default for ExportSettings {
+    fn default() -> Self {
+        Self {
+            word: ExportFormatSettings::default(),
+            epub: ExportFormatSettings::default(),
+        }
+    }
+}
+
+impl ExportSettings {
+    pub fn format(&self, format: ExportTargetFormat) -> &ExportFormatSettings {
+        match format {
+            ExportTargetFormat::Word => &self.word,
+            ExportTargetFormat::Epub => &self.epub,
+        }
+    }
+
+    pub fn format_mut(&mut self, format: ExportTargetFormat) -> &mut ExportFormatSettings {
+        match format {
+            ExportTargetFormat::Word => &mut self.word,
+            ExportTargetFormat::Epub => &mut self.epub,
+        }
+    }
 }
 
 impl ColumnNumberMode {
@@ -776,6 +1204,7 @@ pub struct AppSettings {
     pub vim_mode: bool,
     #[serde(rename = "indentOnEnter")]
     pub indent_on_enter: bool,
+    pub export_settings: ExportSettings,
 }
 
 impl Global for AppSettings {}
@@ -790,6 +1219,7 @@ impl Default for AppSettings {
             rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: false,
             indent_on_enter: false,
+            export_settings: ExportSettings::default(),
         }
     }
 }
@@ -852,6 +1282,7 @@ impl AppSettings {
             rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: self.vim_mode,
             indent_on_enter: self.indent_on_enter,
+            export_settings: self.export_settings.clone(),
         }
     }
 
@@ -871,7 +1302,8 @@ impl AppSettings {
     fn settings_file_path() -> Option<PathBuf> {
         #[cfg(target_os = "windows")]
         {
-            env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("soukou").join(SETTINGS_FILE))
+            std::env::var_os("APPDATA")
+                .map(|appdata| PathBuf::from(appdata).join("soukou").join(SETTINGS_FILE))
         }
 
         #[cfg(not(target_os = "windows"))]
@@ -947,6 +1379,10 @@ mod tests {
         assert_eq!(settings.cell_size, DEFAULT_CELL_SIZE);
         assert_eq!(settings.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(!settings.vim_mode);
+        assert_eq!(
+            settings.export_settings.word.writing_mode,
+            ExportWritingMode::Vertical
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1003,6 +1439,12 @@ mod tests {
             rows_per_column: Some(24),
             vim_mode: true,
             indent_on_enter: true,
+            export_settings: ExportSettings {
+                word: ExportFormatSettings::default(),
+                epub: ExportFormatSettings {
+                    writing_mode: ExportWritingMode::Horizontal,
+                },
+            },
         };
 
         settings.save_to_file(&settings_path).unwrap();
@@ -1015,6 +1457,14 @@ mod tests {
         assert_eq!(reloaded.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(reloaded.vim_mode);
         assert!(reloaded.indent_on_enter);
+        assert_eq!(
+            reloaded.export_settings.word.writing_mode,
+            ExportWritingMode::Vertical
+        );
+        assert_eq!(
+            reloaded.export_settings.epub.writing_mode,
+            ExportWritingMode::Horizontal
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1064,6 +1514,29 @@ mod tests {
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
         assert_eq!(settings.cell_size, MAX_CELL_SIZE);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loads_export_writing_modes_from_settings_file() {
+        let dir = test_settings_dir("export_writing_modes");
+        fs::write(
+            dir.join("settings.json"),
+            r#"{"export_settings":{"word":{"writing_mode":"vertical"},"epub":{"writing_mode":"horizontal"}}}"#,
+        )
+        .unwrap();
+
+        let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
+
+        assert_eq!(
+            settings.export_settings.word.writing_mode,
+            ExportWritingMode::Vertical
+        );
+        assert_eq!(
+            settings.export_settings.epub.writing_mode,
+            ExportWritingMode::Horizontal
+        );
 
         let _ = fs::remove_dir_all(dir);
     }

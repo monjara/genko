@@ -194,6 +194,18 @@ configure_app_bundle_icon() {
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$info_plist_path"
 }
 
+configure_app_bundle_url_scheme() {
+  local bundle_path=$1
+  local info_plist_path="${bundle_path}/Contents/Info.plist"
+
+  /usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "$info_plist_path" >/dev/null 2>&1 || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$info_plist_path"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$info_plist_path"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string dev.monj.soukou.auth" "$info_plist_path"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$info_plist_path"
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string soukou" "$info_plist_path"
+}
+
 if [[ $# -gt 0 && -n "$1" ]]; then
   target_triple="$1"
 else
@@ -238,6 +250,9 @@ fi
 
 echo "Configuring app bundle icon"
 configure_app_bundle_icon "$app_path"
+
+echo "Configuring app bundle URL scheme"
+configure_app_bundle_url_scheme "$app_path"
 
 if [[ "$target_dir" != "debug" ]]; then
   echo "Signing 草稿.app"

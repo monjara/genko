@@ -6,6 +6,7 @@ use gpui::{
     InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
     Pixels, Render, ScrollWheelEvent, Size, Styled, UTF16Selection, Window, actions, div, px,
 };
+use richtext::{ResolvedBlock, RichDocument};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
@@ -50,6 +51,7 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("cmd-shift-z", Redo, EDITOR_CONTEXT),
         KeyBinding::new("ctrl-u", Redo, EDITOR_CONTEXT),
         KeyBinding::new("enter", Enter, EDITOR_CONTEXT),
+        KeyBinding::new("escape", ClearSelection, EDITOR_CONTEXT),
         KeyBinding::new("home", Home, EDITOR_CONTEXT),
         KeyBinding::new("end", End, EDITOR_CONTEXT),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, EDITOR_CONTEXT),
@@ -78,6 +80,7 @@ actions!(
         Undo,
         Redo,
         Enter,
+        ClearSelection,
         ShowCharacterPalette,
     ]
 );
@@ -125,6 +128,12 @@ pub(crate) struct EditorHistory {
     pub(crate) active_transaction: Option<PendingTransaction>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RichTextDecorations {
+    pub inline_marks: Vec<richtext::InlineMark>,
+    pub blocks: Vec<ResolvedBlock>,
+}
+
 #[derive(Clone)]
 struct VisibleTextCache {
     draft_revision: u64,
@@ -152,6 +161,7 @@ pub(crate) struct Editor {
     pub(crate) max_visible_rows: usize,
     pub(crate) text_input_enabled: bool,
     pub(crate) history: EditorHistory,
+    pub(crate) richtext_decorations: RichTextDecorations,
     visible_text_cache: Option<VisibleTextCache>,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
@@ -181,6 +191,7 @@ impl Editor {
             max_visible_rows: rows_per_column,
             text_input_enabled: true,
             history: EditorHistory::default(),
+            richtext_decorations: RichTextDecorations::default(),
             visible_text_cache: None,
             focus_handle: cx.focus_handle(),
             grid_path_cache: None,
@@ -481,6 +492,10 @@ impl Editor {
         self.draft.slice(0..self.draft.len_bytes())
     }
 
+    pub fn draft_revision(&self) -> u64 {
+        self.draft_revision
+    }
+
     pub fn rope(&self) -> &TextRope {
         &self.draft
     }
@@ -507,6 +522,25 @@ impl Editor {
 
     pub fn selected_byte_range(&self) -> Range<usize> {
         self.selected_range.clone()
+    }
+
+    pub fn selection_bounds(&self) -> Option<Bounds<Pixels>> {
+        let board_bounds = self.last_board_bounds?;
+        self.bounds_for_byte_range(self.selected_range.clone(), board_bounds)
+    }
+
+    pub fn set_richtext_document(
+        &mut self,
+        document: Option<&RichDocument>,
+        cx: &mut Context<Self>,
+    ) {
+        self.richtext_decorations = document
+            .map(|document| RichTextDecorations {
+                inline_marks: document.spans.clone(),
+                blocks: document.resolved_blocks(),
+            })
+            .unwrap_or_default();
+        cx.notify();
     }
 
     pub fn offset_after_cursor(&self) -> usize {
@@ -944,6 +978,24 @@ impl Editor {
         invalidate_ime_position(window);
     }
 
+    fn clear_selection_action(
+        &mut self,
+        _: &ClearSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.block_selection.is_some() {
+            self.clear_block_selection(cx);
+            invalidate_ime_position(window);
+            return;
+        }
+
+        if !self.selected_range.is_empty() {
+            self.collapse_selection_to_cursor_offset(cx);
+            invalidate_ime_position(window);
+        }
+    }
+
     fn copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
@@ -1255,6 +1307,7 @@ impl Render for Editor {
             .on_action(cx.listener(Self::undo_action))
             .on_action(cx.listener(Self::redo_action))
             .on_action(cx.listener(Self::enter))
+            .on_action(cx.listener(Self::clear_selection_action))
             .on_action(cx.listener(Self::show_character_palette))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))

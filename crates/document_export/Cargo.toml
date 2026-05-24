@@ -1,0 +1,14 @@
+[package]
+name = "document_export"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "document_export"
+path = "src/lib.rs"
+
+[dependencies]
+crc32fast = "1"
+richtext = { workspace = true }
+xmlwriter = "0.1"
