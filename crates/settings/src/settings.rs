@@ -232,472 +232,13 @@ impl SettingsWindow {
         cx.notify();
     }
 
-    fn render_rows_per_column(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows_label = AppSettings::global(cx)
-            .rows_per_column
-            .unwrap_or_else(AppSettings::default_rows_per_column)
-            .to_string();
-
-        div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_6()
-            .py_5()
-            .border_b_1()
-            .border_color(Theme::global(cx).text_senodary())
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("1列の文字数"))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(Theme::global(cx).text_senodary())
-                            .child("20文字で固定です"),
-                    ),
-            )
-            .child(
-                div().flex().items_center().gap_2().child(
-                    div()
-                        .w(px(52.0))
-                        .h(px(32.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_sm()
-                        .bg(Theme::global(cx).bg_senodary())
-                        .child(rows_label),
-                ),
-            )
-    }
-
-    fn render_cell_size(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_6()
-            .py_5()
-            .border_b_1()
-            .border_color(Theme::global(cx).text_senodary())
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("マスの大きさ"),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(Theme::global(cx).text_senodary())
-                            .child(format!(
-                                "{}pxから{}pxの範囲で調整します。文字サイズも連動します",
-                                AppSettings::min_cell_size(),
-                                AppSettings::max_cell_size()
-                            )),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .id("settings-cell-size-decrement")
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(Theme::global(cx).primary())
-                            .cursor_pointer()
-                            .active(|this| this.opacity(0.85))
-                            .child("-")
-                            .on_click(cx.listener(Self::decrement_cell_size)),
-                    )
-                    .child(
-                        div()
-                            .w(px(64.0))
-                            .h(px(32.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_sm()
-                            .bg(Theme::global(cx).bg_senodary())
-                            .child(format!("{}px", AppSettings::global(cx).cell_size)),
-                    )
-                    .child(
-                        div()
-                            .id("settings-cell-size-increment")
-                            .w(px(32.0))
-                            .h(px(32.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(Theme::global(cx).primary())
-                            .cursor_pointer()
-                            .active(|this| this.opacity(0.85))
-                            .child("+")
-                            .on_click(cx.listener(Self::increment_cell_size)),
-                    ),
-            )
-    }
-
-    fn render_grid_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let value_label = if AppSettings::global(cx).show_grid_lines {
-            "表示する"
-        } else {
-            "表示しない"
-        };
-
-        div()
-            .id("settings-grid-toggle")
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_6()
-            .py_5()
-            .border_b_1()
-            .border_color(Theme::global(cx).text_senodary())
-            .cursor_pointer()
-            .on_click(cx.listener(Self::toggle_grid_lines))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("グリッド線"))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(Theme::global(cx).text_senodary())
-                            .child("原稿用紙のマス目を表示します"),
-                    ),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .rounded_sm()
-                    .bg(if AppSettings::global(cx).show_grid_lines {
-                        Theme::global(cx).primary()
-                    } else {
-                        Theme::global(cx).white()
-                    })
-                    .text_color(if AppSettings::global(cx).show_grid_lines {
-                        // TODO どこ？
-                        Theme::global(cx).white()
-                    } else {
-                        Theme::global(cx).primary()
-                    })
-                    .child(value_label),
-            )
-    }
-
-    fn render_vim_mode_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let value_label = if AppSettings::global(cx).vim_mode {
-            "有効"
-        } else {
-            "無効"
-        };
-
-        div()
-            .id("settings-vim-mode-toggle")
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_6()
-            .py_5()
-            .border_b_1()
-            .border_color(Theme::global(cx).text_senodary())
-            .cursor_pointer()
-            .on_click(cx.listener(Self::toggle_vim_mode))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Vimモード"))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(Theme::global(cx).text_senodary())
-                            .child("Vimの通常モードと挿入モードで編集します"),
-                    ),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .rounded_sm()
-                    .bg(if AppSettings::global(cx).vim_mode {
-                        Theme::global(cx).primary()
-                    } else {
-                        Theme::global(cx).white()
-                    })
-                    .text_color(if AppSettings::global(cx).vim_mode {
-                        Theme::global(cx).white()
-                    } else {
-                        Theme::global(cx).primary()
-                    })
-                    .child(value_label),
-            )
-    }
-
-    fn render_indent_on_enter_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let value_label = if AppSettings::global(cx).indent_on_enter {
-            "有効"
-        } else {
-            "無効"
-        };
-
-        div()
-            .id("settings-indent-on-enter-toggle")
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_6()
-            .py_5()
-            .border_b_1()
-            .border_color(Theme::global(cx).text_senodary())
-            .cursor_pointer()
-            .on_click(cx.listener(Self::toggle_indent_on_enter))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Enter時に1マス字下げ"),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(Theme::global(cx).text_senodary())
-                            .child("有効時は改行後に1マス分スペースを挿入します"),
-                    ),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .rounded_sm()
-                    .bg(if AppSettings::global(cx).indent_on_enter {
-                        Theme::global(cx).primary()
-                    } else {
-                        Theme::global(cx).white()
-                    })
-                    .text_color(if AppSettings::global(cx).indent_on_enter {
-                        Theme::global(cx).white()
-                    } else {
-                        Theme::global(cx).primary()
-                    })
-                    .child(value_label),
-            )
-    }
-
-    fn render_hanging_punctuation_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let value_label = if AppSettings::global(cx).hanging_punctuation {
-            "有効"
-        } else {
-            "無効"
-        };
-
-        div()
-            .id("settings-hanging-punctuation-toggle")
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_6()
-            .py_5()
-            .border_b_1()
-            .border_color(Theme::global(cx).text_senodary())
-            .cursor_pointer()
-            .on_click(cx.listener(Self::toggle_hanging_punctuation))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("ぶら下がり"))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(Theme::global(cx).text_senodary())
-                            .child("行頭の句読点を前のマスへぶら下げます"),
-                    ),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .py_1()
-                    .rounded_sm()
-                    .bg(if AppSettings::global(cx).hanging_punctuation {
-                        Theme::global(cx).primary()
-                    } else {
-                        Theme::global(cx).white()
-                    })
-                    .text_color(if AppSettings::global(cx).hanging_punctuation {
-                        Theme::global(cx).white()
-                    } else {
-                        Theme::global(cx).primary()
-                    })
-                    .child(value_label),
-            )
-    }
-
-    fn render_column_number_mode(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = AppSettings::global(cx).column_number_mode;
-        let option = |id: &'static str,
-                      label: &'static str,
-                      active: bool,
-                      listener: fn(
-            &mut SettingsWindow,
-            &ClickEvent,
-            &mut Window,
-            &mut Context<Self>,
-        )| {
-            div()
-                .id(id)
-                .px_3()
-                .h(px(32.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_sm()
-                .border_1()
-                .border_color(Theme::global(cx).primary())
-                .bg(if active {
-                    Theme::global(cx).primary()
-                } else {
-                    Theme::global(cx).white()
-                })
-                .text_color(if active {
-                    Theme::global(cx).white()
-                } else {
-                    Theme::global(cx).text_primary()
-                })
-                .cursor_pointer()
-                .active(|this| this.opacity(0.85))
-                .child(label)
-                .on_click(cx.listener(listener))
-        };
-
-        div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_6()
-            .py_5()
-            .border_b_1()
-            .border_color(Theme::global(cx).text_senodary())
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child("列番号"))
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(Theme::global(cx).text_senodary())
-                            .child("選択した間隔の列だけ、原稿用紙の上に番号を表示します"),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(option(
-                        "settings-column-number-hidden",
-                        ColumnNumberMode::Hidden.label(),
-                        selected == ColumnNumberMode::Hidden,
-                        Self::set_column_number_hidden,
-                    ))
-                    .child(option(
-                        "settings-column-number-every-five",
-                        ColumnNumberMode::EveryFive.label(),
-                        selected == ColumnNumberMode::EveryFive,
-                        Self::set_column_number_every_five,
-                    ))
-                    .child(option(
-                        "settings-column-number-every-ten",
-                        ColumnNumberMode::EveryTen.label(),
-                        selected == ColumnNumberMode::EveryTen,
-                        Self::set_column_number_every_ten,
-                    ))
-                    .child(option(
-                        "settings-column-number-all",
-                        ColumnNumberMode::All.label(),
-                        selected == ColumnNumberMode::All,
-                        Self::set_column_number_all,
-                    )),
-            )
-    }
-
-    fn render_export_writing_mode_control(
+    fn render_setting_row(
         &self,
         title: &'static str,
-        description: &'static str,
-        format: ExportTargetFormat,
-        vertical_listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
-        horizontal_listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        description: impl IntoElement,
+        control: impl IntoElement,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let selected = AppSettings::global(cx)
-            .export_settings
-            .format(format)
-            .writing_mode;
-        let option = |id: SharedString,
-                      label: &'static str,
-                      active: bool,
-                      listener: fn(
-            &mut SettingsWindow,
-            &ClickEvent,
-            &mut Window,
-            &mut Context<Self>,
-        )| {
-            div()
-                .id(id)
-                .px_3()
-                .h(px(32.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded_sm()
-                .border_1()
-                .border_color(Theme::global(cx).primary())
-                .bg(if active {
-                    Theme::global(cx).primary()
-                } else {
-                    Theme::global(cx).white()
-                })
-                .text_color(if active {
-                    Theme::global(cx).white()
-                } else {
-                    Theme::global(cx).text_primary()
-                })
-                .cursor_pointer()
-                .active(|this| this.opacity(0.85))
-                .child(label)
-                .on_click(cx.listener(listener))
-        };
-
         div()
             .flex()
             .items_center()
@@ -719,24 +260,297 @@ impl SettingsWindow {
                             .child(description),
                     ),
             )
-            .child(
+            .child(control)
+    }
+
+    fn render_selectable_chip(
+        &self,
+        id: impl Into<gpui::ElementId>,
+        label: impl IntoElement,
+        active: bool,
+        listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id(id)
+            .px_3()
+            .h(px(32.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_sm()
+            .border_1()
+            .border_color(Theme::global(cx).primary())
+            .bg(if active {
+                Theme::global(cx).primary()
+            } else {
+                Theme::global(cx).white()
+            })
+            .text_color(if active {
+                Theme::global(cx).white()
+            } else {
+                Theme::global(cx).text_primary()
+            })
+            .cursor_pointer()
+            .active(|this| this.opacity(0.85))
+            .child(label)
+            .on_click(cx.listener(listener))
+    }
+
+    fn render_toggle_row(
+        &self,
+        id: &'static str,
+        title: &'static str,
+        description: &'static str,
+        enabled: bool,
+        enabled_label: &'static str,
+        disabled_label: &'static str,
+        listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let value_label = if enabled {
+            enabled_label
+        } else {
+            disabled_label
+        };
+
+        self.render_setting_row(
+            title,
+            description,
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .rounded_sm()
+                .bg(if enabled {
+                    Theme::global(cx).primary()
+                } else {
+                    Theme::global(cx).white()
+                })
+                .text_color(if enabled {
+                    Theme::global(cx).white()
+                } else {
+                    Theme::global(cx).primary()
+                })
+                .cursor_pointer()
+                .child(value_label)
+                .on_click(cx.listener(listener)),
+            cx,
+        )
+    }
+
+    fn render_rows_per_column(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows_label = AppSettings::global(cx)
+            .rows_per_column
+            .unwrap_or_else(AppSettings::default_rows_per_column)
+            .to_string();
+
+        self.render_setting_row(
+            "1列の文字数",
+            "20文字で固定です",
+            div().flex().items_center().gap_2().child(
                 div()
+                    .w(px(52.0))
+                    .h(px(32.0))
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .child(option(
-                        format!("settings-export-{}-vertical", format.key()).into(),
-                        ExportWritingMode::Vertical.label(),
-                        selected == ExportWritingMode::Vertical,
-                        vertical_listener,
-                    ))
-                    .child(option(
-                        format!("settings-export-{}-horizontal", format.key()).into(),
-                        ExportWritingMode::Horizontal.label(),
-                        selected == ExportWritingMode::Horizontal,
-                        horizontal_listener,
-                    )),
-            )
+                    .justify_center()
+                    .rounded_sm()
+                    .bg(Theme::global(cx).bg_senodary())
+                    .child(rows_label),
+            ),
+            cx,
+        )
+    }
+
+    fn render_cell_size(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_setting_row(
+            "マスの大きさ",
+            format!(
+                "{}pxから{}pxの範囲で調整します。文字サイズも連動します",
+                AppSettings::min_cell_size(),
+                AppSettings::max_cell_size()
+            ),
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .id("settings-cell-size-decrement")
+                        .w(px(32.0))
+                        .h(px(32.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(Theme::global(cx).primary())
+                        .cursor_pointer()
+                        .active(|this| this.opacity(0.85))
+                        .child("-")
+                        .on_click(cx.listener(Self::decrement_cell_size)),
+                )
+                .child(
+                    div()
+                        .w(px(64.0))
+                        .h(px(32.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_sm()
+                        .bg(Theme::global(cx).bg_senodary())
+                        .child(format!("{}px", AppSettings::global(cx).cell_size)),
+                )
+                .child(
+                    div()
+                        .id("settings-cell-size-increment")
+                        .w(px(32.0))
+                        .h(px(32.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(Theme::global(cx).primary())
+                        .cursor_pointer()
+                        .active(|this| this.opacity(0.85))
+                        .child("+")
+                        .on_click(cx.listener(Self::increment_cell_size)),
+                ),
+            cx,
+        )
+    }
+
+    fn render_grid_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_toggle_row(
+            "settings-grid-toggle",
+            "グリッド線",
+            "原稿用紙のマス目を表示します",
+            AppSettings::global(cx).show_grid_lines,
+            "表示する",
+            "表示しない",
+            Self::toggle_grid_lines,
+            cx,
+        )
+    }
+
+    fn render_vim_mode_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_toggle_row(
+            "settings-vim-mode-toggle",
+            "Vimモード",
+            "Vimの通常モードと挿入モードで編集します",
+            AppSettings::global(cx).vim_mode,
+            "有効",
+            "無効",
+            Self::toggle_vim_mode,
+            cx,
+        )
+    }
+
+    fn render_indent_on_enter_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_toggle_row(
+            "settings-indent-on-enter-toggle",
+            "Enter時に1マス字下げ",
+            "有効時は改行後に1マス分スペースを挿入します",
+            AppSettings::global(cx).indent_on_enter,
+            "有効",
+            "無効",
+            Self::toggle_indent_on_enter,
+            cx,
+        )
+    }
+
+    fn render_hanging_punctuation_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_toggle_row(
+            "settings-hanging-punctuation-toggle",
+            "ぶら下がり",
+            "行頭の句読点を前のマスへぶら下げます",
+            AppSettings::global(cx).hanging_punctuation,
+            "有効",
+            "無効",
+            Self::toggle_hanging_punctuation,
+            cx,
+        )
+    }
+
+    fn render_column_number_mode(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let selected = AppSettings::global(cx).column_number_mode;
+        self.render_setting_row(
+            "列番号",
+            "選択した間隔の列だけ、原稿用紙の上に番号を表示します",
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(self.render_selectable_chip(
+                    "settings-column-number-hidden",
+                    ColumnNumberMode::Hidden.label(),
+                    selected == ColumnNumberMode::Hidden,
+                    Self::set_column_number_hidden,
+                    cx,
+                ))
+                .child(self.render_selectable_chip(
+                    "settings-column-number-every-five",
+                    ColumnNumberMode::EveryFive.label(),
+                    selected == ColumnNumberMode::EveryFive,
+                    Self::set_column_number_every_five,
+                    cx,
+                ))
+                .child(self.render_selectable_chip(
+                    "settings-column-number-every-ten",
+                    ColumnNumberMode::EveryTen.label(),
+                    selected == ColumnNumberMode::EveryTen,
+                    Self::set_column_number_every_ten,
+                    cx,
+                ))
+                .child(self.render_selectable_chip(
+                    "settings-column-number-all",
+                    ColumnNumberMode::All.label(),
+                    selected == ColumnNumberMode::All,
+                    Self::set_column_number_all,
+                    cx,
+                )),
+            cx,
+        )
+    }
+
+    fn render_export_writing_mode_control(
+        &self,
+        title: &'static str,
+        description: &'static str,
+        format: ExportTargetFormat,
+        vertical_listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        horizontal_listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = AppSettings::global(cx)
+            .export_settings
+            .format(format)
+            .writing_mode;
+        self.render_setting_row(
+            title,
+            description,
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(self.render_selectable_chip(
+                    format!("settings-export-{}-vertical", format.key()),
+                    ExportWritingMode::Vertical.label(),
+                    selected == ExportWritingMode::Vertical,
+                    vertical_listener,
+                    cx,
+                ))
+                .child(self.render_selectable_chip(
+                    format!("settings-export-{}-horizontal", format.key()),
+                    ExportWritingMode::Horizontal.label(),
+                    selected == ExportWritingMode::Horizontal,
+                    horizontal_listener,
+                    cx,
+                )),
+            cx,
+        )
     }
 
     fn render_export_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1142,20 +956,11 @@ impl Default for ExportFormatSettings {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(default)]
 pub struct ExportSettings {
     pub word: ExportFormatSettings,
     pub epub: ExportFormatSettings,
-}
-
-impl Default for ExportSettings {
-    fn default() -> Self {
-        Self {
-            word: ExportFormatSettings::default(),
-            epub: ExportFormatSettings::default(),
-        }
-    }
 }
 
 impl ExportSettings {
@@ -1691,7 +1496,10 @@ mod tests {
                 keystroke: "ctrl-shift-o".to_string(),
             })
         );
-        assert_eq!(settings.keymap_keystroke("app.open_file.ctrl"), SharedString::from("ctrl-shift-o".to_string()));
+        assert_eq!(
+            settings.keymap_keystroke("app.open_file.ctrl"),
+            SharedString::from("ctrl-shift-o".to_string())
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1719,7 +1527,9 @@ mod tests {
             })
         );
         assert_eq!(
-            merged.iter().find(|entry| entry.id == "vim.enter_insert_mode"),
+            merged
+                .iter()
+                .find(|entry| entry.id == "vim.enter_insert_mode"),
             Some(&KeymapEntry {
                 id: "vim.enter_insert_mode".to_string(),
                 keystroke: "I".to_string(),
