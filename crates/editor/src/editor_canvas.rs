@@ -254,7 +254,6 @@ impl Element for EditorCanvas {
             });
             paint_grid(
                 content_bounds,
-                rows_per_column,
                 visible_columns,
                 scroll_row,
                 visible_rows,
@@ -364,7 +363,6 @@ fn paint_column_numbers(
 
 fn paint_grid(
     bounds: Bounds<Pixels>,
-    _rows_per_column: usize,
     visible_columns: usize,
     _first_visible_row: usize,
     visible_rows: usize,

@@ -5,8 +5,8 @@ use std::time::Instant;
 use gpui::{
     Action, App, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle,
     Focusable, InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent,
-    ParentElement, Pixels, Render, ScrollWheelEvent, Size, Styled, UTF16Selection, Window, actions,
-    div, px,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Size, Styled,
+    UTF16Selection, Window, actions, div, px,
 };
 use richtext::{ResolvedBlock, RichDocument};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
@@ -211,6 +211,8 @@ pub(crate) struct Editor {
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) grid_path_cache: Option<GridPathCache>,
     last_viewport_size: Option<Size<Pixels>>,
+    mouse_selection_anchor_cell: Option<usize>,
+    is_mouse_selecting: bool,
 }
 impl Editor {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -242,6 +244,8 @@ impl Editor {
             grid_path_cache: None,
             last_board_bounds: None,
             last_viewport_size: None,
+            mouse_selection_anchor_cell: None,
+            is_mouse_selecting: false,
         }
     }
 
@@ -851,6 +855,84 @@ impl Editor {
         cx.notify();
     }
 
+    fn select_between_display_cells(
+        &mut self,
+        anchor_cell: usize,
+        cursor_cell: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let anchor_offset = self.byte_offset_for_display_cell(anchor_cell);
+        let cursor_offset = self.byte_offset_for_display_cell(cursor_cell);
+        let original_range = self.selected_range.clone();
+        let original_reversed = self.selection_reversed;
+        let original_cursor = self.cursor_cell;
+
+        if cursor_offset < anchor_offset {
+            self.selected_range = cursor_offset..anchor_offset;
+            self.selection_reversed = true;
+        } else {
+            self.selected_range = anchor_offset..cursor_offset;
+            self.selection_reversed = false;
+        }
+        self.cursor_cell = cursor_cell;
+        self.block_selection = None;
+        self.ensure_cursor_visible();
+
+        if self.selected_range == original_range
+            && self.selection_reversed == original_reversed
+            && self.cursor_cell == original_cursor
+        {
+            return;
+        }
+        cx.notify();
+    }
+
+    fn selection_anchor_cell(&self) -> usize {
+        let anchor_offset = if self.selection_reversed {
+            self.selected_range.end
+        } else {
+            self.selected_range.start
+        };
+        self.display_cell_for_byte(anchor_offset)
+    }
+
+    fn clamped_display_cell_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
+        let bounds = self.last_board_bounds?;
+        let visible_columns = self.visible_columns().max(1);
+        let visible_rows = self.visible_rows().max(1);
+        let max_x = (bounds.right() - px(0.001)).max(bounds.left());
+        let max_y = (bounds.bottom() - px(0.001)).max(bounds.top());
+        let clamped_x = position.x.clamp(bounds.left(), max_x);
+        let clamped_y = position.y.clamp(bounds.top(), max_y);
+        let stride_value = self.cell_size() + self.ruby_gutter_size();
+        let stride = px(stride_value);
+        let local_x = clamped_x - bounds.left();
+        let slot = (local_x / stride)
+            .floor()
+            .clamp(0.0, (visible_columns - 1) as f32) as usize;
+        let slot_offset = local_x - px(slot as f32 * stride_value);
+        let column = if slot_offset > px(self.cell_size()) {
+            let gutter_offset = slot_offset - px(self.cell_size());
+            let gutter_size = px(self.ruby_gutter_size());
+            if gutter_offset >= gutter_size / 2.0 && slot + 1 < visible_columns {
+                slot + 1
+            } else {
+                slot
+            }
+        } else {
+            slot
+        };
+        let row = ((clamped_y - bounds.top()) / px(self.cell_size()))
+            .floor()
+            .clamp(0.0, (visible_rows - 1) as f32) as usize;
+        let column_from_right = visible_columns - 1 - column;
+        Some(
+            (self.scroll_column + column_from_right) * self.rows_per_column()
+                + self.scroll_row
+                + row,
+        )
+    }
+
     fn replace_text_in_byte_range(
         &mut self,
         range: Range<usize>,
@@ -1250,13 +1332,47 @@ impl Editor {
             self.cell_size(),
             self.ruby_gutter_size(),
         ) {
+            self.is_mouse_selecting = true;
             if event.modifiers.shift {
-                self.select_to_display_cell(cell_index, cx);
+                let anchor_cell = self.selection_anchor_cell();
+                self.mouse_selection_anchor_cell = Some(anchor_cell);
+                self.select_between_display_cells(anchor_cell, cell_index, cx);
             } else {
+                self.mouse_selection_anchor_cell = Some(cell_index);
                 self.move_to_display_cell(cell_index, cx);
             }
             invalidate_ime_position(window);
         }
+    }
+
+    fn on_board_mouse_up(
+        &mut self,
+        _: &MouseUpEvent,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        self.is_mouse_selecting = false;
+        self.mouse_selection_anchor_cell = None;
+    }
+
+    fn on_board_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.is_mouse_selecting {
+            return;
+        }
+
+        let Some(anchor_cell) = self.mouse_selection_anchor_cell else {
+            return;
+        };
+        let Some(cell_index) = self.clamped_display_cell_for_point(event.position) else {
+            return;
+        };
+        self.select_between_display_cells(anchor_cell, cell_index, cx);
+        invalidate_ime_position(window);
     }
 
     fn on_scroll_wheel(
@@ -1504,6 +1620,9 @@ impl Render for Editor {
             .on_action(cx.listener(Self::clear_selection_action))
             .on_action(cx.listener(Self::show_character_palette))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_board_mouse_up))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_board_mouse_up))
+            .on_mouse_move(cx.listener(Self::on_board_mouse_move))
             .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
             .cursor(CursorStyle::IBeam)
             .child(EditorCanvas::new(cx.entity()))
