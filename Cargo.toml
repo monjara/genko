@@ -7,9 +7,9 @@ members = [
   "crates/editor",
   "crates/env",
   "crates/richtext",
-  "crates/soukou",
   "crates/rope",
   "crates/settings",
+  "crates/soukou",
   "crates/theme",
   "crates/title_bar",
   "crates/ui",
@@ -22,6 +22,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
+crc32fast = "1"
 gpui = { package = "gpui", git = "https://github.com/monjara/zed", branch = "vertical-text-feature" }
 gpui_platform = { package = "gpui_platform", git = "https://github.com/monjara/zed", branch = "vertical-text-feature", features = [
   "font-kit",
@@ -32,13 +33,14 @@ gpui_platform = { package = "gpui_platform", git = "https://github.com/monjara/z
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 xdg = "3.0.0"
+xmlwriter = "0.1"
 
 bottom_bar = { path = "crates/bottom_bar" }
 document_export = { path = "crates/document_export" }
 editor = { path = "crates/editor" }
 env = { path = "crates/env" }
-rope = { path = "crates/rope" }
 richtext = { path = "crates/richtext" }
+rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 theme = { path = "crates/theme" }
 title_bar = { path = "crates/title_bar" }
