@@ -1,3 +1,7 @@
+mod history;
+pub(crate) mod layout;
+mod selection;
+
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
@@ -12,10 +16,12 @@ use richtext::{ResolvedBlock, RichDocument};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
-use crate::editor_canvas::{
-    EditorCanvas, GridPathCache, cell_bounds_for_logical_index, content_height_for_window_height,
-    logical_index_for_point, rows_per_column_for_window_height, visible_columns_for_window_width,
+use self::{history as editor_history, selection as editor_selection};
+use crate::editor::layout::{
+    content_height_for_window_height, logical_index_for_point, rows_per_column_for_window_height,
+    visible_columns_for_window_width,
 };
+use crate::editor_canvas::{EditorCanvas, GridPathCache};
 use crate::perf::{log_paste_perf, paste_perf_enabled};
 use crate::vim::{VimMode, VimNormalMode, VimState};
 
@@ -421,39 +427,22 @@ impl Editor {
     }
 
     pub(crate) fn previous_boundary(&self, offset: usize) -> usize {
-        let grapheme_index = self.draft.grapheme_index_for_byte(offset);
-        if grapheme_index == 0 {
-            0
-        } else {
-            self.draft
-                .byte_offset_for_grapheme_index(grapheme_index - 1)
-        }
+        editor_selection::previous_boundary(self, offset)
     }
 
     pub(crate) fn next_boundary(&self, offset: usize) -> usize {
-        self.draft
-            .byte_offset_for_grapheme_index(self.draft.grapheme_index_for_byte(offset) + 1)
+        editor_selection::next_boundary(self, offset)
     }
 
     pub(crate) fn materialize_cursor_cell_for_insert(
         &mut self,
         range: Range<usize>,
     ) -> Range<usize> {
-        if !range.is_empty() {
-            return range;
-        }
-
-        let offset = self.draft.materialize_display_cell(self.cursor_cell);
-        self.bump_draft_revision();
-        offset..offset
+        editor_selection::materialize_cursor_cell_for_insert(self, range)
     }
 
     pub(crate) fn editing_range(&self, range_utf16: Option<Range<usize>>) -> Range<usize> {
-        range_utf16
-            .as_ref()
-            .map(|range| self.range_from_utf16(range))
-            .or_else(|| self.marked_range.clone())
-            .unwrap_or_else(|| self.selected_range.clone())
+        editor_selection::editing_range(self, range_utf16)
     }
 
     pub fn byte_offset_for_display_cell(&self, display_cell_index: usize) -> usize {
@@ -461,31 +450,19 @@ impl Editor {
     }
 
     pub(crate) fn materialize_display_cell(&mut self, display_cell_index: usize) -> usize {
-        let offset = self.draft.materialize_display_cell(display_cell_index);
-        self.bump_draft_revision();
-        offset
+        editor_selection::materialize_display_cell(self, display_cell_index)
     }
 
     pub(crate) fn set_cursor_from_offset(&mut self, cursor_offset: usize) {
-        self.selected_range = cursor_offset..cursor_offset;
-        self.selection_reversed = false;
-        self.cursor_cell = self.display_cell_for_byte(cursor_offset);
-        self.marked_range = None;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
+        editor_selection::set_cursor_from_offset(self, cursor_offset);
     }
 
     pub(crate) fn selected_utf16_selection(&self) -> UTF16Selection {
-        UTF16Selection {
-            range: self.range_to_utf16(&self.selected_range),
-            reversed: self.selection_reversed,
-        }
+        editor_selection::selected_utf16_selection(self)
     }
 
     pub(crate) fn marked_range_utf16(&self) -> Option<Range<usize>> {
-        self.marked_range
-            .as_ref()
-            .map(|range| self.range_to_utf16(range))
+        editor_selection::marked_range_utf16(self)
     }
 
     pub(crate) fn view_state(&self) -> EditorViewState {
@@ -629,26 +606,23 @@ impl Editor {
     }
 
     pub fn offset_after_cursor(&self) -> usize {
-        self.next_boundary(self.cursor_offset())
+        editor_selection::offset_after_cursor(self)
     }
 
     pub fn move_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let target = self.cursor_cell.saturating_add_signed(delta);
-        self.move_to_display_cell(target, cx);
+        editor_selection::move_cursor_by(self, delta, cx);
     }
 
     pub fn move_cursor_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
-        self.move_to_display_cell(cell_index, cx);
+        editor_selection::move_cursor_to_display_cell(self, cell_index, cx);
     }
 
     pub fn move_cursor_to_byte_offset(&mut self, byte_offset: usize, cx: &mut Context<Self>) {
-        let cell_index = self.display_cell_for_byte(byte_offset);
-        self.move_to_display_cell(cell_index, cx);
+        editor_selection::move_cursor_to_byte_offset(self, byte_offset, cx);
     }
 
     pub fn select_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let target = self.cursor_cell.saturating_add_signed(delta);
-        self.select_to_display_cell(target, cx);
+        editor_selection::select_cursor_by(self, delta, cx);
     }
 
     pub fn select_visual_range(
@@ -657,18 +631,7 @@ impl Editor {
         cursor_cell: usize,
         cx: &mut Context<Self>,
     ) {
-        let start_cell = anchor_cell.min(cursor_cell);
-        let end_cell = anchor_cell.max(cursor_cell);
-        let start = self.draft.byte_offset_for_display_cell(start_cell);
-        let end = self
-            .next_boundary(self.draft.byte_offset_for_display_cell(end_cell))
-            .max(start);
-        self.selected_range = start..end;
-        self.selection_reversed = cursor_cell < anchor_cell;
-        self.cursor_cell = cursor_cell;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
-        cx.notify();
+        editor_selection::select_visual_range(self, anchor_cell, cursor_cell, cx);
     }
 
     pub fn set_block_selection(
@@ -677,39 +640,19 @@ impl Editor {
         cursor_cell: usize,
         cx: &mut Context<Self>,
     ) {
-        let cursor_offset = self.byte_offset_for_display_cell(cursor_cell);
-        self.selected_range = cursor_offset..cursor_offset;
-        self.selection_reversed = false;
-        self.cursor_cell = cursor_cell;
-        self.marked_range = None;
-        self.block_selection = Some(BlockSelection {
-            anchor_cell,
-            cursor_cell,
-        });
-        self.ensure_cursor_visible();
-        cx.notify();
+        editor_selection::set_block_selection(self, anchor_cell, cursor_cell, cx);
     }
 
     pub fn clear_block_selection(&mut self, cx: &mut Context<Self>) {
-        if self.block_selection.take().is_some() {
-            cx.notify();
-        }
+        editor_selection::clear_block_selection(self, cx);
     }
 
     pub fn collapse_selection_to_cursor_offset(&mut self, cx: &mut Context<Self>) {
-        let cursor_offset = self.cursor_offset();
-        self.selected_range = cursor_offset..cursor_offset;
-        self.selection_reversed = false;
-        self.marked_range = None;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
-        cx.notify();
+        editor_selection::collapse_selection_to_cursor_offset(self, cx);
     }
 
     pub fn collapse_selection_to_cursor_cell(&mut self, cx: &mut Context<Self>) {
-        let cursor_offset = self.byte_offset_for_display_cell(self.cursor_cell);
-        self.set_cursor_from_offset(cursor_offset);
-        cx.notify();
+        editor_selection::collapse_selection_to_cursor_cell(self, cx);
     }
 
     pub fn replace_byte_range(
@@ -722,137 +665,31 @@ impl Editor {
     }
 
     pub fn begin_transaction(&mut self) {
-        if self.history.active_transaction.is_none() {
-            self.history.active_transaction = Some(PendingTransaction {
-                before: self.view_state(),
-                edits: Vec::new(),
-            });
-        }
+        editor_history::begin_transaction(self);
     }
 
     pub fn commit_transaction(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(pending) = self.history.active_transaction.take() else {
-            return false;
-        };
-        let after = self.view_state();
-        if pending.edits.is_empty() && pending.before == after {
-            return false;
-        }
-
-        self.history.undo_stack.push(EditTransaction {
-            before: pending.before,
-            after,
-            edits: pending.edits.clone(),
-        });
-        self.last_applied_edit_batch = Some(AppliedEditBatch {
-            revision: self.draft_revision,
-            edits: pending.edits,
-        });
-        self.history.redo_stack.clear();
-        cx.notify();
-        true
+        editor_history::commit_transaction(self, cx)
     }
 
     pub fn active_transaction_inserted_text(&self) -> Option<String> {
-        self.history
-            .active_transaction
-            .as_ref()
-            .map(|transaction| transaction_inserted_text(&transaction.edits))
+        editor_history::active_transaction_inserted_text(self)
     }
 
     pub fn last_transaction_inserted_text(&self) -> Option<String> {
-        self.history
-            .undo_stack
-            .last()
-            .map(|transaction| transaction_inserted_text(&transaction.edits))
+        editor_history::last_transaction_inserted_text(self)
     }
 
     pub fn undo(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(transaction) = self.history.undo_stack.pop() else {
-            return false;
-        };
-        for edit in transaction.edits.iter().rev() {
-            let inserted_end = edit.start + edit.inserted_text.len();
-            self.draft.replace_range(
-                inserted_end.saturating_sub(edit.inserted_text.len())..inserted_end,
-                &edit.removed_text,
-            );
-        }
-        self.bump_draft_revision();
-        self.restore_view_state(transaction.before.clone());
-        self.last_applied_edit_batch = Some(AppliedEditBatch {
-            revision: self.draft_revision,
-            edits: inverse_edit_operations(&transaction.edits),
-        });
-        self.history.redo_stack.push(transaction);
-        cx.notify();
-        true
+        editor_history::undo(self, cx)
     }
 
     pub fn redo(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(transaction) = self.history.redo_stack.pop() else {
-            return false;
-        };
-        for edit in &transaction.edits {
-            let removed_end = edit.start + edit.removed_text.len();
-            self.draft.replace_range(
-                removed_end.saturating_sub(edit.removed_text.len())..removed_end,
-                &edit.inserted_text,
-            );
-        }
-        self.bump_draft_revision();
-        self.restore_view_state(transaction.after.clone());
-        self.last_applied_edit_batch = Some(AppliedEditBatch {
-            revision: self.draft_revision,
-            edits: transaction.edits.clone(),
-        });
-        self.history.undo_stack.push(transaction);
-        cx.notify();
-        true
+        editor_history::redo(self, cx)
     }
 
     fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
-        let offset = self.byte_offset_for_display_cell(cell_index);
-        if self.cursor_cell == cell_index
-            && self.selected_range.start == offset
-            && self.selected_range.end == offset
-            && !self.selection_reversed
-            && self.block_selection.is_none()
-        {
-            return;
-        }
-        self.selected_range = offset..offset;
-        self.selection_reversed = false;
-        self.cursor_cell = cell_index;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
-        cx.notify();
-    }
-
-    fn select_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
-        let offset = self.byte_offset_for_display_cell(cell_index);
-        let original_range = self.selected_range.clone();
-        let original_reversed = self.selection_reversed;
-        if self.selection_reversed {
-            self.selected_range.start = offset;
-        } else {
-            self.selected_range.end = offset;
-        }
-        if self.selected_range.end < self.selected_range.start {
-            self.selection_reversed = !self.selection_reversed;
-            self.selected_range = self.selected_range.end..self.selected_range.start;
-        }
-        self.cursor_cell = cell_index;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
-        if self.cursor_cell == cell_index
-            && self.selected_range == original_range
-            && self.selection_reversed == original_reversed
-            && self.block_selection.is_none()
-        {
-            return;
-        }
-        cx.notify();
+        editor_selection::move_to_display_cell(self, cell_index, cx);
     }
 
     fn select_between_display_cells(
@@ -861,76 +698,15 @@ impl Editor {
         cursor_cell: usize,
         cx: &mut Context<Self>,
     ) {
-        let anchor_offset = self.byte_offset_for_display_cell(anchor_cell);
-        let cursor_offset = self.byte_offset_for_display_cell(cursor_cell);
-        let original_range = self.selected_range.clone();
-        let original_reversed = self.selection_reversed;
-        let original_cursor = self.cursor_cell;
-
-        if cursor_offset < anchor_offset {
-            self.selected_range = cursor_offset..anchor_offset;
-            self.selection_reversed = true;
-        } else {
-            self.selected_range = anchor_offset..cursor_offset;
-            self.selection_reversed = false;
-        }
-        self.cursor_cell = cursor_cell;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
-
-        if self.selected_range == original_range
-            && self.selection_reversed == original_reversed
-            && self.cursor_cell == original_cursor
-        {
-            return;
-        }
-        cx.notify();
+        editor_selection::select_between_display_cells(self, anchor_cell, cursor_cell, cx);
     }
 
     fn selection_anchor_cell(&self) -> usize {
-        let anchor_offset = if self.selection_reversed {
-            self.selected_range.end
-        } else {
-            self.selected_range.start
-        };
-        self.display_cell_for_byte(anchor_offset)
+        editor_selection::selection_anchor_cell(self)
     }
 
     fn clamped_display_cell_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
-        let bounds = self.last_board_bounds?;
-        let visible_columns = self.visible_columns().max(1);
-        let visible_rows = self.visible_rows().max(1);
-        let max_x = (bounds.right() - px(0.001)).max(bounds.left());
-        let max_y = (bounds.bottom() - px(0.001)).max(bounds.top());
-        let clamped_x = position.x.clamp(bounds.left(), max_x);
-        let clamped_y = position.y.clamp(bounds.top(), max_y);
-        let stride_value = self.cell_size() + self.ruby_gutter_size();
-        let stride = px(stride_value);
-        let local_x = clamped_x - bounds.left();
-        let slot = (local_x / stride)
-            .floor()
-            .clamp(0.0, (visible_columns - 1) as f32) as usize;
-        let slot_offset = local_x - px(slot as f32 * stride_value);
-        let column = if slot_offset > px(self.cell_size()) {
-            let gutter_offset = slot_offset - px(self.cell_size());
-            let gutter_size = px(self.ruby_gutter_size());
-            if gutter_offset >= gutter_size / 2.0 && slot + 1 < visible_columns {
-                slot + 1
-            } else {
-                slot
-            }
-        } else {
-            slot
-        };
-        let row = ((clamped_y - bounds.top()) / px(self.cell_size()))
-            .floor()
-            .clamp(0.0, (visible_rows - 1) as f32) as usize;
-        let column_from_right = visible_columns - 1 - column;
-        Some(
-            (self.scroll_column + column_from_right) * self.rows_per_column()
-                + self.scroll_row
-                + row,
-        )
+        editor_selection::clamped_display_cell_for_point(self, position)
     }
 
     fn replace_text_in_byte_range(
@@ -1095,19 +871,7 @@ impl Editor {
     }
 
     fn byte_offset_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
-        let bounds = self.last_board_bounds?;
-        let index = logical_index_for_point(
-            bounds,
-            position,
-            self.scroll_column,
-            self.scroll_row,
-            self.rows_per_column(),
-            self.visible_columns(),
-            self.visible_rows(),
-            self.cell_size(),
-            self.ruby_gutter_size(),
-        )?;
-        Some(self.draft.byte_offset_for_display_cell(index))
+        editor_selection::byte_offset_for_point(self, position)
     }
 
     fn bounds_for_byte_range(
@@ -1115,23 +879,7 @@ impl Editor {
         range: Range<usize>,
         board_bounds: Bounds<Pixels>,
     ) -> Option<Bounds<Pixels>> {
-        let logical_index = if range.is_empty() && range.start == self.selected_range.start {
-            self.cursor_cell
-        } else {
-            self.display_cell_for_byte(range.start)
-        };
-        let cell_bounds = cell_bounds_for_logical_index(
-            board_bounds,
-            logical_index,
-            self.scroll_column,
-            self.scroll_row,
-            self.rows_per_column(),
-            self.visible_columns(),
-            self.visible_rows(),
-            self.cell_size(),
-            self.ruby_gutter_size(),
-        )?;
-        Some(ime_anchor_bounds_for_cell(cell_bounds, board_bounds))
+        editor_selection::bounds_for_byte_range(self, range, board_bounds)
     }
 
     fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
@@ -1397,55 +1145,6 @@ impl Editor {
     }
 }
 
-fn transaction_inserted_text(edits: &[EditOperation]) -> String {
-    let mut inserted_edits = edits.iter().filter(|edit| !edit.inserted_text.is_empty());
-    let Some(first_edit) = inserted_edits.next() else {
-        return String::new();
-    };
-
-    let mut region_start = first_edit.start;
-    let mut region = first_edit.removed_text.clone();
-    replace_region_text(
-        &mut region,
-        0..first_edit.removed_text.len(),
-        &first_edit.inserted_text,
-    );
-
-    for edit in inserted_edits {
-        let edit_start = edit.start;
-        let edit_end = edit.start + edit.removed_text.len();
-        if edit_start < region_start {
-            let prefix_len = region_start - edit_start;
-            let prefix = &edit.removed_text[..prefix_len.min(edit.removed_text.len())];
-            region.insert_str(0, prefix);
-            region_start = edit_start;
-        }
-
-        let current_region_end = region_start + region.len();
-        if edit_start > current_region_end {
-            break;
-        }
-
-        if edit_end > current_region_end {
-            let suffix_start = edit
-                .removed_text
-                .len()
-                .saturating_sub(edit_end - current_region_end);
-            region.push_str(&edit.removed_text[suffix_start..]);
-        }
-
-        let local_start = edit_start.saturating_sub(region_start);
-        let local_end = local_start + edit.removed_text.len();
-        replace_region_text(&mut region, local_start..local_end, &edit.inserted_text);
-    }
-
-    region
-}
-
-fn replace_region_text(region: &mut String, range: Range<usize>, replacement: &str) {
-    region.replace_range(range, replacement);
-}
-
 fn ime_anchor_bounds_for_cell(
     cell_bounds: Bounds<Pixels>,
     _board_bounds: Bounds<Pixels>,
@@ -1633,16 +1332,4 @@ impl Focusable for Editor {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
-}
-
-fn inverse_edit_operations(edits: &[EditOperation]) -> Vec<EditOperation> {
-    edits
-        .iter()
-        .rev()
-        .map(|edit| EditOperation {
-            start: edit.start,
-            removed_text: edit.inserted_text.clone(),
-            inserted_text: edit.removed_text.clone(),
-        })
-        .collect()
 }

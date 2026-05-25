@@ -462,8 +462,7 @@ impl SoukouApp {
     fn new(cx: &mut Context<Self>) -> Self {
         text_input::init(cx);
         let quit_mac = AppSettings::global(cx).keymap_keystroke("app.quit.mac");
-        let open_settings_ctrl =
-            AppSettings::global(cx).keymap_keystroke("app.open_settings.ctrl");
+        let open_settings_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_settings.ctrl");
         let open_file_mac = AppSettings::global(cx).keymap_keystroke("app.open_file.mac");
         let open_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_file.ctrl");
         let save_file_mac = AppSettings::global(cx).keymap_keystroke("app.save_file.mac");
@@ -492,6 +491,7 @@ impl SoukouApp {
         ]);
 
         let editor_controller = cx.new(EditorController::new);
+        // render title_bar for linux
         let title_bar = cx.new(|cx| {
             TitleBar::new(
                 APP_NAME,
