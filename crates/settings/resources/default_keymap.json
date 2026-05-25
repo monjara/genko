@@ -1,102 +1,402 @@
 [
-  { "id": "app.quit.mac", "keystroke": "cmd-q" },
-  { "id": "app.open_settings.ctrl", "keystroke": "ctrl-," },
-  { "id": "app.open_file.mac", "keystroke": "cmd-o" },
-  { "id": "app.open_file.ctrl", "keystroke": "ctrl-o" },
-  { "id": "app.save_file.mac", "keystroke": "cmd-s" },
-  { "id": "app.save_file.ctrl", "keystroke": "ctrl-s" },
-  { "id": "app.toggle_bold.mac", "keystroke": "cmd-b" },
-  { "id": "app.toggle_bold.ctrl", "keystroke": "ctrl-b" },
-  { "id": "app.toggle_strikethrough.mac", "keystroke": "cmd-shift-x" },
-  { "id": "app.toggle_strikethrough.ctrl", "keystroke": "ctrl-shift-x" },
-  { "id": "editor.backspace", "keystroke": "backspace" },
-  { "id": "editor.delete", "keystroke": "delete" },
-  { "id": "editor.up", "keystroke": "up" },
-  { "id": "editor.down", "keystroke": "down" },
-  { "id": "editor.left", "keystroke": "left" },
-  { "id": "editor.right", "keystroke": "right" },
-  { "id": "editor.select_up", "keystroke": "shift-up" },
-  { "id": "editor.select_down", "keystroke": "shift-down" },
-  { "id": "editor.select_left", "keystroke": "shift-left" },
-  { "id": "editor.select_right", "keystroke": "shift-right" },
-  { "id": "editor.select_all.mac", "keystroke": "cmd-a" },
-  { "id": "editor.select_all.ctrl", "keystroke": "ctrl-a" },
-  { "id": "editor.paste.mac", "keystroke": "cmd-v" },
-  { "id": "editor.paste.ctrl", "keystroke": "ctrl-v" },
-  { "id": "editor.copy.mac", "keystroke": "cmd-c" },
-  { "id": "editor.copy.ctrl", "keystroke": "ctrl-c" },
-  { "id": "editor.cut.mac", "keystroke": "cmd-x" },
-  { "id": "editor.cut.ctrl", "keystroke": "ctrl-x" },
-  { "id": "editor.undo.mac", "keystroke": "cmd-z" },
-  { "id": "editor.undo.ctrl", "keystroke": "ctrl-z" },
-  { "id": "editor.redo.mac", "keystroke": "cmd-shift-z" },
-  { "id": "editor.redo.ctrl", "keystroke": "ctrl-u" },
-  { "id": "editor.enter", "keystroke": "enter" },
-  { "id": "editor.clear_selection", "keystroke": "escape" },
-  { "id": "editor.home", "keystroke": "home" },
-  { "id": "editor.end", "keystroke": "end" },
-  { "id": "editor.show_character_palette", "keystroke": "ctrl-cmd-space" },
-  { "id": "text_input.backspace", "keystroke": "backspace" },
-  { "id": "text_input.delete", "keystroke": "delete" },
-  { "id": "text_input.left", "keystroke": "left" },
-  { "id": "text_input.right", "keystroke": "right" },
-  { "id": "text_input.select_left", "keystroke": "shift-left" },
-  { "id": "text_input.select_right", "keystroke": "shift-right" },
-  { "id": "text_input.select_all.mac", "keystroke": "cmd-a" },
-  { "id": "text_input.select_all.ctrl", "keystroke": "ctrl-a" },
-  { "id": "text_input.paste.mac", "keystroke": "cmd-v" },
-  { "id": "text_input.paste.ctrl", "keystroke": "ctrl-v" },
-  { "id": "text_input.copy.mac", "keystroke": "cmd-c" },
-  { "id": "text_input.copy.ctrl", "keystroke": "ctrl-c" },
-  { "id": "text_input.cut.mac", "keystroke": "cmd-x" },
-  { "id": "text_input.cut.ctrl", "keystroke": "ctrl-x" },
-  { "id": "text_input.home", "keystroke": "home" },
-  { "id": "text_input.end", "keystroke": "end" },
-  { "id": "text_input.show_character_palette", "keystroke": "ctrl-cmd-space" },
-  { "id": "vim.enter_insert_mode", "keystroke": "i" },
-  { "id": "vim.append", "keystroke": "a" },
-  { "id": "vim.normal_mode.escape", "keystroke": "escape" },
-  { "id": "vim.visual_mode", "keystroke": "v" },
-  { "id": "vim.normal_mode.visual", "keystroke": "v" },
-  { "id": "vim.visual_block_mode", "keystroke": "ctrl-v" },
-  { "id": "vim.normal_mode.visual_block", "keystroke": "ctrl-v" },
-  { "id": "vim.block_insert_before", "keystroke": "I" },
-  { "id": "vim.block_append_after", "keystroke": "A" },
-  { "id": "vim.delete_operator", "keystroke": "d" },
-  { "id": "vim.change_operator", "keystroke": "c" },
-  { "id": "vim.yank_operator", "keystroke": "y" },
-  { "id": "vim.paste_after", "keystroke": "p" },
-  { "id": "vim.paste_before", "keystroke": "P" },
-  { "id": "vim.undo", "keystroke": "u" },
-  { "id": "vim.redo", "keystroke": "ctrl-r" },
-  { "id": "vim.repeat_last_change", "keystroke": "." },
-  { "id": "vim.move_word_forward", "keystroke": "w" },
-  { "id": "vim.move_big_word_forward", "keystroke": "W" },
-  { "id": "vim.move_word_end_forward", "keystroke": "e" },
-  { "id": "vim.move_word_backward", "keystroke": "b" },
-  { "id": "vim.move_big_word_backward", "keystroke": "B" },
-  { "id": "vim.move_document_start.normal", "keystroke": "g g" },
-  { "id": "vim.move_document_start.visual", "keystroke": "g g" },
-  { "id": "vim.move_document_end.normal", "keystroke": "G" },
-  { "id": "vim.move_document_end.visual", "keystroke": "G" },
-  { "id": "vim.open_next_column", "keystroke": "o" },
-  { "id": "vim.delete_operator.repeat", "keystroke": "d" },
-  { "id": "vim.change_operator.repeat", "keystroke": "c" },
-  { "id": "vim.yank_operator.repeat", "keystroke": "y" },
-  { "id": "vim.motion.operator.word_forward", "keystroke": "w" },
-  { "id": "vim.motion.operator.big_word_forward", "keystroke": "W" },
-  { "id": "vim.motion.operator.word_end_forward", "keystroke": "e" },
-  { "id": "vim.text_object_inner", "keystroke": "i" },
-  { "id": "vim.text_object_around", "keystroke": "a" },
-  { "id": "vim.text_object_word", "keystroke": "w" },
-  { "id": "vim.text_object_big_word", "keystroke": "W" },
-  { "id": "vim.text_object_double_quote", "keystroke": "\"" },
-  { "id": "vim.text_object_single_quote", "keystroke": "'" },
-  { "id": "vim.text_object_paren", "keystroke": "(" },
-  { "id": "vim.text_object_bracket", "keystroke": "[" },
-  { "id": "vim.move_left", "keystroke": "h" },
-  { "id": "vim.move_down", "keystroke": "j" },
-  { "id": "vim.move_up", "keystroke": "k" },
-  { "id": "vim.move_right", "keystroke": "l" },
-  { "id": "vim.delete_char", "keystroke": "x" }
+  {
+    "id": "app.quit.mac",
+    "keystroke": "cmd-q"
+  },
+  {
+    "id": "app.open_settings.ctrl",
+    "keystroke": "ctrl-,"
+  },
+  {
+    "id": "app.open_file.mac",
+    "keystroke": "cmd-o"
+  },
+  {
+    "id": "app.open_file.ctrl",
+    "keystroke": "ctrl-o"
+  },
+  {
+    "id": "app.save_file.mac",
+    "keystroke": "cmd-s"
+  },
+  {
+    "id": "app.save_file.ctrl",
+    "keystroke": "ctrl-s"
+  },
+  {
+    "id": "app.toggle_bold.mac",
+    "keystroke": "cmd-b"
+  },
+  {
+    "id": "app.toggle_bold.ctrl",
+    "keystroke": "ctrl-b"
+  },
+  {
+    "id": "app.toggle_strikethrough.mac",
+    "keystroke": "cmd-shift-x"
+  },
+  {
+    "id": "app.toggle_strikethrough.ctrl",
+    "keystroke": "ctrl-shift-x"
+  },
+  {
+    "id": "editor.backspace",
+    "keystroke": "backspace"
+  },
+  {
+    "id": "editor.delete",
+    "keystroke": "delete"
+  },
+  {
+    "id": "editor.up",
+    "keystroke": "up"
+  },
+  {
+    "id": "editor.down",
+    "keystroke": "down"
+  },
+  {
+    "id": "editor.left",
+    "keystroke": "left"
+  },
+  {
+    "id": "editor.right",
+    "keystroke": "right"
+  },
+  {
+    "id": "editor.select_up",
+    "keystroke": "shift-up"
+  },
+  {
+    "id": "editor.select_down",
+    "keystroke": "shift-down"
+  },
+  {
+    "id": "editor.select_left",
+    "keystroke": "shift-left"
+  },
+  {
+    "id": "editor.select_right",
+    "keystroke": "shift-right"
+  },
+  {
+    "id": "editor.select_all.mac",
+    "keystroke": "cmd-a"
+  },
+  {
+    "id": "editor.select_all.ctrl",
+    "keystroke": "ctrl-a"
+  },
+  {
+    "id": "editor.paste.mac",
+    "keystroke": "cmd-v"
+  },
+  {
+    "id": "editor.paste.ctrl",
+    "keystroke": "ctrl-v"
+  },
+  {
+    "id": "editor.copy.mac",
+    "keystroke": "cmd-c"
+  },
+  {
+    "id": "editor.copy.ctrl",
+    "keystroke": "ctrl-c"
+  },
+  {
+    "id": "editor.cut.mac",
+    "keystroke": "cmd-x"
+  },
+  {
+    "id": "editor.cut.ctrl",
+    "keystroke": "ctrl-x"
+  },
+  {
+    "id": "editor.undo.mac",
+    "keystroke": "cmd-z"
+  },
+  {
+    "id": "editor.undo.ctrl",
+    "keystroke": "ctrl-z"
+  },
+  {
+    "id": "editor.redo.mac",
+    "keystroke": "cmd-shift-z"
+  },
+  {
+    "id": "editor.redo.ctrl",
+    "keystroke": "ctrl-u"
+  },
+  {
+    "id": "editor.enter",
+    "keystroke": "enter"
+  },
+  {
+    "id": "editor.clear_selection",
+    "keystroke": "escape"
+  },
+  {
+    "id": "editor.home",
+    "keystroke": "home"
+  },
+  {
+    "id": "editor.end",
+    "keystroke": "end"
+  },
+  {
+    "id": "editor.show_character_palette",
+    "keystroke": "ctrl-cmd-space"
+  },
+  {
+    "id": "text_input.backspace",
+    "keystroke": "backspace"
+  },
+  {
+    "id": "text_input.delete",
+    "keystroke": "delete"
+  },
+  {
+    "id": "text_input.left",
+    "keystroke": "left"
+  },
+  {
+    "id": "text_input.right",
+    "keystroke": "right"
+  },
+  {
+    "id": "text_input.select_left",
+    "keystroke": "shift-left"
+  },
+  {
+    "id": "text_input.select_right",
+    "keystroke": "shift-right"
+  },
+  {
+    "id": "text_input.select_all.mac",
+    "keystroke": "cmd-a"
+  },
+  {
+    "id": "text_input.select_all.ctrl",
+    "keystroke": "ctrl-a"
+  },
+  {
+    "id": "text_input.paste.mac",
+    "keystroke": "cmd-v"
+  },
+  {
+    "id": "text_input.paste.ctrl",
+    "keystroke": "ctrl-v"
+  },
+  {
+    "id": "text_input.copy.mac",
+    "keystroke": "cmd-c"
+  },
+  {
+    "id": "text_input.copy.ctrl",
+    "keystroke": "ctrl-c"
+  },
+  {
+    "id": "text_input.cut.mac",
+    "keystroke": "cmd-x"
+  },
+  {
+    "id": "text_input.cut.ctrl",
+    "keystroke": "ctrl-x"
+  },
+  {
+    "id": "text_input.home",
+    "keystroke": "home"
+  },
+  {
+    "id": "text_input.end",
+    "keystroke": "end"
+  },
+  {
+    "id": "text_input.show_character_palette",
+    "keystroke": "ctrl-cmd-space"
+  },
+  {
+    "id": "vim.enter_insert_mode",
+    "keystroke": "i"
+  },
+  {
+    "id": "vim.append",
+    "keystroke": "a"
+  },
+  {
+    "id": "vim.normal_mode.escape",
+    "keystroke": "escape"
+  },
+  {
+    "id": "vim.visual_mode",
+    "keystroke": "v"
+  },
+  {
+    "id": "vim.normal_mode.visual",
+    "keystroke": "v"
+  },
+  {
+    "id": "vim.visual_block_mode",
+    "keystroke": "ctrl-v"
+  },
+  {
+    "id": "vim.normal_mode.visual_block",
+    "keystroke": "ctrl-v"
+  },
+  {
+    "id": "vim.block_insert_before",
+    "keystroke": "I"
+  },
+  {
+    "id": "vim.block_append_after",
+    "keystroke": "A"
+  },
+  {
+    "id": "vim.delete_operator",
+    "keystroke": "d"
+  },
+  {
+    "id": "vim.change_operator",
+    "keystroke": "c"
+  },
+  {
+    "id": "vim.yank_operator",
+    "keystroke": "y"
+  },
+  {
+    "id": "vim.paste_after",
+    "keystroke": "p"
+  },
+  {
+    "id": "vim.paste_before",
+    "keystroke": "P"
+  },
+  {
+    "id": "vim.undo",
+    "keystroke": "u"
+  },
+  {
+    "id": "vim.redo",
+    "keystroke": "ctrl-r"
+  },
+  {
+    "id": "vim.repeat_last_change",
+    "keystroke": "."
+  },
+  {
+    "id": "vim.move_word_forward",
+    "keystroke": "w"
+  },
+  {
+    "id": "vim.move_big_word_forward",
+    "keystroke": "W"
+  },
+  {
+    "id": "vim.move_word_end_forward",
+    "keystroke": "e"
+  },
+  {
+    "id": "vim.move_word_backward",
+    "keystroke": "b"
+  },
+  {
+    "id": "vim.move_big_word_backward",
+    "keystroke": "B"
+  },
+  {
+    "id": "vim.move_document_start.normal",
+    "keystroke": "g g"
+  },
+  {
+    "id": "vim.move_document_start.visual",
+    "keystroke": "g g"
+  },
+  {
+    "id": "vim.move_document_end.normal",
+    "keystroke": "G"
+  },
+  {
+    "id": "vim.move_document_end.visual",
+    "keystroke": "G"
+  },
+  {
+    "id": "vim.open_next_column",
+    "keystroke": "o"
+  },
+  {
+    "id": "vim.delete_operator.repeat",
+    "keystroke": "d"
+  },
+  {
+    "id": "vim.change_operator.repeat",
+    "keystroke": "c"
+  },
+  {
+    "id": "vim.yank_operator.repeat",
+    "keystroke": "y"
+  },
+  {
+    "id": "vim.motion.operator.word_forward",
+    "keystroke": "w"
+  },
+  {
+    "id": "vim.motion.operator.big_word_forward",
+    "keystroke": "W"
+  },
+  {
+    "id": "vim.motion.operator.word_end_forward",
+    "keystroke": "e"
+  },
+  {
+    "id": "vim.text_object_inner",
+    "keystroke": "i"
+  },
+  {
+    "id": "vim.text_object_around",
+    "keystroke": "a"
+  },
+  {
+    "id": "vim.text_object_word",
+    "keystroke": "w"
+  },
+  {
+    "id": "vim.text_object_big_word",
+    "keystroke": "W"
+  },
+  {
+    "id": "vim.text_object_double_quote",
+    "keystroke": "\""
+  },
+  {
+    "id": "vim.text_object_single_quote",
+    "keystroke": "'"
+  },
+  {
+    "id": "vim.text_object_paren",
+    "keystroke": "("
+  },
+  {
+    "id": "vim.text_object_bracket",
+    "keystroke": "["
+  },
+  {
+    "id": "vim.move_left",
+    "keystroke": "h"
+  },
+  {
+    "id": "vim.move_down",
+    "keystroke": "j"
+  },
+  {
+    "id": "vim.move_up",
+    "keystroke": "k"
+  },
+  {
+    "id": "vim.move_right",
+    "keystroke": "l"
+  },
+  {
+    "id": "vim.delete_char",
+    "keystroke": "x"
+  }
 ]
