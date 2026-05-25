@@ -1,6 +1,6 @@
 mod editor;
-mod editor_controller;
 mod editor_canvas;
+mod editor_controller;
 mod perf;
 pub mod vim;
 

@@ -1,12 +1,12 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, InteractiveElement,
-    IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    PaintQuad, Pixels, Point, SharedString, ShapedLine, Style, Styled, TextRun,
-    UnderlineStyle, UTF16Selection, Window, actions, div, fill, hsla, point, prelude::*, px,
-    relative, rgba, size, white,
+    Action, App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId,
+    InteractiveElement, IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine, SharedString, Style,
+    Styled, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla, point,
+    prelude::*, px, relative, rgba, size, white,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -30,24 +30,34 @@ actions!(
 );
 
 pub fn init(cx: &mut App) {
+    fn binding<A: Action>(cx: &App, id: &str, _: &str, action: A) -> KeyBinding {
+        let keystroke = settings::AppSettings::global(cx).keymap_keystroke(id);
+        KeyBinding::new(keystroke.as_ref(), action, Some("SoukouTextInput"))
+    }
+
     cx.bind_keys([
-        KeyBinding::new("backspace", Backspace, Some("SoukouTextInput")),
-        KeyBinding::new("delete", Delete, Some("SoukouTextInput")),
-        KeyBinding::new("left", Left, Some("SoukouTextInput")),
-        KeyBinding::new("right", Right, Some("SoukouTextInput")),
-        KeyBinding::new("shift-left", SelectLeft, Some("SoukouTextInput")),
-        KeyBinding::new("shift-right", SelectRight, Some("SoukouTextInput")),
-        KeyBinding::new("cmd-a", SelectAll, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-a", SelectAll, Some("SoukouTextInput")),
-        KeyBinding::new("cmd-v", Paste, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-v", Paste, Some("SoukouTextInput")),
-        KeyBinding::new("cmd-c", Copy, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-c", Copy, Some("SoukouTextInput")),
-        KeyBinding::new("cmd-x", Cut, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-x", Cut, Some("SoukouTextInput")),
-        KeyBinding::new("home", Home, Some("SoukouTextInput")),
-        KeyBinding::new("end", End, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, Some("SoukouTextInput")),
+        binding(cx, "text_input.backspace", "backspace", Backspace),
+        binding(cx, "text_input.delete", "delete", Delete),
+        binding(cx, "text_input.left", "left", Left),
+        binding(cx, "text_input.right", "right", Right),
+        binding(cx, "text_input.select_left", "shift-left", SelectLeft),
+        binding(cx, "text_input.select_right", "shift-right", SelectRight),
+        binding(cx, "text_input.select_all.mac", "cmd-a", SelectAll),
+        binding(cx, "text_input.select_all.ctrl", "ctrl-a", SelectAll),
+        binding(cx, "text_input.paste.mac", "cmd-v", Paste),
+        binding(cx, "text_input.paste.ctrl", "ctrl-v", Paste),
+        binding(cx, "text_input.copy.mac", "cmd-c", Copy),
+        binding(cx, "text_input.copy.ctrl", "ctrl-c", Copy),
+        binding(cx, "text_input.cut.mac", "cmd-x", Cut),
+        binding(cx, "text_input.cut.ctrl", "ctrl-x", Cut),
+        binding(cx, "text_input.home", "home", Home),
+        binding(cx, "text_input.end", "end", End),
+        binding(
+            cx,
+            "text_input.show_character_palette",
+            "ctrl-cmd-space",
+            ShowCharacterPalette,
+        ),
     ]);
 }
 
@@ -389,7 +399,8 @@ impl EntityInputHandler for TextInput {
 
         self.content =
             (self.content[..range.start].to_owned() + new_text + &self.content[range.end..]).into();
-        self.marked_range = (!new_text.is_empty()).then_some(range.start..range.start + new_text.len());
+        self.marked_range =
+            (!new_text.is_empty()).then_some(range.start..range.start + new_text.len());
         self.selected_range = new_selected_range_utf16
             .as_ref()
             .map(|range_utf16| self.range_from_utf16(range_utf16))
@@ -551,8 +562,14 @@ impl Element for TextElement {
             (
                 Some(fill(
                     Bounds::from_corners(
-                        point(bounds.left() + line.x_for_index(selected_range.start), bounds.top()),
-                        point(bounds.left() + line.x_for_index(selected_range.end), bounds.bottom()),
+                        point(
+                            bounds.left() + line.x_for_index(selected_range.start),
+                            bounds.top(),
+                        ),
+                        point(
+                            bounds.left() + line.x_for_index(selected_range.end),
+                            bounds.bottom(),
+                        ),
                     ),
                     rgba(0x3355aa33),
                 )),

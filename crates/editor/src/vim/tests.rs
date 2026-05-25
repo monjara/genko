@@ -1,6 +1,6 @@
-use rope::TextRope;
 use super::*;
 use crate::vim::state::BlockRegister;
+use rope::TextRope;
 
 fn rope(text: &str) -> TextRope {
     TextRope::from_str(text)

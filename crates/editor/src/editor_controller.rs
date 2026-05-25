@@ -47,8 +47,9 @@ impl EditorController {
         document: Option<&RichDocument>,
         cx: &mut Context<Self>,
     ) {
-        self.vim_controller
-            .update(cx, |vim_controller, cx| vim_controller.set_richtext_document(document, cx));
+        self.vim_controller.update(cx, |vim_controller, cx| {
+            vim_controller.set_richtext_document(document, cx)
+        });
     }
 
     pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {

@@ -9,10 +9,7 @@ use gpui::{
 };
 use theme::Theme;
 
-actions!(
-    workspace,
-    [ToggleWorkspacePane, OpenWorkspaceFile]
-);
+actions!(workspace, [ToggleWorkspacePane, OpenWorkspaceFile]);
 
 pub const WORKSPACE_PANE_WIDTH: f32 = 280.0;
 
@@ -330,28 +327,24 @@ impl Render for Workspace {
                             ),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .id("workspace-open-file-button")
-                                    .px_3()
-                                    .h(px(32.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded_sm()
-                                    .border_1()
-                                    .border_color(Theme::global(cx).primary())
-                                    .bg(Theme::global(cx).white())
-                                    .cursor_pointer()
-                                    .child("ファイル")
-                                    .on_click(move |_, window, cx| {
-                                        window.dispatch_action(Box::new(OpenWorkspaceFile), cx);
-                                    }),
-                            ),
+                        div().flex().items_center().gap_2().child(
+                            div()
+                                .id("workspace-open-file-button")
+                                .px_3()
+                                .h(px(32.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_sm()
+                                .border_1()
+                                .border_color(Theme::global(cx).primary())
+                                .bg(Theme::global(cx).white())
+                                .cursor_pointer()
+                                .child("ファイル")
+                                .on_click(move |_, window, cx| {
+                                    window.dispatch_action(Box::new(OpenWorkspaceFile), cx);
+                                }),
+                        ),
                     )
                     .child(
                         div()

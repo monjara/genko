@@ -234,8 +234,7 @@ impl TextRope {
         let range = normalized_start..normalized_end;
 
         if range.start == 0 && range.end == self.len_bytes() {
-            self.root =
-                RopeNode::from_string(text, self.rows_per_column, self.hanging_punctuation);
+            self.root = RopeNode::from_string(text, self.rows_per_column, self.hanging_punctuation);
             return;
         }
 

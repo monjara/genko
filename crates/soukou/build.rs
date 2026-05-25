@@ -24,7 +24,8 @@ fn verify_compiled_auth_env() {
         "SOUKOU_SUPABASE_URL",
         "SOUKOU_SUPABASE_PUBLISHABLE_KEY",
     ] {
-        std::env::var(key)
-            .unwrap_or_else(|_| panic!("missing required compile-time environment variable: {key}"));
+        std::env::var(key).unwrap_or_else(|_| {
+            panic!("missing required compile-time environment variable: {key}")
+        });
     }
 }

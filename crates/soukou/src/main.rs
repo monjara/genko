@@ -1,6 +1,7 @@
 mod auth;
 mod document;
 mod font;
+mod menu;
 mod text_input;
 
 use std::path::{Path, PathBuf};
@@ -16,19 +17,18 @@ use futures::StreamExt;
 use gpui::{
     Anchor, App, AppContext, AsyncApp, Bounds, BoxShadow, Context, Decorations, Entity,
     ExternalPaths, FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement,
-    KeyBinding, Menu, MenuItem, MouseDownEvent, ParentElement, PathPromptOptions,
-    Render, Styled, WeakEntity, Window, WindowBounds, WindowDecorations, WindowOptions, actions,
-    anchored, deferred, div, point, prelude::FluentBuilder, px, size, transparent_black,
-    svg,
+    KeyBinding, MouseDownEvent, ParentElement, PathPromptOptions, Render, Styled, WeakEntity,
+    Window, WindowBounds, WindowDecorations, WindowOptions, actions, anchored, deferred, div,
+    point, prelude::FluentBuilder, px, size, svg, transparent_black,
 };
 use richtext::{BlockKind, EpubMetadata, InlineStyle, RichDocument, single_change};
 use semver::Version;
 use serde::Deserialize;
 use settings::{AppSettings, ExportTargetFormat, ExportWritingMode, open_settings_window};
+use text_input::TextInput;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::{TitleBar, TitleBarAuthActions, TitleBarAuthState, TitleBarMenu, TitleBarUser};
 use ui::{MenuBarItem, MenuBarMenu};
-use text_input::TextInput;
 
 const APP_NAME: &str = "草稿";
 const APP_ID: &str = "dev.monj.soukou";
@@ -56,26 +56,24 @@ const CURRENT_DIRECTORY_FALLBACK: &str = ".";
 const WINDOW_TITLE_SEPARATOR: &str = " - ";
 const MAIN_WINDOW_WIDTH: f32 = 1200.0;
 const MAIN_WINDOW_HEIGHT: f32 = 800.0;
-const OPEN_FILE_SHORTCUT_MAC: &str = "cmd-o";
-const OPEN_FILE_SHORTCUT_CTRL: &str = "ctrl-o";
-const SAVE_FILE_SHORTCUT_MAC: &str = "cmd-s";
-const SAVE_FILE_SHORTCUT_CTRL: &str = "ctrl-s";
-const TOGGLE_BOLD_SHORTCUT_MAC: &str = "cmd-b";
-const TOGGLE_BOLD_SHORTCUT_CTRL: &str = "ctrl-b";
-const TOGGLE_STRIKETHROUGH_SHORTCUT_MAC: &str = "cmd-shift-x";
-const TOGGLE_STRIKETHROUGH_SHORTCUT_CTRL: &str = "ctrl-shift-x";
-const QUIT_SHORTCUT_MAC: &str = "cmd-q";
-const OPEN_SETTINGS_SHORTCUT_CTRL: &str = "ctrl-,";
 const RELEASES_LATEST_API_URL: &str =
     "https://api.github.com/repos/monjara/Soukou.app/releases/latest";
-const MODAL_ERROR_ICON_PATH: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/icons/modal_error.svg");
-const MODAL_INFO_ICON_PATH: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/icons/modal_info.svg");
-const MODAL_PRO_ICON_PATH: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/icons/modal_pro.svg");
-const MODAL_UPDATE_ICON_PATH: &str =
-    concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/icons/modal_update.svg");
+const MODAL_ERROR_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/modal_error.svg"
+);
+const MODAL_INFO_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/modal_info.svg"
+);
+const MODAL_PRO_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/modal_pro.svg"
+);
+const MODAL_UPDATE_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/modal_update.svg"
+);
 
 actions!(
     soukou,
@@ -290,9 +288,16 @@ impl SoukouApp {
             .as_ref()
             .and_then(|document| {
                 document.resolved_blocks().into_iter().find_map(|block| {
-                    matches!(block.kind, BlockKind::HeadingLarge | BlockKind::HeadingMedium)
-                        .then(|| document.plain_text()[block.range.clone()].trim().to_string())
-                        .filter(|title| !title.is_empty())
+                    matches!(
+                        block.kind,
+                        BlockKind::HeadingLarge | BlockKind::HeadingMedium
+                    )
+                    .then(|| {
+                        document.plain_text()[block.range.clone()]
+                            .trim()
+                            .to_string()
+                    })
+                    .filter(|title| !title.is_empty())
                 })
             })
             .or_else(|| {
@@ -341,16 +346,16 @@ impl SoukouApp {
         let published_at = metadata.published_at.clone().unwrap_or_default();
 
         let title = Self::make_text_input(window, cx, "書籍タイトル", metadata.title.as_str());
-        let creators_input =
-            Self::make_text_input(window, cx, "著者名（複数の場合はカンマ区切り）", creators.as_str());
-        let language =
-            Self::make_text_input(window, cx, "言語コード", metadata.language.as_str());
-        let identifier =
-            Self::make_text_input(window, cx, "識別子", metadata.identifier.as_str());
-        let description_input =
-            Self::make_text_input(window, cx, "説明文", description.as_str());
-        let publisher_input =
-            Self::make_text_input(window, cx, "出版者", publisher.as_str());
+        let creators_input = Self::make_text_input(
+            window,
+            cx,
+            "著者名（複数の場合はカンマ区切り）",
+            creators.as_str(),
+        );
+        let language = Self::make_text_input(window, cx, "言語コード", metadata.language.as_str());
+        let identifier = Self::make_text_input(window, cx, "識別子", metadata.identifier.as_str());
+        let description_input = Self::make_text_input(window, cx, "説明文", description.as_str());
+        let publisher_input = Self::make_text_input(window, cx, "出版者", publisher.as_str());
         let rights_input = Self::make_text_input(window, cx, "権利表記", rights.as_str());
         let published_at_input =
             Self::make_text_input(window, cx, "公開日 (YYYY-MM-DD)", published_at.as_str());
@@ -383,7 +388,10 @@ impl SoukouApp {
     }
 
     fn collect_epub_metadata(&self, cx: &mut Context<Self>) -> EpubMetadata {
-        let form = self.epub_metadata_form.as_ref().expect("EPUB form should exist");
+        let form = self
+            .epub_metadata_form
+            .as_ref()
+            .expect("EPUB form should exist");
         let title = form.title.read(cx).text().trim().to_string();
         let creators = form
             .creators
@@ -453,18 +461,31 @@ impl SoukouApp {
 
     fn new(cx: &mut Context<Self>) -> Self {
         text_input::init(cx);
+        let quit_mac = AppSettings::global(cx).keymap_keystroke("app.quit.mac");
+        let open_settings_ctrl =
+            AppSettings::global(cx).keymap_keystroke("app.open_settings.ctrl");
+        let open_file_mac = AppSettings::global(cx).keymap_keystroke("app.open_file.mac");
+        let open_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_file.ctrl");
+        let save_file_mac = AppSettings::global(cx).keymap_keystroke("app.save_file.mac");
+        let save_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.save_file.ctrl");
+        let toggle_bold_mac = AppSettings::global(cx).keymap_keystroke("app.toggle_bold.mac");
+        let toggle_bold_ctrl = AppSettings::global(cx).keymap_keystroke("app.toggle_bold.ctrl");
+        let toggle_strikethrough_mac =
+            AppSettings::global(cx).keymap_keystroke("app.toggle_strikethrough.mac");
+        let toggle_strikethrough_ctrl =
+            AppSettings::global(cx).keymap_keystroke("app.toggle_strikethrough.ctrl");
         cx.bind_keys([
-            KeyBinding::new(QUIT_SHORTCUT_MAC, Quit, None),
-            KeyBinding::new(OPEN_SETTINGS_SHORTCUT_CTRL, OpenSettings, None),
-            KeyBinding::new(OPEN_FILE_SHORTCUT_MAC, OpenFile, None),
-            KeyBinding::new(OPEN_FILE_SHORTCUT_CTRL, OpenFile, None),
-            KeyBinding::new(SAVE_FILE_SHORTCUT_MAC, SaveFile, None),
-            KeyBinding::new(SAVE_FILE_SHORTCUT_CTRL, SaveFile, None),
-            KeyBinding::new(TOGGLE_BOLD_SHORTCUT_MAC, ToggleBold, None),
-            KeyBinding::new(TOGGLE_BOLD_SHORTCUT_CTRL, ToggleBold, None),
-            KeyBinding::new(TOGGLE_STRIKETHROUGH_SHORTCUT_MAC, ToggleStrikethrough, None),
+            KeyBinding::new(quit_mac.as_ref(), Quit, None),
+            KeyBinding::new(open_settings_ctrl.as_ref(), OpenSettings, None),
+            KeyBinding::new(open_file_mac.as_ref(), OpenFile, None),
+            KeyBinding::new(open_file_ctrl.as_ref(), OpenFile, None),
+            KeyBinding::new(save_file_mac.as_ref(), SaveFile, None),
+            KeyBinding::new(save_file_ctrl.as_ref(), SaveFile, None),
+            KeyBinding::new(toggle_bold_mac.as_ref(), ToggleBold, None),
+            KeyBinding::new(toggle_bold_ctrl.as_ref(), ToggleBold, None),
+            KeyBinding::new(toggle_strikethrough_mac.as_ref(), ToggleStrikethrough, None),
             KeyBinding::new(
-                TOGGLE_STRIKETHROUGH_SHORTCUT_CTRL,
+                toggle_strikethrough_ctrl.as_ref(),
                 ToggleStrikethrough,
                 None,
             ),
@@ -822,7 +843,11 @@ impl SoukouApp {
 
                             if let Err(error) = save_result {
                                 let _ = this_entity.update(cx, |this, cx| {
-                                    this.show_error_modal("認証情報を保存できませんでした", error, cx);
+                                    this.show_error_modal(
+                                        "認証情報を保存できませんでした",
+                                        error,
+                                        cx,
+                                    );
                                 });
                             }
 
@@ -964,7 +989,9 @@ impl SoukouApp {
         let this = cx.entity().downgrade();
         let _ = window;
         cx.spawn(async move |_, cx| {
-            let update_result = cx.background_spawn(async { Self::fetch_available_update() }).await;
+            let update_result = cx
+                .background_spawn(async { Self::fetch_available_update() })
+                .await;
             let Some(this_entity) = this.upgrade() else {
                 return;
             };
@@ -1193,11 +1220,7 @@ impl SoukouApp {
                 Ok(path) => path,
                 Err(error) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.show_error_modal(
-                            SAVE_PATH_PICKER_ERROR_TITLE,
-                            error.to_string(),
-                            cx,
-                        );
+                        this.show_error_modal(SAVE_PATH_PICKER_ERROR_TITLE, error.to_string(), cx);
                     });
                     None
                 }
@@ -1320,11 +1343,7 @@ impl SoukouApp {
                         return;
                     };
                     let _ = this_entity.update(cx, |this, cx| {
-                            this.show_error_modal(
-                                SAVE_PATH_PICKER_ERROR_TITLE,
-                                error.to_string(),
-                                cx,
-                            );
+                        this.show_error_modal(SAVE_PATH_PICKER_ERROR_TITLE, error.to_string(), cx);
                     });
                     None
                 }
@@ -1411,11 +1430,7 @@ impl SoukouApp {
                         return;
                     };
                     let _ = this_entity.update(cx, |this, cx| {
-                            this.show_error_modal(
-                                SAVE_PATH_PICKER_ERROR_TITLE,
-                                error.to_string(),
-                                cx,
-                            );
+                        this.show_error_modal(SAVE_PATH_PICKER_ERROR_TITLE, error.to_string(), cx);
                     });
                     None
                 }
@@ -1652,12 +1667,17 @@ impl SoukouApp {
                 MODAL_PRO_ICON_PATH,
                 PRO_REQUIRED_TITLE.to_string(),
                 match feature {
-                    FeatureGate::RichText => "リッチテキスト編集は Pro プランで利用できます。".to_string(),
-                    FeatureGate::ExportWord => "Word書き出しは Pro プランで利用できます。".to_string(),
-                    FeatureGate::ExportEpub => "EPUB書き出しは Pro プランで利用できます。".to_string(),
+                    FeatureGate::RichText => {
+                        "リッチテキスト編集は Pro プランで利用できます。".to_string()
+                    }
+                    FeatureGate::ExportWord => {
+                        "Word書き出しは Pro プランで利用できます。".to_string()
+                    }
+                    FeatureGate::ExportEpub => {
+                        "EPUB書き出しは Pro プランで利用できます。".to_string()
+                    }
                 },
-                "アカウント設定を開いて、プラン管理と機能の詳細を確認できます。"
-                    .to_string(),
+                "アカウント設定を開いて、プラン管理と機能の詳細を確認できます。".to_string(),
                 Some("あとで".to_string()),
                 Some("アカウント設定".to_string()),
             ),
@@ -1985,12 +2005,7 @@ fn render_metadata_field(label: &'static str, input: Entity<TextInput>) -> impl 
         .flex()
         .flex_col()
         .gap_1()
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::BOLD)
-                .child(label),
-        )
+        .child(div().text_sm().font_weight(FontWeight::BOLD).child(label))
         .child(
             div()
                 .w_full()
@@ -2150,34 +2165,12 @@ fn main() {
         theme::init(cx);
         settings::init(cx);
         editor::init(cx);
+        menu::init(cx);
 
         cx.on_action(|_: &Quit, cx| cx.quit())
-            .on_action(|_: &OpenSettings, cx| open_settings_window(cx))
-            .set_menus(vec![
-                Menu {
-                    disabled: false,
-                    name: APP_NAME.into(),
-                    items: vec![
-                        MenuItem::action(SETTINGS_MENU_LABEL, OpenSettings),
-                        MenuItem::action(CHECK_FOR_UPDATES_MENU_LABEL, CheckForUpdates),
-                        MenuItem::separator(),
-                        MenuItem::action(QUIT_MENU_LABEL, Quit),
-                    ],
-                },
-                Menu {
-                    disabled: false,
-                    name: FILE_MENU_LABEL.into(),
-                    items: vec![
-                        MenuItem::action(OPEN_PROMPT_LABEL, OpenFile),
-                        MenuItem::action(SAVE_MENU_LABEL, SaveFile),
-                        MenuItem::separator(),
-                        MenuItem::action(EXPORT_TXT_MENU_LABEL, ExportTxt),
-                        MenuItem::action(EXPORT_WORD_MENU_LABEL, ExportWord),
-                        MenuItem::action(EXPORT_EPUB_MENU_LABEL, ExportEpub),
-                    ],
-                },
-            ]);
+            .on_action(|_: &OpenSettings, cx| open_settings_window(cx));
 
+        // TODO What?
         let main_app = Rc::new(RefCell::new(None::<WeakEntity<SoukouApp>>));
         let main_app_for_build = main_app.clone();
 

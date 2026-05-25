@@ -118,7 +118,12 @@ impl RichDocument {
         let old_text = self.text.clone();
         self.text.replace_range(range.clone(), new_text);
         transform_inline_marks(&mut self.spans, range.clone(), new_text.len());
-        transform_block_marks(&mut self.blocks, old_text.as_str(), self.text.as_str(), range);
+        transform_block_marks(
+            &mut self.blocks,
+            old_text.as_str(),
+            self.text.as_str(),
+            range,
+        );
         self.normalize();
     }
 
@@ -213,8 +218,10 @@ impl RichDocument {
     }
 
     fn normalize_spans(&mut self) {
-        self.spans.retain(|mark| mark.start < mark.end && mark.end <= self.text.len());
-        self.spans.sort_by_key(|mark| (mark.style, mark.start, mark.end));
+        self.spans
+            .retain(|mark| mark.start < mark.end && mark.end <= self.text.len());
+        self.spans
+            .sort_by_key(|mark| (mark.style, mark.start, mark.end));
 
         let mut merged: Vec<InlineMark> = Vec::with_capacity(self.spans.len());
         for mark in self.spans.drain(..) {
@@ -268,7 +275,7 @@ fn remove_inline_style(spans: &mut Vec<InlineMark>, range: Range<usize>, style: 
     *spans = replacement;
 }
 
-fn transform_inline_marks(spans: &mut Vec<InlineMark>, range: Range<usize>, inserted_len: usize) {
+fn transform_inline_marks(spans: &mut [InlineMark], range: Range<usize>, inserted_len: usize) {
     let removed_len = range.end.saturating_sub(range.start);
     let delta = inserted_len as isize - removed_len as isize;
 
@@ -313,7 +320,7 @@ fn transform_inline_marks(spans: &mut Vec<InlineMark>, range: Range<usize>, inse
 }
 
 fn transform_block_marks(
-    blocks: &mut Vec<BlockMark>,
+    blocks: &mut [BlockMark],
     old_text: &str,
     new_text: &str,
     range: Range<usize>,
@@ -339,7 +346,7 @@ fn transform_block_marks(
 fn paragraph_starts(text: &str) -> Vec<usize> {
     let mut starts = vec![0];
     for (index, ch) in text.char_indices() {
-        if ch == '\n' && index + 1 <= text.len() {
+        if ch == '\n' && index < text.len() {
             starts.push(index + 1);
         }
     }

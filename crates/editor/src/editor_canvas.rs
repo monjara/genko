@@ -265,12 +265,7 @@ impl Element for EditorCanvas {
                 cx,
             );
         }
-        paint_text(
-            &visible_text,
-            &prepared_cells,
-            window,
-            cx,
-        );
+        paint_text(&visible_text, &prepared_cells, window, cx);
         paint_strikethrough_overlay(
             &visible_text,
             rows_per_column,
@@ -979,16 +974,15 @@ fn vertical_text_paint_offset(line: &gpui::ShapedLine) -> gpui::Point<Pixels> {
 
     #[cfg(target_os = "macos")]
     {
-        let (min_x, min_y) = line
-            .runs
-            .iter()
-            .flat_map(|run| run.glyphs.iter())
-            .fold((0.0f32, 0.0f32), |(min_x, min_y), glyph| {
+        let (min_x, min_y) = line.runs.iter().flat_map(|run| run.glyphs.iter()).fold(
+            (0.0f32, 0.0f32),
+            |(min_x, min_y), glyph| {
                 (
                     min_x.min(glyph.position.x.as_f32()),
                     min_y.min(glyph.position.y.as_f32()),
                 )
-            });
+            },
+        );
 
         point(px(-min_x), px(-min_y))
     }

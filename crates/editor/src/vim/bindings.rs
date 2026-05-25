@@ -1,4 +1,4 @@
-use gpui::{App, KeyBinding};
+use gpui::{Action, App, KeyBinding};
 use settings::AppSettings;
 
 use super::{
@@ -17,151 +17,320 @@ pub(crate) fn init(cx: &mut App) {
         return;
     }
 
+    fn binding<A: Action>(
+        cx: &App,
+        id: &str,
+        _: &str,
+        action: A,
+        context: Option<&str>,
+    ) -> KeyBinding {
+        let keystroke = AppSettings::global(cx).keymap_keystroke(id);
+        KeyBinding::new(keystroke.as_ref(), action, context)
+    }
+
     cx.bind_keys([
-        KeyBinding::new("i", VimEnterInsertMode, Some("vim_mode == normal")),
-        KeyBinding::new("a", VimAppend, Some("vim_mode == normal")),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.enter_insert_mode",
+            "i",
+            VimEnterInsertMode,
+            Some("vim_mode == normal"),
+        ),
+        binding(cx, "vim.append", "a", VimAppend, Some("vim_mode == normal")),
+        binding(
+            cx,
+            "vim.normal_mode.escape",
             "escape",
             VimNormalMode,
             Some(
                 "vim_mode == insert || vim_mode == visual || vim_mode == visual_block || vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank || vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around",
             ),
         ),
-        KeyBinding::new("v", VimVisualMode, Some("vim_mode == normal")),
-        KeyBinding::new("v", VimNormalMode, Some("vim_mode == visual")),
-        KeyBinding::new("ctrl-v", VimVisualBlockMode, Some("vim_mode == normal")),
-        KeyBinding::new("ctrl-v", VimNormalMode, Some("vim_mode == visual_block")),
-        KeyBinding::new("I", VimBlockInsertBefore, Some("vim_mode == visual_block")),
-        KeyBinding::new("A", VimBlockAppendAfter, Some("vim_mode == visual_block")),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.visual_mode",
+            "v",
+            VimVisualMode,
+            Some("vim_mode == normal"),
+        ),
+        binding(
+            cx,
+            "vim.normal_mode.visual",
+            "v",
+            VimNormalMode,
+            Some("vim_mode == visual"),
+        ),
+        binding(
+            cx,
+            "vim.visual_block_mode",
+            "ctrl-v",
+            VimVisualBlockMode,
+            Some("vim_mode == normal"),
+        ),
+        binding(
+            cx,
+            "vim.normal_mode.visual_block",
+            "ctrl-v",
+            VimNormalMode,
+            Some("vim_mode == visual_block"),
+        ),
+        binding(
+            cx,
+            "vim.block_insert_before",
+            "I",
+            VimBlockInsertBefore,
+            Some("vim_mode == visual_block"),
+        ),
+        binding(
+            cx,
+            "vim.block_append_after",
+            "A",
+            VimBlockAppendAfter,
+            Some("vim_mode == visual_block"),
+        ),
+        binding(
+            cx,
+            "vim.delete_operator",
             "d",
             VimDeleteOperator,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.change_operator",
             "c",
             VimChangeOperator,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.yank_operator",
             "y",
             VimYankOperator,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new("p", VimPasteAfter, Some("vim_mode == normal")),
-        KeyBinding::new("P", VimPasteBefore, Some("vim_mode == normal")),
-        KeyBinding::new("u", VimUndo, Some("vim_mode == normal")),
-        KeyBinding::new("ctrl-r", VimRedo, Some("vim_mode == normal")),
-        KeyBinding::new(".", VimRepeatLastChange, Some("vim_mode == normal")),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.paste_after",
+            "p",
+            VimPasteAfter,
+            Some("vim_mode == normal"),
+        ),
+        binding(
+            cx,
+            "vim.paste_before",
+            "P",
+            VimPasteBefore,
+            Some("vim_mode == normal"),
+        ),
+        binding(cx, "vim.undo", "u", VimUndo, Some("vim_mode == normal")),
+        binding(cx, "vim.redo", "ctrl-r", VimRedo, Some("vim_mode == normal")),
+        binding(
+            cx,
+            "vim.repeat_last_change",
+            ".",
+            VimRepeatLastChange,
+            Some("vim_mode == normal"),
+        ),
+        binding(
+            cx,
+            "vim.move_word_forward",
             "w",
             VimMoveWordForward,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.move_big_word_forward",
             "W",
             VimMoveBigWordForward,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.move_word_end_forward",
             "e",
             VimMoveWordEndForward,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new("b", VimMoveWordBackward, Some("vim_mode == normal")),
-        KeyBinding::new("B", VimMoveBigWordBackward, Some("vim_mode == normal")),
-        KeyBinding::new("g g", VimMoveDocumentStart, Some("vim_mode == normal")),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.move_word_backward",
+            "b",
+            VimMoveWordBackward,
+            Some("vim_mode == normal"),
+        ),
+        binding(
+            cx,
+            "vim.move_big_word_backward",
+            "B",
+            VimMoveBigWordBackward,
+            Some("vim_mode == normal"),
+        ),
+        binding(
+            cx,
+            "vim.move_document_start.normal",
+            "g g",
+            VimMoveDocumentStart,
+            Some("vim_mode == normal"),
+        ),
+        binding(
+            cx,
+            "vim.move_document_start.visual",
             "g g",
             VimMoveDocumentStart,
             Some("vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new("G", VimMoveDocumentEnd, Some("vim_mode == normal")),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.move_document_end.normal",
+            "G",
+            VimMoveDocumentEnd,
+            Some("vim_mode == normal"),
+        ),
+        binding(
+            cx,
+            "vim.move_document_end.visual",
             "G",
             VimMoveDocumentEnd,
             Some("vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new("o", VimOpenNextColumn, Some("vim_mode == normal")),
-        KeyBinding::new("d", VimDeleteOperator, Some("vim_mode == operator_delete")),
-        KeyBinding::new("c", VimChangeOperator, Some("vim_mode == operator_change")),
-        KeyBinding::new("y", VimYankOperator, Some("vim_mode == operator_yank")),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.open_next_column",
+            "o",
+            VimOpenNextColumn,
+            Some("vim_mode == normal"),
+        ),
+        binding(
+            cx,
+            "vim.delete_operator.repeat",
+            "d",
+            VimDeleteOperator,
+            Some("vim_mode == operator_delete"),
+        ),
+        binding(
+            cx,
+            "vim.change_operator.repeat",
+            "c",
+            VimChangeOperator,
+            Some("vim_mode == operator_change"),
+        ),
+        binding(
+            cx,
+            "vim.yank_operator.repeat",
+            "y",
+            VimYankOperator,
+            Some("vim_mode == operator_yank"),
+        ),
+        binding(
+            cx,
+            "vim.motion.operator.word_forward",
             "w",
             VimMoveWordForward,
             Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.motion.operator.big_word_forward",
             "W",
             VimMoveBigWordForward,
             Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.motion.operator.word_end_forward",
             "e",
             VimMoveWordEndForward,
             Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.text_object_inner",
             "i",
             VimTextObjectInner,
             Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.text_object_around",
             "a",
             VimTextObjectAround,
             Some("vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.text_object_word",
             "w",
             VimTextObjectWord,
             Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.text_object_big_word",
             "W",
             VimTextObjectBigWord,
             Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.text_object_double_quote",
             "\"",
             VimTextObjectDoubleQuote,
             Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.text_object_single_quote",
             "'",
             VimTextObjectSingleQuote,
             Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.text_object_paren",
             "(",
             VimTextObjectParen,
             Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.text_object_bracket",
             "[",
             VimTextObjectBracket,
             Some("vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.move_left",
             "h",
             VimMoveLeft,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.move_down",
             "j",
             VimMoveDown,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.move_up",
             "k",
             VimMoveUp,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.move_right",
             "l",
             VimMoveRight,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),
         ),
-        KeyBinding::new(
+        binding(
+            cx,
+            "vim.delete_char",
             "x",
             VimDeleteChar,
             Some("vim_mode == normal || vim_mode == visual || vim_mode == visual_block"),

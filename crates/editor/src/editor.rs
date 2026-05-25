@@ -3,9 +3,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
-    Pixels, Render, ScrollWheelEvent, Size, Styled, UTF16Selection, Window, actions, div, px,
+    Action, App, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle,
+    Focusable, InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent,
+    ParentElement, Pixels, Render, ScrollWheelEvent, Size, Styled, UTF16Selection, Window, actions,
+    div, px,
 };
 use richtext::{ResolvedBlock, RichDocument};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
@@ -29,35 +30,93 @@ const IME_CANDIDATE_GAP: f32 = 16.0;
 
 pub(crate) fn init(cx: &mut App) {
     const EDITOR_CONTEXT: Option<&str> = Some("vim_mode == insert || vim_mode == disabled");
+    fn binding<A: Action>(
+        cx: &App,
+        id: &str,
+        _: &str,
+        action: A,
+        context: Option<&str>,
+    ) -> KeyBinding {
+        let keystroke = AppSettings::global(cx).keymap_keystroke(id);
+        KeyBinding::new(keystroke.as_ref(), action, context)
+    }
 
     cx.bind_keys([
-        KeyBinding::new("backspace", Backspace, EDITOR_CONTEXT),
-        KeyBinding::new("delete", Delete, EDITOR_CONTEXT),
-        KeyBinding::new("up", Up, EDITOR_CONTEXT),
-        KeyBinding::new("down", Down, EDITOR_CONTEXT),
-        KeyBinding::new("left", Left, EDITOR_CONTEXT),
-        KeyBinding::new("right", Right, EDITOR_CONTEXT),
-        KeyBinding::new("shift-up", SelectUp, EDITOR_CONTEXT),
-        KeyBinding::new("shift-down", SelectDown, EDITOR_CONTEXT),
-        KeyBinding::new("shift-left", SelectLeft, EDITOR_CONTEXT),
-        KeyBinding::new("shift-right", SelectRight, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-a", SelectAll, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-a", SelectAll, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-v", Paste, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-v", Paste, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-c", Copy, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-c", Copy, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-x", Cut, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-x", Cut, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-z", Undo, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-z", Undo, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-shift-z", Redo, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-u", Redo, EDITOR_CONTEXT),
-        KeyBinding::new("enter", Enter, EDITOR_CONTEXT),
-        KeyBinding::new("escape", ClearSelection, EDITOR_CONTEXT),
-        KeyBinding::new("home", Home, EDITOR_CONTEXT),
-        KeyBinding::new("end", End, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, EDITOR_CONTEXT),
+        binding(
+            cx,
+            "editor.backspace",
+            "backspace",
+            Backspace,
+            EDITOR_CONTEXT,
+        ),
+        binding(cx, "editor.delete", "delete", Delete, EDITOR_CONTEXT),
+        binding(cx, "editor.up", "up", Up, EDITOR_CONTEXT),
+        binding(cx, "editor.down", "down", Down, EDITOR_CONTEXT),
+        binding(cx, "editor.left", "left", Left, EDITOR_CONTEXT),
+        binding(cx, "editor.right", "right", Right, EDITOR_CONTEXT),
+        binding(cx, "editor.select_up", "shift-up", SelectUp, EDITOR_CONTEXT),
+        binding(
+            cx,
+            "editor.select_down",
+            "shift-down",
+            SelectDown,
+            EDITOR_CONTEXT,
+        ),
+        binding(
+            cx,
+            "editor.select_left",
+            "shift-left",
+            SelectLeft,
+            EDITOR_CONTEXT,
+        ),
+        binding(
+            cx,
+            "editor.select_right",
+            "shift-right",
+            SelectRight,
+            EDITOR_CONTEXT,
+        ),
+        binding(
+            cx,
+            "editor.select_all.mac",
+            "cmd-a",
+            SelectAll,
+            EDITOR_CONTEXT,
+        ),
+        binding(
+            cx,
+            "editor.select_all.ctrl",
+            "ctrl-a",
+            SelectAll,
+            EDITOR_CONTEXT,
+        ),
+        binding(cx, "editor.paste.mac", "cmd-v", Paste, EDITOR_CONTEXT),
+        binding(cx, "editor.paste.ctrl", "ctrl-v", Paste, EDITOR_CONTEXT),
+        binding(cx, "editor.copy.mac", "cmd-c", Copy, EDITOR_CONTEXT),
+        binding(cx, "editor.copy.ctrl", "ctrl-c", Copy, EDITOR_CONTEXT),
+        binding(cx, "editor.cut.mac", "cmd-x", Cut, EDITOR_CONTEXT),
+        binding(cx, "editor.cut.ctrl", "ctrl-x", Cut, EDITOR_CONTEXT),
+        binding(cx, "editor.undo.mac", "cmd-z", Undo, EDITOR_CONTEXT),
+        binding(cx, "editor.undo.ctrl", "ctrl-z", Undo, EDITOR_CONTEXT),
+        binding(cx, "editor.redo.mac", "cmd-shift-z", Redo, EDITOR_CONTEXT),
+        binding(cx, "editor.redo.ctrl", "ctrl-u", Redo, EDITOR_CONTEXT),
+        binding(cx, "editor.enter", "enter", Enter, EDITOR_CONTEXT),
+        binding(
+            cx,
+            "editor.clear_selection",
+            "escape",
+            ClearSelection,
+            EDITOR_CONTEXT,
+        ),
+        binding(cx, "editor.home", "home", Home, EDITOR_CONTEXT),
+        binding(cx, "editor.end", "end", End, EDITOR_CONTEXT),
+        binding(
+            cx,
+            "editor.show_character_palette",
+            "ctrl-cmd-space",
+            ShowCharacterPalette,
+            EDITOR_CONTEXT,
+        ),
     ]);
 }
 
@@ -1507,7 +1566,8 @@ impl Focusable for Editor {
 }
 
 fn inverse_edit_operations(edits: &[EditOperation]) -> Vec<EditOperation> {
-    edits.iter()
+    edits
+        .iter()
         .rev()
         .map(|edit| EditOperation {
             start: edit.start,

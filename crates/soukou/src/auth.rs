@@ -297,7 +297,9 @@ fn fetch_account_plan(
         .error_for_status()
         .map_err(|error| format!("サブスクリプション情報の取得に失敗しました: {error}"))?
         .json::<Vec<SubscriptionRow>>()
-        .map_err(|error| format!("サブスクリプション情報レスポンスを解析できませんでした: {error}"))?;
+        .map_err(|error| {
+            format!("サブスクリプション情報レスポンスを解析できませんでした: {error}")
+        })?;
 
     let profile_plan = profile
         .into_iter()
