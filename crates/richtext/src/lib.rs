@@ -1,6 +1,7 @@
 use std::cmp::{max, min};
 use std::ops::Range;
 
+use gpui::Render;
 use serde::{Deserialize, Serialize};
 
 pub const FILE_EXTENSION: &str = "soukou";
@@ -422,6 +423,14 @@ pub fn single_change(old_text: &str, new_text: &str) -> Option<(Range<usize>, St
     Some((prefix..old_suffix, new_text[prefix..new_suffix].to_string()))
 }
 
+// pub struct RichTextToolbar {}
+//
+// impl Render for RichTextToolbar {
+//     fn render(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+//         todo!()
+//     }
+// }
+//
 #[cfg(test)]
 mod tests {
     use super::{BlockKind, InlineStyle, RichDocument, single_change};

@@ -3,12 +3,6 @@ use std::ops::Range;
 use super::state::{BlockInsertKind, BlockRegister};
 use crate::editor::Editor;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PastePosition {
-    Before,
-    After,
-}
-
 pub(crate) fn current_column_cell_range(
     cursor_cell: usize,
     rows_per_column: usize,

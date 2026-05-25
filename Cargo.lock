@@ -5162,6 +5162,7 @@ dependencies = [
 name = "richtext"
 version = "0.1.0"
 dependencies = [
+ "gpui",
  "serde",
  "serde_json",
 ]

@@ -1,5 +1,9 @@
+pub(crate) mod commands;
+pub(crate) mod command_types;
+mod default_input;
 mod history;
 pub(crate) mod layout;
+pub(crate) mod motions;
 mod selection;
 
 use std::ops::Range;
@@ -7,10 +11,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
-    Action, App, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle,
-    Focusable, InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, ScrollWheelEvent, Size, Styled,
-    UTF16Selection, Window, actions, div, px,
+    App, Bounds, Context, EntityInputHandler, FocusHandle, Focusable, IntoElement, Pixels,
+    Render, Size, UTF16Selection, Window, actions, px,
 };
 use richtext::{ResolvedBlock, RichDocument};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
@@ -18,12 +20,11 @@ use settings::AppSettings;
 
 use self::{history as editor_history, selection as editor_selection};
 use crate::editor::layout::{
-    content_height_for_window_height, logical_index_for_point, rows_per_column_for_window_height,
+    content_height_for_window_height, rows_per_column_for_window_height,
     visible_columns_for_window_width,
 };
-use crate::editor_canvas::{EditorCanvas, GridPathCache};
+use crate::editor_canvas::GridPathCache;
 use crate::perf::{log_paste_perf, paste_perf_enabled};
-use crate::vim::{VimMode, VimNormalMode, VimState};
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
@@ -35,46 +36,7 @@ const IME_ANCHOR_INSET: f32 = 3.0;
 const IME_CANDIDATE_GAP: f32 = 16.0;
 
 pub(crate) fn init(cx: &mut App) {
-    const EDITOR_CONTEXT: Option<&str> = Some("vim_mode == insert || vim_mode == disabled");
-    fn binding<A: Action>(cx: &App, id: &str, action: A, context: Option<&str>) -> KeyBinding {
-        let keystroke = AppSettings::global(cx).keymap_keystroke(id);
-        KeyBinding::new(keystroke.as_ref(), action, context)
-    }
-
-    cx.bind_keys([
-        binding(cx, "editor.backspace", Backspace, EDITOR_CONTEXT),
-        binding(cx, "editor.delete", Delete, EDITOR_CONTEXT),
-        binding(cx, "editor.up", Up, EDITOR_CONTEXT),
-        binding(cx, "editor.down", Down, EDITOR_CONTEXT),
-        binding(cx, "editor.left", Left, EDITOR_CONTEXT),
-        binding(cx, "editor.right", Right, EDITOR_CONTEXT),
-        binding(cx, "editor.select_up", SelectUp, EDITOR_CONTEXT),
-        binding(cx, "editor.select_down", SelectDown, EDITOR_CONTEXT),
-        binding(cx, "editor.select_left", SelectLeft, EDITOR_CONTEXT),
-        binding(cx, "editor.select_right", SelectRight, EDITOR_CONTEXT),
-        binding(cx, "editor.select_all.mac", SelectAll, EDITOR_CONTEXT),
-        binding(cx, "editor.select_all.ctrl", SelectAll, EDITOR_CONTEXT),
-        binding(cx, "editor.paste.mac", Paste, EDITOR_CONTEXT),
-        binding(cx, "editor.paste.ctrl", Paste, EDITOR_CONTEXT),
-        binding(cx, "editor.copy.mac", Copy, EDITOR_CONTEXT),
-        binding(cx, "editor.copy.ctrl", Copy, EDITOR_CONTEXT),
-        binding(cx, "editor.cut.mac", Cut, EDITOR_CONTEXT),
-        binding(cx, "editor.cut.ctrl", Cut, EDITOR_CONTEXT),
-        binding(cx, "editor.undo.mac", Undo, EDITOR_CONTEXT),
-        binding(cx, "editor.undo.ctrl", Undo, EDITOR_CONTEXT),
-        binding(cx, "editor.redo.mac", Redo, EDITOR_CONTEXT),
-        binding(cx, "editor.redo.ctrl", Redo, EDITOR_CONTEXT),
-        binding(cx, "editor.enter", Enter, EDITOR_CONTEXT),
-        binding(cx, "editor.clear_selection", ClearSelection, EDITOR_CONTEXT),
-        binding(cx, "editor.home", Home, EDITOR_CONTEXT),
-        binding(cx, "editor.end", End, EDITOR_CONTEXT),
-        binding(
-            cx,
-            "editor.show_character_palette",
-            ShowCharacterPalette,
-            EDITOR_CONTEXT,
-        ),
-    ]);
+    default_input::init(cx);
 }
 
 actions!(
@@ -688,10 +650,6 @@ impl Editor {
         editor_history::redo(self, cx)
     }
 
-    fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
-        editor_selection::move_to_display_cell(self, cell_index, cx);
-    }
-
     fn select_between_display_cells(
         &mut self,
         anchor_cell: usize,
@@ -882,267 +840,6 @@ impl Editor {
         editor_selection::bounds_for_byte_range(self, range, board_bounds)
     }
 
-    fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            let previous = self.previous_boundary(self.cursor_offset());
-            self.selected_range = previous..self.cursor_offset();
-        }
-        self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
-        invalidate_ime_position(window);
-    }
-
-    fn delete_forward(&mut self, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            let next = self.next_boundary(self.cursor_offset());
-            self.selected_range = self.cursor_offset()..next;
-        }
-        self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
-    }
-
-    fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
-        self.delete_forward(cx);
-        invalidate_ime_position(window);
-    }
-
-    fn up(&mut self, _: &Up, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(-1, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn down(&mut self, _: &Down, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(1, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn left(&mut self, _: &Left, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(self.rows_per_column() as isize, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn right(&mut self, _: &Right, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(-(self.rows_per_column() as isize), cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_up(&mut self, _: &SelectUp, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(-1, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_down(&mut self, _: &SelectDown, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(1, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_left(&mut self, _: &SelectLeft, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(self.rows_per_column() as isize, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_right(&mut self, _: &SelectRight, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(-(self.rows_per_column() as isize), cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_all(&mut self, _: &SelectAll, window: &mut Window, cx: &mut Context<Self>) {
-        self.selected_range = 0..self.draft.len_bytes();
-        self.selection_reversed = false;
-        self.cursor_cell = self.used_cells();
-        self.block_selection = None;
-        invalidate_ime_position(window);
-        cx.notify();
-    }
-
-    fn home(&mut self, _: &Home, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_display_cell(0, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn end(&mut self, _: &End, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_display_cell(self.used_cells(), cx);
-        invalidate_ime_position(window);
-    }
-
-    fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            let perf_enabled = paste_perf_enabled();
-            let perf_start = perf_enabled.then(Instant::now);
-            let pasted_bytes = text.len();
-            self.replace_text_in_byte_range_owned(self.selected_range.clone(), text, cx);
-            invalidate_ime_position(window);
-            if let Some(start) = perf_start {
-                let revision = self.draft_revision;
-                let cursor_cell = self.cursor_cell;
-                log_paste_perf(
-                    "paste_total",
-                    move || {
-                        format!(
-                            "pasted_bytes={} cursor_cell={} revision={}",
-                            pasted_bytes, cursor_cell, revision
-                        )
-                    },
-                    start.elapsed(),
-                );
-            }
-        }
-    }
-
-    fn enter(&mut self, _: &Enter, window: &mut Window, cx: &mut Context<Self>) {
-        let inserted_text = if AppSettings::global(cx).indent_on_enter {
-            "\n "
-        } else {
-            "\n"
-        };
-        self.replace_text_in_byte_range(self.selected_range.clone(), inserted_text, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn clear_selection_action(
-        &mut self,
-        _: &ClearSelection,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if AppSettings::global(cx).vim_mode && VimState::global(cx).mode == VimMode::Insert {
-            window.dispatch_action(Box::new(VimNormalMode), cx);
-            return;
-        }
-
-        if self.block_selection.is_some() {
-            self.clear_block_selection(cx);
-            invalidate_ime_position(window);
-            return;
-        }
-
-        if !self.selected_range.is_empty() {
-            self.collapse_selection_to_cursor_offset(cx);
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.draft.slice(self.selected_range.clone()),
-            ));
-        }
-    }
-
-    fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.draft.slice(self.selected_range.clone()),
-            ));
-            self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn show_character_palette(
-        &mut self,
-        _: &ShowCharacterPalette,
-        window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        window.show_character_palette();
-    }
-
-    fn undo_action(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
-        if self.undo(cx) {
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn redo_action(&mut self, _: &Redo, window: &mut Window, cx: &mut Context<Self>) {
-        if self.redo(cx) {
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn on_board_mouse_down(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        window.focus(&self.focus_handle, cx);
-        let Some(bounds) = self.last_board_bounds else {
-            return;
-        };
-        if let Some(cell_index) = logical_index_for_point(
-            bounds,
-            event.position,
-            self.scroll_column,
-            self.scroll_row,
-            self.rows_per_column(),
-            self.visible_columns(),
-            self.visible_rows(),
-            self.cell_size(),
-            self.ruby_gutter_size(),
-        ) {
-            self.is_mouse_selecting = true;
-            if event.modifiers.shift {
-                let anchor_cell = self.selection_anchor_cell();
-                self.mouse_selection_anchor_cell = Some(anchor_cell);
-                self.select_between_display_cells(anchor_cell, cell_index, cx);
-            } else {
-                self.mouse_selection_anchor_cell = Some(cell_index);
-                self.move_to_display_cell(cell_index, cx);
-            }
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn on_board_mouse_up(
-        &mut self,
-        _: &MouseUpEvent,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        self.is_mouse_selecting = false;
-        self.mouse_selection_anchor_cell = None;
-    }
-
-    fn on_board_mouse_move(
-        &mut self,
-        event: &MouseMoveEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !self.is_mouse_selecting {
-            return;
-        }
-
-        let Some(anchor_cell) = self.mouse_selection_anchor_cell else {
-            return;
-        };
-        let Some(cell_index) = self.clamped_display_cell_for_point(event.position) else {
-            return;
-        };
-        self.select_between_display_cells(anchor_cell, cell_index, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn on_scroll_wheel(
-        &mut self,
-        event: &ScrollWheelEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let delta = event.delta.pixel_delta(px(self.cell_size()));
-        let column_delta = if delta.x == Pixels::ZERO {
-            -(delta.y / px(self.cell_size()))
-        } else {
-            -(delta.x / px(self.cell_size()))
-        };
-
-        self.scroll_remainder_columns += column_delta;
-        let whole_columns = self.scroll_remainder_columns.trunc() as isize;
-        if whole_columns != 0 {
-            self.scroll_remainder_columns -= whole_columns as f32;
-            self.scroll_columns_by(whole_columns, cx);
-        }
-    }
 }
 
 fn ime_anchor_bounds_for_cell(
@@ -1294,37 +991,7 @@ impl EntityInputHandler for Editor {
 
 impl Render for Editor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .track_focus(&self.focus_handle(cx))
-            .key_context("Soukou")
-            .on_action(cx.listener(Self::backspace))
-            .on_action(cx.listener(Self::delete))
-            .on_action(cx.listener(Self::up))
-            .on_action(cx.listener(Self::down))
-            .on_action(cx.listener(Self::left))
-            .on_action(cx.listener(Self::right))
-            .on_action(cx.listener(Self::select_up))
-            .on_action(cx.listener(Self::select_down))
-            .on_action(cx.listener(Self::select_left))
-            .on_action(cx.listener(Self::select_right))
-            .on_action(cx.listener(Self::select_all))
-            .on_action(cx.listener(Self::home))
-            .on_action(cx.listener(Self::end))
-            .on_action(cx.listener(Self::paste))
-            .on_action(cx.listener(Self::cut))
-            .on_action(cx.listener(Self::copy))
-            .on_action(cx.listener(Self::undo_action))
-            .on_action(cx.listener(Self::redo_action))
-            .on_action(cx.listener(Self::enter))
-            .on_action(cx.listener(Self::clear_selection_action))
-            .on_action(cx.listener(Self::show_character_palette))
-            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
-            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_board_mouse_up))
-            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_board_mouse_up))
-            .on_mouse_move(cx.listener(Self::on_board_mouse_move))
-            .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
-            .cursor(CursorStyle::IBeam)
-            .child(EditorCanvas::new(cx.entity()))
+        default_input::render(self, cx)
     }
 }
 

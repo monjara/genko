@@ -9,5 +9,6 @@ name = "richtext"
 path = "src/lib.rs"
 
 [dependencies]
+gpui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

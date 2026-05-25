@@ -462,17 +462,19 @@ impl SoukouApp {
     fn new(cx: &mut Context<Self>) -> Self {
         text_input::init(cx);
         let quit_mac = AppSettings::global(cx).keymap_keystroke("app.quit.mac");
-        let open_settings_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_settings.ctrl");
         let open_file_mac = AppSettings::global(cx).keymap_keystroke("app.open_file.mac");
-        let open_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_file.ctrl");
         let save_file_mac = AppSettings::global(cx).keymap_keystroke("app.save_file.mac");
-        let save_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.save_file.ctrl");
         let toggle_bold_mac = AppSettings::global(cx).keymap_keystroke("app.toggle_bold.mac");
-        let toggle_bold_ctrl = AppSettings::global(cx).keymap_keystroke("app.toggle_bold.ctrl");
         let toggle_strikethrough_mac =
             AppSettings::global(cx).keymap_keystroke("app.toggle_strikethrough.mac");
+
+        let open_settings_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_settings.ctrl");
+        let open_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_file.ctrl");
+        let save_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.save_file.ctrl");
+        let toggle_bold_ctrl = AppSettings::global(cx).keymap_keystroke("app.toggle_bold.ctrl");
         let toggle_strikethrough_ctrl =
             AppSettings::global(cx).keymap_keystroke("app.toggle_strikethrough.ctrl");
+
         cx.bind_keys([
             KeyBinding::new(quit_mac.as_ref(), Quit, None),
             KeyBinding::new(open_settings_ctrl.as_ref(), OpenSettings, None),

@@ -1,6 +1,8 @@
 use std::ops::Range;
 
 use crate::editor::{AppliedEditBatch, Editor};
+use crate::editor::command_types::{MotionKind, PastePosition, TextObjectTarget};
+use crate::editor::motions::MotionRangeBehavior;
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Window,
@@ -11,26 +13,22 @@ use rope::BLANK_CELL;
 use settings::AppSettings;
 
 mod bindings;
-mod block;
-mod state;
+pub(crate) mod block;
+pub(crate) mod state;
 #[cfg(test)]
 mod tests;
-mod text_objects;
+pub(crate) mod text_objects;
 
 use block::{
-    PastePosition, block_byte_ranges_from_cursor, block_insert_target_cells,
-    block_insert_target_cells_from_cursor, block_paste_operations, block_selection_byte_ranges,
-    build_block_register, build_block_register_from_cursor, current_column_cell_range,
-    top_right_block_cell,
+    block_byte_ranges_from_cursor, block_insert_target_cells, block_insert_target_cells_from_cursor,
+    block_paste_operations, block_selection_byte_ranges, build_block_register,
+    build_block_register_from_cursor, current_column_cell_range, top_right_block_cell,
 };
 use state::{
-    BlockInsertKind, InsertKind, MotionKind, PendingBlockInsert, PendingInsert, RepeatTarget,
-    RepeatableCommand, TextObjectModifier, TextObjectTarget, VimOperator, YankRegister,
+    BlockInsertKind, InsertKind, PendingBlockInsert, PendingInsert, RepeatTarget,
+    RepeatableCommand, TextObjectModifier, VimOperator, YankRegister,
 };
-use text_objects::{
-    resolve_motion_range, resolve_motion_target, resolve_repeat_target_range,
-    resolve_text_object_range,
-};
+use text_objects::resolve_repeat_target_range;
 
 pub use state::{VimMode, VimState};
 use theme::Theme;
@@ -802,34 +800,33 @@ impl VimController {
     }
 
     fn move_by_motion(&mut self, motion: MotionKind, window: &mut Window, cx: &mut Context<Self>) {
-        let (target, cursor) = {
+        let moved = {
             let editor = self.editor.read(cx);
-            let cursor = editor.cursor_byte_offset();
-            (resolve_motion_target(editor.rope(), cursor, motion), cursor)
+            editor.motion_target_command(motion).is_some()
         };
 
         if self.pending_operator().is_some() {
-            self.apply_motion(motion, cursor, window, cx);
+            self.apply_motion(motion, window, cx);
             return;
         }
 
-        let Some(target) = target else {
+        if !moved {
             return;
-        };
+        }
 
         if VimState::global(cx).mode == VimMode::Visual {
             self.editor.update(cx, |editor, cx| {
-                editor.move_cursor_to_byte_offset(target, cx);
+                let _ = editor.move_cursor_by_motion_command(motion, true, cx);
             });
             self.sync_visual_selection_for_current_cursor(window, cx);
         } else if VimState::global(cx).mode == VimMode::VisualBlock {
             self.editor.update(cx, |editor, cx| {
-                editor.move_cursor_to_byte_offset(target, cx);
+                let _ = editor.move_cursor_by_motion_command(motion, false, cx);
             });
             self.sync_block_selection_for_current_cursor(window, cx);
         } else {
             self.editor.update(cx, |editor, cx| {
-                editor.move_cursor_to_byte_offset(target, cx);
+                let _ = editor.move_cursor_by_motion_command(motion, false, cx);
             });
         }
     }
@@ -838,28 +835,18 @@ impl VimController {
         let is_visual = VimState::global(cx).mode == VimMode::Visual;
         let is_visual_block = VimState::global(cx).mode == VimMode::VisualBlock;
         self.editor.update(cx, |editor, cx| {
-            if is_visual {
-                editor.select_cursor_by(delta, cx);
-            } else {
-                editor.move_cursor_by(delta, cx);
-            }
+            editor.move_cursor_by_cells_command(delta, is_visual, cx);
         });
         if is_visual_block {
             self.sync_block_selection_for_current_cursor(window, cx);
         }
     }
 
-    fn move_to_display_cell(
-        &mut self,
-        cell_index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn move_to_document_start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mode = VimState::global(cx).mode;
         self.editor.update(cx, |editor, cx| {
-            editor.move_cursor_to_display_cell(cell_index, cx);
+            editor.move_cursor_to_document_start_command(cx);
         });
-
         if mode == VimMode::Visual {
             self.sync_visual_selection_for_current_cursor(window, cx);
         } else if mode == VimMode::VisualBlock {
@@ -867,31 +854,21 @@ impl VimController {
         }
     }
 
-    fn move_to_document_start(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_display_cell(0, window, cx);
-    }
-
     fn move_to_document_end(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let target_cell = self.editor.read(cx).used_cells();
-        self.move_to_display_cell(target_cell, window, cx);
+        let mode = VimState::global(cx).mode;
+        self.editor.update(cx, |editor, cx| {
+            editor.move_cursor_to_document_end_command(cx);
+        });
+        if mode == VimMode::Visual {
+            self.sync_visual_selection_for_current_cursor(window, cx);
+        } else if mode == VimMode::VisualBlock {
+            self.sync_block_selection_for_current_cursor(window, cx);
+        }
     }
 
     fn open_next_column(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let target_cell = {
-            let editor = self.editor.read(cx);
-            let rows_per_column = editor.rows_per_column();
-            let used_cells = editor.used_cells();
-            let current_cell = if used_cells == 0 {
-                0
-            } else if editor.cursor_cell() >= used_cells {
-                used_cells.saturating_sub(1)
-            } else {
-                editor.cursor_cell()
-            };
-            ((current_cell / rows_per_column) + 1) * rows_per_column
-        };
         self.editor.update(cx, |editor, cx| {
-            editor.move_cursor_to_display_cell(target_cell, cx);
+            editor.move_cursor_to_next_column_start_command(cx);
         });
         self.start_insert_session(InsertKind::Insert, None, window, cx);
     }
@@ -899,17 +876,20 @@ impl VimController {
     fn apply_motion(
         &mut self,
         motion: MotionKind,
-        cursor: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(operator) = self.pending_operator() else {
             return;
         };
-        let range = {
-            let editor = self.editor.read(cx);
-            resolve_motion_range(editor.rope(), cursor, motion, operator)
-        };
+        let range = self.editor.read(cx).motion_range_command(
+            motion,
+            if operator == VimOperator::Change {
+                MotionRangeBehavior::Change
+            } else {
+                MotionRangeBehavior::Default
+            },
+        );
         let Some(range) = range else {
             self.clear_pending();
             cx.notify();
@@ -938,11 +918,10 @@ impl VimController {
             return;
         };
 
-        let range = {
-            let editor = self.editor.read(cx);
-            let cursor = editor.cursor_byte_offset();
-            resolve_text_object_range(editor.rope(), cursor, modifier, target)
-        };
+        let range = self
+            .editor
+            .read(cx)
+            .text_object_range_command(modifier, target);
 
         let Some(range) = range else {
             self.clear_pending();
@@ -1065,24 +1044,10 @@ impl VimController {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (cursor_cell, rows_per_column, used_cells) = {
-            let editor = self.editor.read(cx);
-            (
-                editor.cursor_cell(),
-                editor.rows_per_column(),
-                editor.used_cells(),
-            )
-        };
-        let Some(cell_range) = current_column_cell_range(cursor_cell, rows_per_column, used_cells)
-        else {
+        let Some(range) = self.editor.read(cx).current_line_byte_range_command() else {
             self.clear_pending();
             cx.notify();
             return;
-        };
-        let range = {
-            let editor = self.editor.read(cx);
-            editor.byte_offset_for_display_cell(cell_range.start)
-                ..editor.byte_offset_for_display_cell(cell_range.end)
         };
 
         self.apply_operator_to_range(operator, range, Some(RepeatTarget::Line), window, cx);
