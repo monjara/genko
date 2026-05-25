@@ -4,9 +4,9 @@ use gpui::{
     Action, App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
     ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId,
     InteractiveElement, IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine, SharedString, Style,
-    Styled, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla, point,
-    prelude::*, px, relative, rgba, size, white,
+    MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement, Pixels, Point, Render, ShapedLine,
+    SharedString, Style, Styled, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
+    fill, hsla, point, px, relative, rgba, size, white,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -30,34 +30,37 @@ actions!(
 );
 
 pub fn init(cx: &mut App) {
-    fn binding<A: Action>(cx: &App, id: &str, _: &str, action: A) -> KeyBinding {
-        let keystroke = settings::AppSettings::global(cx).keymap_keystroke(id);
-        KeyBinding::new(keystroke.as_ref(), action, Some("SoukouTextInput"))
+    fn binding<A: Action>(key: &str, action: A) -> KeyBinding {
+        KeyBinding::new(key, action, Some("SoukouTextInput"))
     }
 
     cx.bind_keys([
-        binding(cx, "text_input.backspace", "backspace", Backspace),
-        binding(cx, "text_input.delete", "delete", Delete),
-        binding(cx, "text_input.left", "left", Left),
-        binding(cx, "text_input.right", "right", Right),
-        binding(cx, "text_input.select_left", "shift-left", SelectLeft),
-        binding(cx, "text_input.select_right", "shift-right", SelectRight),
-        binding(cx, "text_input.select_all.mac", "cmd-a", SelectAll),
-        binding(cx, "text_input.select_all.ctrl", "ctrl-a", SelectAll),
-        binding(cx, "text_input.paste.mac", "cmd-v", Paste),
-        binding(cx, "text_input.paste.ctrl", "ctrl-v", Paste),
-        binding(cx, "text_input.copy.mac", "cmd-c", Copy),
-        binding(cx, "text_input.copy.ctrl", "ctrl-c", Copy),
-        binding(cx, "text_input.cut.mac", "cmd-x", Cut),
-        binding(cx, "text_input.cut.ctrl", "ctrl-x", Cut),
-        binding(cx, "text_input.home", "home", Home),
-        binding(cx, "text_input.end", "end", End),
-        binding(
-            cx,
-            "text_input.show_character_palette",
-            "ctrl-cmd-space",
-            ShowCharacterPalette,
-        ),
+        binding("backspace", Backspace),
+        binding("delete", Delete),
+        binding("left", Left),
+        binding("right", Right),
+        binding("shift-left", SelectLeft),
+        binding("shift-right", SelectRight),
+        #[cfg(target_os = "macos")]
+        binding("cmd-a", SelectAll),
+        #[cfg(not(target_os = "macos"))]
+        binding("ctrl-a", SelectAll),
+        #[cfg(target_os = "macos")]
+        binding("cmd-v", Paste),
+        #[cfg(not(target_os = "macos"))]
+        binding("ctrl-v", Paste),
+        #[cfg(target_os = "macos")]
+        binding("cmd-c", Copy),
+        #[cfg(not(target_os = "macos"))]
+        binding("ctrl-c", Copy),
+        #[cfg(target_os = "macos")]
+        binding("cmd-x", Cut),
+        #[cfg(not(target_os = "macos"))]
+        binding("ctrl-x", Cut),
+        binding("home", Home),
+        binding("end", End),
+        #[cfg(target_os = "macos")]
+        binding("ctrl-cmd-space", ShowCharacterPalette),
     ]);
 }
 

@@ -2,7 +2,6 @@ mod auth;
 mod document;
 mod font;
 mod menu;
-mod text_input;
 
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
@@ -25,10 +24,9 @@ use richtext::{BlockKind, EpubMetadata, InlineStyle, RichDocument, single_change
 use semver::Version;
 use serde::Deserialize;
 use settings::{AppSettings, ExportTargetFormat, ExportWritingMode, open_settings_window};
-use text_input::TextInput;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::{TitleBar, TitleBarAuthActions, TitleBarAuthState, TitleBarMenu, TitleBarUser};
-use ui::{MenuBarItem, MenuBarMenu};
+use ui::{MenuBarItem, MenuBarMenu, TextInput};
 
 const APP_NAME: &str = "草稿";
 const APP_ID: &str = "dev.monj.soukou";
@@ -460,7 +458,6 @@ impl SoukouApp {
     }
 
     fn new(cx: &mut Context<Self>) -> Self {
-        text_input::init(cx);
         let quit_mac = AppSettings::global(cx).keymap_keystroke("app.quit.mac");
         let open_file_mac = AppSettings::global(cx).keymap_keystroke("app.open_file.mac");
         let save_file_mac = AppSettings::global(cx).keymap_keystroke("app.save_file.mac");
@@ -2168,6 +2165,7 @@ fn main() {
         settings::init(cx);
         editor::init(cx);
         menu::init(cx);
+        ui::init(cx);
 
         cx.on_action(|_: &Quit, cx| cx.quit())
             .on_action(|_: &OpenSettings, cx| open_settings_window(cx));
