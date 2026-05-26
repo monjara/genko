@@ -271,8 +271,8 @@ impl Element for EditorCanvas {
         paint_text(&visible_text, &prepared_cells, window, cx);
         paint_strikethrough_overlay(
             &visible_text,
-            rows_per_column,
             scroll_column,
+            rows_per_column,
             visible_columns,
             &prepared_cells,
             window,
@@ -610,6 +610,7 @@ fn paint_cell_text(
             &cell_text.text,
             vertical_text_font(style.font()),
             rich_style.color(cx),
+            rich_style,
             cx,
         ),
     );
@@ -782,6 +783,7 @@ fn paint_attached_punctuation(
             &cell_text.text,
             vertical_text_font(style.font()),
             Theme::global(cx).text_primary(),
+            CellRichStyle::default(),
             cx,
         ),
     );
@@ -824,6 +826,7 @@ fn paint_corner_punctuation(
             &cell_text.text,
             vertical_text_font(style.font()),
             Theme::global(cx).text_primary(),
+            CellRichStyle::default(),
             cx,
         ),
     );
@@ -867,7 +870,14 @@ fn cell_paint_kind(cell_text: &CellText) -> CellPaintKind {
     }
 }
 
-fn text_run(text: &str, font: Font, color: gpui::Rgba, _cx: &mut App) -> TextRun {
+fn text_run(
+    text: &str,
+    font: Font,
+    color: gpui::Rgba,
+    rich_style: CellRichStyle,
+    _cx: &mut App,
+) -> TextRun {
+    let font = if rich_style.bold { font.bold() } else { font };
     TextRun {
         len: text.len(),
         font,
@@ -890,13 +900,7 @@ impl CellRichStyle {
         match self.block_kind {
             BlockKind::HeadingLarge => 0.94,
             BlockKind::HeadingMedium => 0.84,
-            BlockKind::Body => {
-                if self.bold {
-                    0.8
-                } else {
-                    0.75
-                }
-            }
+            BlockKind::Body => 0.75,
         }
     }
 

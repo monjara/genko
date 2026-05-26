@@ -19,11 +19,6 @@ actions!(
         CheckForUpdates,
         OpenFile,
         SaveFile,
-        ToggleBold,
-        ToggleStrikethrough,
-        SetHeadingLarge,
-        SetHeadingMedium,
-        ClearHeading,
         ExportTxt,
         ExportWord,
         ExportEpub,
@@ -82,13 +77,12 @@ fn main() {
             .expect("Failed to focus main window");
 
         let mut open_url_rx = open_url_rx;
-        let main_window_for_urls = main_window.clone();
 
         cx.spawn(move |cx: &mut AsyncApp| {
             let mut app = cx.clone();
             async move {
                 while let Some(urls) = open_url_rx.next().await {
-                    let _ = main_window_for_urls.update(&mut app, |this, _, cx| {
+                    let _ = main_window.update(&mut app, |this, _, cx| {
                         this.handle_open_urls(urls, cx);
                     });
                 }

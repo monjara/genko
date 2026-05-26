@@ -1,8 +1,7 @@
-use bottom_bar::BottomBar;
 use crate::{auth, document::ActiveDocument};
+use bottom_bar::BottomBar;
 use editor::EditorController;
 use gpui::{App, Entity};
-use ::richtext::RichDocument;
 use semver::Version;
 use serde::Deserialize;
 use theme::Theme;
@@ -13,7 +12,6 @@ mod auth_flow;
 mod document_io;
 mod export_flow;
 mod render;
-mod richtext;
 mod state;
 mod updates;
 
@@ -78,8 +76,6 @@ struct AvailableUpdate {
 pub(crate) struct SoukouApp {
     editor_controller: Entity<EditorController>,
     active_document: ActiveDocument,
-    rich_document: Option<RichDocument>,
-    last_richtext_revision: u64,
     active_modal: Option<AppModal>,
     epub_metadata_form: Option<EpubMetadataForm>,
     title_bar: Entity<TitleBar>,

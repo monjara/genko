@@ -3,17 +3,17 @@ use gpui::{
     IntoElement, ParentElement, Render, Styled, Window, anchored, deferred, div, point,
     prelude::FluentBuilder, px, svg, transparent_black,
 };
+use editor::{
+    ClearHeading, SetHeadingLarge, SetHeadingMedium, ToggleBold, ToggleStrikethrough,
+};
 use theme::APP_FONT_FAMILY;
 use theme::Theme;
 use ui::TextInput;
 
-use crate::{
-    ClearHeading, SetHeadingLarge, SetHeadingMedium, ToggleBold, ToggleStrikethrough,
-    app::{
-        AppModal, EPUB_METADATA_TITLE, FeatureGate, MODAL_ERROR_ICON_PATH, MODAL_INFO_ICON_PATH,
-        MODAL_PRO_ICON_PATH, MODAL_UPDATE_ICON_PATH, PRO_REQUIRED_TITLE, SoukouApp,
-        UPDATE_AVAILABLE_TITLE, mix, toolbar_border_color,
-    },
+use crate::app::{
+    AppModal, EPUB_METADATA_TITLE, FeatureGate, MODAL_ERROR_ICON_PATH, MODAL_INFO_ICON_PATH,
+    MODAL_PRO_ICON_PATH, MODAL_UPDATE_ICON_PATH, PRO_REQUIRED_TITLE, SoukouApp,
+    UPDATE_AVAILABLE_TITLE, mix, toolbar_border_color,
 };
 
 fn toolbar_button(
@@ -53,10 +53,6 @@ fn render_metadata_field(label: &'static str, input: Entity<TextInput>) -> impl 
 
 impl SoukouApp {
     fn render_richtext_toolbar(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        if !self.is_feature_available(FeatureGate::RichText) {
-            return None;
-        }
-
         let selected_range = self.editor_controller.read(cx).selected_byte_range(cx);
         if selected_range.is_empty() {
             return None;
@@ -469,7 +465,6 @@ impl SoukouApp {
 
 impl Render for SoukouApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_richtext_from_editor(cx);
         title_bar::sync_client_window_inset(window);
         self.window_handle = Some(window.window_handle());
         self.sync_window_title(window, cx);
@@ -533,11 +528,6 @@ impl Render for SoukouApp {
                     .on_drop(cx.listener(Self::drop_external_paths))
                     .on_action(cx.listener(Self::open_file_action))
                     .on_action(cx.listener(Self::save_file_action))
-                    .on_action(cx.listener(Self::toggle_bold_action))
-                    .on_action(cx.listener(Self::toggle_strikethrough_action))
-                    .on_action(cx.listener(Self::set_heading_large_action))
-                    .on_action(cx.listener(Self::set_heading_medium_action))
-                    .on_action(cx.listener(Self::clear_heading_action))
                     .on_action(cx.listener(Self::export_txt_action))
                     .on_action(cx.listener(Self::export_word_action))
                     .on_action(cx.listener(Self::export_epub_action))
@@ -547,6 +537,7 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::sign_in_action))
                     .on_action(cx.listener(Self::open_account_settings_action))
                     .on_action(cx.listener(Self::sign_out_action))
+                    .on_action(cx.listener(Self::request_pro_for_richtext_action))
                     .child(self.title_bar.clone().into_element())
                     .child(
                         div().flex_1().w_full().flex().child(

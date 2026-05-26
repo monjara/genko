@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use gpui::{App, AppContext, Context, Entity, Focusable, Window};
-use ::richtext::{BlockKind, EpubMetadata, RichDocument};
+use gpui::{AppContext, Context, Entity, Focusable, Window};
+use ::richtext::EpubMetadata;
 use settings::{AppSettings, ExportTargetFormat, ExportWritingMode};
 use ui::TextInput;
 
@@ -10,18 +10,18 @@ use crate::{
         APP_NAME, CURRENT_DIRECTORY_FALLBACK, EpubMetadataForm, EXPORT_ERROR_TITLE, FeatureGate,
         SAVE_PATH_PICKER_ERROR_TITLE, SoukouApp, non_empty_option,
     },
-    document::{DocumentKind, ExportFormat},
+    document::ExportFormat,
 };
 use document_export as export;
 
 impl SoukouApp {
-    fn current_epub_metadata_defaults(&self, cx: &App) -> EpubMetadata {
+    fn current_epub_metadata_defaults(&self, cx: &mut Context<Self>) -> EpubMetadata {
         let metadata = self
-            .rich_document
-            .as_ref()
-            .and_then(|document| document.epub_metadata.clone());
+            .editor_controller
+            .update(cx, |editor_controller, cx| editor_controller.current_epub_metadata(cx));
         let fallback_title = self
-            .first_heading_title_from_current_document(cx)
+            .editor_controller
+            .update(cx, |editor_controller, cx| editor_controller.first_heading_title(cx))
             .or_else(|| {
                 self.active_document
                     .path()
@@ -42,30 +42,6 @@ impl SoukouApp {
             metadata.identifier = Self::generate_epub_identifier();
         }
         metadata
-    }
-
-    fn first_heading_title_from_current_document(&self, cx: &App) -> Option<String> {
-        self.rich_document
-            .as_ref()
-            .and_then(|document| {
-                document.resolved_blocks().into_iter().find_map(|block| {
-                    matches!(
-                        block.kind,
-                        BlockKind::HeadingLarge | BlockKind::HeadingMedium
-                    )
-                    .then(|| document.plain_text()[block.range.clone()].trim().to_string())
-                    .filter(|title| !title.is_empty())
-                })
-            })
-            .or_else(|| {
-                self.editor_controller
-                    .read(cx)
-                    .snapshot_text(cx)
-                    .lines()
-                    .map(str::trim)
-                    .find(|line| !line.is_empty())
-                    .map(ToString::to_string)
-            })
     }
 
     fn generate_epub_identifier() -> String {
@@ -205,10 +181,10 @@ impl SoukouApp {
             return;
         }
 
-        if self.active_document.kind() == DocumentKind::RichText
-            && let Some(document) = self.rich_document.as_mut()
-        {
-            document.epub_metadata = Some(metadata.clone());
+        if self.current_document_is_richtext(cx) {
+            let _ = self.editor_controller.update(cx, |editor_controller, cx| {
+                editor_controller.set_epub_metadata(metadata.clone(), cx);
+            });
         }
 
         self.epub_metadata_form = None;
@@ -223,8 +199,6 @@ impl SoukouApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.sync_richtext_from_editor(cx);
-
         let base_name = self
             .active_document
             .path()
@@ -248,9 +222,17 @@ impl SoukouApp {
             .unwrap_or_else(|| PathBuf::from(CURRENT_DIRECTORY_FALLBACK));
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
         let _window_handle = window.window_handle();
-        let rich_document = self.rich_document.clone().unwrap_or_else(|| {
-            RichDocument::new(self.editor_controller.read(cx).snapshot_text(cx))
-        });
+        let Some(rich_document) = self
+            .editor_controller
+            .update(cx, |editor_controller, cx| editor_controller.richtext_document(cx))
+        else {
+            self.show_error_modal(
+                EXPORT_ERROR_TITLE,
+                "リッチテキスト文書をエクスポート形式へ変換できませんでした".to_string(),
+                cx,
+            );
+            return;
+        };
         let export_format = match format {
             ExportFormat::Word => export::ExportFormat::Word,
             ExportFormat::Epub => export::ExportFormat::Epub,
@@ -326,7 +308,7 @@ impl SoukouApp {
             ExportFormat::Epub => FeatureGate::ExportEpub,
         };
 
-        if !self.is_feature_available(feature) {
+        if !self.export_feature_available(format, cx) {
             self.prompt_pro_required(feature, window, cx);
             return;
         }
@@ -338,8 +320,6 @@ impl SoukouApp {
     }
 
     pub(super) fn export_txt_document(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.sync_richtext_from_editor(cx);
-
         let base_name = self
             .active_document
             .path()

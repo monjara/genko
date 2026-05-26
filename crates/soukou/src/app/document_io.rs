@@ -18,11 +18,9 @@ impl SoukouApp {
 
     fn load_plain_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
         self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.load_text(text, cx)
+            editor_controller.load_plain_text(text, cx)
         });
-        self.rich_document = None;
         self.active_document.set_path(path);
-        self.sync_editor_richtext_projection(cx);
     }
 
     fn load_rich_document(
@@ -32,11 +30,9 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.load_text(document.plain_text(), cx)
+            editor_controller.load_rich_document(document, cx)
         });
-        self.rich_document = Some(document);
         self.active_document.set_path(path);
-        self.sync_editor_richtext_projection(cx);
     }
 
     fn open_standalone_plain_document(
@@ -206,13 +202,12 @@ impl SoukouApp {
     }
 
     pub(super) fn save_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.sync_richtext_from_editor(cx);
         let window_handle = window.window_handle();
-        let contents = match self.active_document.kind() {
+        let contents = match self.current_document_kind(cx) {
             DocumentKind::PlainText => self.editor_controller.read(cx).snapshot_text(cx),
             DocumentKind::RichText => match self
-                .rich_document
-                .as_ref()
+                .editor_controller
+                .update(cx, |editor_controller, cx| editor_controller.richtext_document(cx))
                 .and_then(|document| document.to_json().ok())
             {
                 Some(json) => json,
@@ -245,7 +240,7 @@ impl SoukouApp {
             .path()
             .and_then(Path::file_name)
             .and_then(|name| name.to_str())
-            .unwrap_or(self.active_document.kind().default_file_name())
+            .unwrap_or(self.current_document_kind(cx).default_file_name())
             .to_string();
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
 

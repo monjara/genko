@@ -2,28 +2,29 @@
 use std::process::Command;
 
 use bottom_bar::BottomBar;
-use editor::{EditorController, VimCommandQuit, VimCommandWrite};
+use editor::{
+    AppCapabilities, EditorController, ProFeature, RequestProForRichText, ToggleBold,
+    ToggleStrikethrough, VimCommandQuit, VimCommandWrite,
+};
 use gpui::{
     App, AppContext, Context, ExternalPaths, FocusHandle, Focusable, KeyBinding, MouseDownEvent,
     Window,
 };
-use ::richtext::{BlockKind, InlineStyle};
 use settings::AppSettings;
 use title_bar::{TitleBar, TitleBarAuthActions, TitleBarAuthState, TitleBarMenu, TitleBarUser};
 use ui::{MenuBarItem, MenuBarMenu};
 
 use crate::{
-    CheckForUpdates, ClearHeading, ExportEpub, ExportTxt, ExportWord, OpenAccountSettings,
-    OpenFile, OpenSettings, Quit, SaveFile, SetHeadingLarge, SetHeadingMedium, SignIn, SignOut,
-    ToggleBold, ToggleStrikethrough,
+    CheckForUpdates, ExportEpub, ExportTxt, ExportWord, OpenAccountSettings, OpenFile,
+    OpenSettings, Quit, SaveFile, SignIn, SignOut,
     app::{
-        APP_NAME, AppModal, FeatureGate, SETTINGS_MENU_LABEL,
-        CHECK_FOR_UPDATES_MENU_LABEL, QUIT_MENU_LABEL, FILE_MENU_LABEL, OPEN_PROMPT_LABEL,
-        SAVE_MENU_LABEL, EXPORT_TXT_MENU_LABEL, EXPORT_WORD_MENU_LABEL, EXPORT_EPUB_MENU_LABEL,
-        SoukouApp, WINDOW_TITLE_SEPARATOR,
+        APP_NAME, AppModal, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_EPUB_MENU_LABEL,
+        EXPORT_TXT_MENU_LABEL, EXPORT_WORD_MENU_LABEL, FILE_MENU_LABEL, FeatureGate,
+        OPEN_PROMPT_LABEL, QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL, SoukouApp,
+        WINDOW_TITLE_SEPARATOR,
     },
     auth,
-    document::{ActiveDocument, ExportFormat},
+    document::{ActiveDocument, DocumentKind, ExportFormat},
 };
 
 impl SoukouApp {
@@ -130,8 +131,6 @@ impl SoukouApp {
         let mut app = Self {
             editor_controller,
             active_document: ActiveDocument::default(),
-            rich_document: None,
-            last_richtext_revision: 0,
             active_modal: None,
             epub_metadata_form: None,
             title_bar,
@@ -198,6 +197,7 @@ impl SoukouApp {
 
     pub(super) fn set_auth_state(&mut self, auth_state: auth::AuthState, cx: &mut Context<Self>) {
         self.auth_state = auth_state;
+        self.sync_app_capabilities(cx);
         self.sync_title_bar_auth_state(cx);
         self.sync_bottom_bar_plan(cx);
         cx.notify();
@@ -227,19 +227,20 @@ impl SoukouApp {
         });
     }
 
+    fn sync_app_capabilities(&mut self, cx: &mut Context<Self>) {
+        let pro_enabled = self.current_plan_key().supports_rich_text();
+        AppCapabilities::global_mut(cx).set_pro_enabled(pro_enabled);
+    }
+
     fn current_plan_key(&self) -> auth::PlanKey {
+        if env::development_mode() {
+            // for development mode (ex, makers dev)
+            return auth::PlanKey::Pro;
+        }
+
         match &self.auth_state {
             auth::AuthState::Authenticated(session) => session.user.plan.plan_key,
             auth::AuthState::Anonymous | auth::AuthState::Restoring => auth::PlanKey::Free,
-        }
-    }
-
-    pub(super) fn is_feature_available(&self, feature: FeatureGate) -> bool {
-        let plan = self.current_plan_key();
-        match feature {
-            FeatureGate::RichText | FeatureGate::ExportWord | FeatureGate::ExportEpub => {
-                plan.supports_rich_text()
-            }
         }
     }
 
@@ -299,51 +300,6 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.save_file(window, cx);
-    }
-
-    pub(super) fn toggle_bold_action(
-        &mut self,
-        _: &ToggleBold,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_inline_style(InlineStyle::Bold, window, cx);
-    }
-
-    pub(super) fn toggle_strikethrough_action(
-        &mut self,
-        _: &ToggleStrikethrough,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_inline_style(InlineStyle::Strikethrough, window, cx);
-    }
-
-    pub(super) fn set_heading_large_action(
-        &mut self,
-        _: &SetHeadingLarge,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_block_kind(BlockKind::HeadingLarge, window, cx);
-    }
-
-    pub(super) fn set_heading_medium_action(
-        &mut self,
-        _: &SetHeadingMedium,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_block_kind(BlockKind::HeadingMedium, window, cx);
-    }
-
-    pub(super) fn clear_heading_action(
-        &mut self,
-        _: &ClearHeading,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_block_kind(BlockKind::Body, window, cx);
     }
 
     pub(super) fn export_txt_action(
@@ -407,6 +363,35 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.open_dropped_paths(paths, window, cx);
+    }
+
+    pub(super) fn request_pro_for_richtext_action(
+        &mut self,
+        _: &RequestProForRichText,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.prompt_pro_required(FeatureGate::RichText, window, cx);
+    }
+
+    pub(super) fn current_document_is_richtext(&self, cx: &App) -> bool {
+        self.editor_controller.read(cx).has_richtext_document(cx)
+    }
+
+    pub(super) fn current_document_kind(&self, cx: &App) -> DocumentKind {
+        if self.current_document_is_richtext(cx) {
+            DocumentKind::RichText
+        } else {
+            DocumentKind::PlainText
+        }
+    }
+
+    pub(super) fn export_feature_available(&self, format: ExportFormat, cx: &App) -> bool {
+        let feature = match format {
+            ExportFormat::Word => ProFeature::ExportWord,
+            ExportFormat::Epub => ProFeature::ExportEpub,
+        };
+        AppCapabilities::global(cx).supports(feature)
     }
 }
 

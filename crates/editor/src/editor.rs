@@ -14,11 +14,14 @@ use gpui::{
     App, Bounds, Context, EntityInputHandler, FocusHandle, Focusable, IntoElement, Pixels,
     Render, Size, UTF16Selection, Window, actions, px,
 };
-use richtext::{ResolvedBlock, RichDocument};
+use richtext::{
+    BlockKind, EpubMetadata, InlineStyle, ResolvedBlock, RichDocument, single_change,
+};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
 use self::{history as editor_history, selection as editor_selection};
+use crate::capabilities::{AppCapabilities, ProFeature};
 use crate::editor::layout::{
     content_height_for_window_height, rows_per_column_for_window_height,
     visible_columns_for_window_width,
@@ -63,6 +66,18 @@ actions!(
         Enter,
         ClearSelection,
         ShowCharacterPalette,
+    ]
+);
+
+actions!(
+    editor_richtext,
+    [
+        ToggleBold,
+        ToggleStrikethrough,
+        SetHeadingLarge,
+        SetHeadingMedium,
+        ClearHeading,
+        RequestProForRichText
     ]
 );
 
@@ -172,6 +187,8 @@ pub(crate) struct Editor {
     pub(crate) max_visible_rows: usize,
     pub(crate) text_input_enabled: bool,
     pub(crate) history: EditorHistory,
+    rich_document: Option<RichDocument>,
+    last_richtext_revision: u64,
     pub(crate) richtext_decorations: RichTextDecorations,
     visible_text_cache: Option<VisibleTextCache>,
     last_applied_edit_batch: Option<AppliedEditBatch>,
@@ -205,6 +222,8 @@ impl Editor {
             max_visible_rows: rows_per_column,
             text_input_enabled: true,
             history: EditorHistory::default(),
+            rich_document: None,
+            last_richtext_revision: 0,
             richtext_decorations: RichTextDecorations::default(),
             visible_text_cache: None,
             last_applied_edit_batch: None,
@@ -533,6 +552,29 @@ impl Editor {
         self.bump_draft_revision();
         self.history = EditorHistory::default();
         self.last_applied_edit_batch = None;
+        self.rich_document = None;
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
+        self.scroll_column = 0;
+        self.scroll_row = 0;
+        self.scroll_remainder_columns = 0.0;
+        self.set_cursor_from_offset(0);
+        cx.notify();
+    }
+
+    pub fn load_rich_document(&mut self, document: RichDocument, cx: &mut Context<Self>) {
+        let rows_per_column = self.rows_per_column;
+        let hanging_punctuation = self.draft.hanging_punctuation();
+        let mut draft = TextRope::from_str_with_rows(document.plain_text(), rows_per_column);
+        draft.set_hanging_punctuation(hanging_punctuation);
+
+        self.draft = draft;
+        self.bump_draft_revision();
+        self.history = EditorHistory::default();
+        self.last_applied_edit_batch = None;
+        self.rich_document = Some(document);
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
         self.scroll_column = 0;
         self.scroll_row = 0;
         self.scroll_remainder_columns = 0.0;
@@ -553,18 +595,49 @@ impl Editor {
         self.bounds_for_byte_range(self.selected_range.clone(), board_bounds)
     }
 
-    pub fn set_richtext_document(
-        &mut self,
-        document: Option<&RichDocument>,
-        cx: &mut Context<Self>,
-    ) {
-        self.richtext_decorations = document
-            .map(|document| RichTextDecorations {
-                inline_marks: document.spans.clone(),
-                blocks: document.resolved_blocks(),
+    pub fn has_richtext_document(&self) -> bool {
+        self.rich_document.is_some()
+    }
+
+    pub fn richtext_document(&mut self) -> Option<RichDocument> {
+        self.sync_richtext_from_draft();
+        self.rich_document.clone()
+    }
+
+    pub fn current_epub_metadata(&mut self) -> Option<EpubMetadata> {
+        self.sync_richtext_from_draft();
+        self.rich_document
+            .as_ref()
+            .and_then(|document| document.epub_metadata.clone())
+    }
+
+    pub fn first_heading_title(&mut self) -> Option<String> {
+        self.sync_richtext_from_draft();
+        self.rich_document
+            .as_ref()
+            .and_then(|document| {
+                document.resolved_blocks().into_iter().find_map(|block| {
+                    matches!(block.kind, BlockKind::HeadingLarge | BlockKind::HeadingMedium)
+                        .then(|| document.plain_text()[block.range.clone()].trim().to_string())
+                        .filter(|title| !title.is_empty())
+                })
             })
-            .unwrap_or_default();
-        cx.notify();
+            .or_else(|| {
+                self.snapshot_text()
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+                    .map(ToString::to_string)
+            })
+    }
+
+    pub fn set_epub_metadata(&mut self, metadata: EpubMetadata) {
+        self.sync_richtext_from_draft();
+        if let Some(document) = self.rich_document.as_mut() {
+            document.epub_metadata = Some(metadata);
+            self.refresh_richtext_decorations();
+            self.last_richtext_revision = self.draft_revision;
+        }
     }
 
     pub fn offset_after_cursor(&self) -> usize {
@@ -650,6 +723,26 @@ impl Editor {
         editor_history::redo(self, cx)
     }
 
+    pub fn toggle_bold_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_inline_style(InlineStyle::Bold, window, cx);
+    }
+
+    pub fn toggle_strikethrough_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_inline_style(InlineStyle::Strikethrough, window, cx);
+    }
+
+    pub fn set_heading_large_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_block_kind(BlockKind::HeadingLarge, window, cx);
+    }
+
+    pub fn set_heading_medium_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_block_kind(BlockKind::HeadingMedium, window, cx);
+    }
+
+    pub fn clear_heading_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_block_kind(BlockKind::Body, window, cx);
+    }
+
     fn select_between_display_cells(
         &mut self,
         anchor_cell: usize,
@@ -665,6 +758,102 @@ impl Editor {
 
     fn clamped_display_cell_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
         editor_selection::clamped_display_cell_for_point(self, position)
+    }
+
+    fn refresh_richtext_decorations(&mut self) {
+        self.richtext_decorations = self
+            .rich_document
+            .as_ref()
+            .map(|document| RichTextDecorations {
+                inline_marks: document.spans.clone(),
+                blocks: document.resolved_blocks(),
+            })
+            .unwrap_or_default();
+    }
+
+    fn sync_richtext_from_draft(&mut self) {
+        if self.rich_document.is_none() || self.draft_revision == self.last_richtext_revision {
+            return;
+        }
+
+        let text = self.snapshot_text();
+        if let Some(document) = self.rich_document.as_mut() {
+            if let Some(batch) = self.last_applied_edit_batch.as_ref()
+                && batch.revision() == self.draft_revision
+                && can_apply_edit_batch(document.plain_text(), batch.edits(), &text)
+            {
+                for edit in batch.edits() {
+                    let range = edit.start()..edit.start() + edit.removed_text().len();
+                    document.replace_text(range, edit.inserted_text());
+                }
+            } else if let Some((range, replacement)) = single_change(document.plain_text(), &text) {
+                document.replace_text(range, replacement.as_str());
+            } else if document.plain_text() != text {
+                let epub_metadata = document.epub_metadata.clone();
+                *document = RichDocument::new(text);
+                document.epub_metadata = epub_metadata;
+            }
+        }
+
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
+    }
+
+    fn ensure_richtext_document(&mut self) -> bool {
+        self.sync_richtext_from_draft();
+        if self.rich_document.is_some() {
+            return true;
+        }
+
+        self.rich_document = Some(RichDocument::new(self.snapshot_text()));
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
+        true
+    }
+
+    fn apply_inline_style(
+        &mut self,
+        style: InlineStyle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !AppCapabilities::global(cx).supports(ProFeature::RichText) {
+            window.dispatch_action(Box::new(RequestProForRichText), cx);
+            return;
+        }
+        if !self.ensure_richtext_document() {
+            return;
+        }
+
+        let selected_range = self.selected_byte_range();
+        if selected_range.is_empty() {
+            return;
+        }
+
+        if let Some(document) = self.rich_document.as_mut() {
+            document.toggle_inline_style(selected_range, style);
+        }
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
+        cx.notify();
+    }
+
+    fn apply_block_kind(&mut self, kind: BlockKind, window: &mut Window, cx: &mut Context<Self>) {
+        if !AppCapabilities::global(cx).supports(ProFeature::RichText) {
+            window.dispatch_action(Box::new(RequestProForRichText), cx);
+            return;
+        }
+        if !self.ensure_richtext_document() {
+            return;
+        }
+
+        let selected_range = self.selected_byte_range();
+        if let Some(document) = self.rich_document.as_mut() {
+            document.set_block_kind_for_range(selected_range, kind);
+        }
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
+        cx.notify();
     }
 
     fn replace_text_in_byte_range(
@@ -991,6 +1180,7 @@ impl EntityInputHandler for Editor {
 
 impl Render for Editor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_richtext_from_draft();
         default_input::render(self, cx)
     }
 }
@@ -999,4 +1189,19 @@ impl Focusable for Editor {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
+}
+
+fn can_apply_edit_batch(text: &str, edits: &[EditOperation], expected_text: &str) -> bool {
+    let mut scratch = text.to_string();
+    for edit in edits {
+        let range = edit.start()..edit.start() + edit.removed_text().len();
+        if range.end > scratch.len() {
+            return false;
+        }
+        if !scratch.is_char_boundary(range.start) || !scratch.is_char_boundary(range.end) {
+            return false;
+        }
+        scratch.replace_range(range, edit.inserted_text());
+    }
+    scratch == expected_text
 }
