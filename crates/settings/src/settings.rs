@@ -3,12 +3,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use gpui::prelude::FluentBuilder;
 use gpui::{
     App, AppContext, Bounds, ClickEvent, Context, Decorations, Entity, FontWeight, Global,
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Window, WindowBounds, WindowControlArea, WindowDecorations,
-    WindowOptions, div, px, size, transparent_black,
+    WindowOptions, div, prelude::FluentBuilder, px, size, transparent_black,
 };
 use serde::{Deserialize, Serialize};
 use theme::{APP_FONT_FAMILY, Theme};
@@ -1257,8 +1256,15 @@ impl From<&AppSettings> for PersistedAppSettings {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::env;
+    use std::{
+        env, fs,
+        path::PathBuf,
+    };
+
+    use super::{
+        AppSettings, ColumnNumberMode, ExportSettings, ExportTargetFormat, ExportWritingMode,
+        KeymapEntry,
+    };
 
     fn test_settings_dir(name: &str) -> PathBuf {
         let mut path = env::temp_dir();

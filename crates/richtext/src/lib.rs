@@ -1,7 +1,6 @@
 use std::cmp::{max, min};
 use std::ops::Range;
 
-use gpui::Render;
 use serde::{Deserialize, Serialize};
 
 pub const FILE_EXTENSION: &str = "soukou";

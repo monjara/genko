@@ -1,8 +1,8 @@
 use std::ops::Range;
 
-use crate::editor::{AppliedEditBatch, Editor};
 use crate::editor::command_types::{MotionKind, PastePosition, TextObjectTarget};
 use crate::editor::motions::MotionRangeBehavior;
+use crate::editor::{AppliedEditBatch, Editor};
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Window,
@@ -20,9 +20,10 @@ mod tests;
 pub(crate) mod text_objects;
 
 use block::{
-    block_byte_ranges_from_cursor, block_insert_target_cells, block_insert_target_cells_from_cursor,
-    block_paste_operations, block_selection_byte_ranges, build_block_register,
-    build_block_register_from_cursor, current_column_cell_range, top_right_block_cell,
+    block_byte_ranges_from_cursor, block_insert_target_cells,
+    block_insert_target_cells_from_cursor, block_paste_operations, block_selection_byte_ranges,
+    build_block_register, build_block_register_from_cursor, current_column_cell_range,
+    top_right_block_cell,
 };
 use state::{
     BlockInsertKind, InsertKind, PendingBlockInsert, PendingInsert, RepeatTarget,
@@ -873,12 +874,7 @@ impl VimController {
         self.start_insert_session(InsertKind::Insert, None, window, cx);
     }
 
-    fn apply_motion(
-        &mut self,
-        motion: MotionKind,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn apply_motion(&mut self, motion: MotionKind, window: &mut Window, cx: &mut Context<Self>) {
         let Some(operator) = self.pending_operator() else {
             return;
         };

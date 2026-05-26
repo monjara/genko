@@ -1,0 +1,151 @@
+use bottom_bar::BottomBar;
+use crate::{auth, document::ActiveDocument};
+use editor::EditorController;
+use gpui::{App, Entity};
+use ::richtext::RichDocument;
+use semver::Version;
+use serde::Deserialize;
+use theme::Theme;
+use title_bar::TitleBar;
+use ui::TextInput;
+
+mod auth_flow;
+mod document_io;
+mod export_flow;
+mod render;
+mod richtext;
+mod state;
+mod updates;
+
+pub(crate) const APP_NAME: &str = "草稿";
+pub(crate) const APP_ID: &str = "dev.monj.soukou";
+pub(crate) const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub(crate) const MAIN_WINDOW_WIDTH: f32 = 1200.0;
+pub(crate) const MAIN_WINDOW_HEIGHT: f32 = 800.0;
+
+const OPEN_PROMPT_LABEL: &str = "開く";
+const SETTINGS_MENU_LABEL: &str = "設定";
+const CHECK_FOR_UPDATES_MENU_LABEL: &str = "更新を確認";
+const QUIT_MENU_LABEL: &str = "終了";
+const FILE_MENU_LABEL: &str = "ファイル";
+const SAVE_MENU_LABEL: &str = "保存";
+const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
+const EXPORT_WORD_MENU_LABEL: &str = "Wordエクスポート";
+const EXPORT_EPUB_MENU_LABEL: &str = "EPUBエクスポート";
+const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
+const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
+const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
+const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
+const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
+const EPUB_METADATA_TITLE: &str = "EPUBメタデータ";
+const PRO_REQUIRED_TITLE: &str = "Proプランが必要です";
+const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
+const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
+const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
+const CURRENT_DIRECTORY_FALLBACK: &str = ".";
+const WINDOW_TITLE_SEPARATOR: &str = " - ";
+const RELEASES_LATEST_API_URL: &str =
+    "https://api.github.com/repos/monjara/Soukou.app/releases/latest";
+const MODAL_ERROR_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/modal_error.svg"
+);
+const MODAL_INFO_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/modal_info.svg"
+);
+const MODAL_PRO_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/modal_pro.svg"
+);
+const MODAL_UPDATE_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/modal_update.svg"
+);
+
+#[derive(Deserialize)]
+struct GitHubRelease {
+    html_url: String,
+    tag_name: String,
+}
+
+struct AvailableUpdate {
+    current_version: Version,
+    latest_version: Version,
+    release_page_url: String,
+}
+
+pub(crate) struct SoukouApp {
+    editor_controller: Entity<EditorController>,
+    active_document: ActiveDocument,
+    rich_document: Option<RichDocument>,
+    last_richtext_revision: u64,
+    active_modal: Option<AppModal>,
+    epub_metadata_form: Option<EpubMetadataForm>,
+    title_bar: Entity<TitleBar>,
+    bottom_bar: Entity<BottomBar>,
+    window_handle: Option<gpui::AnyWindowHandle>,
+    auth_state: auth::AuthState,
+    auth_config: auth::AuthConfig,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FeatureGate {
+    RichText,
+    ExportWord,
+    ExportEpub,
+}
+
+#[derive(Clone, Debug)]
+enum AppModal {
+    Error {
+        title: String,
+        detail: String,
+    },
+    Info {
+        title: String,
+        detail: String,
+    },
+    UpdateAvailable {
+        current_version: String,
+        latest_version: String,
+        release_page_url: String,
+    },
+    ProRequired {
+        feature: FeatureGate,
+    },
+}
+
+#[derive(Clone)]
+struct EpubMetadataForm {
+    title: Entity<TextInput>,
+    creators: Entity<TextInput>,
+    language: Entity<TextInput>,
+    identifier: Entity<TextInput>,
+    description: Entity<TextInput>,
+    publisher: Entity<TextInput>,
+    rights: Entity<TextInput>,
+    published_at: Entity<TextInput>,
+    error_message: Option<String>,
+}
+
+fn non_empty_option(value: String) -> Option<String> {
+    let value = value.trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
+fn toolbar_border_color(cx: &App) -> gpui::Hsla {
+    mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.72).into()
+}
+
+fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {
+    let ratio = ratio.clamp(0.0, 1.0);
+    let inv = 1.0 - ratio;
+    gpui::Rgba {
+        r: left.r * inv + right.r * ratio,
+        g: left.g * inv + right.g * ratio,
+        b: left.b * inv + right.b * ratio,
+        a: left.a * inv + right.a * ratio,
+    }
+}
