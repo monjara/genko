@@ -1,12 +1,8 @@
 use gpui::{
-    AnyElement, App, BoxShadow, ClickEvent, Context, Decorations, Hsla, IntoElement, ParentElement,
-    Pixels, Render, Rgba, StatefulInteractiveElement, Styled, TitlebarOptions, Window,
-    WindowControlArea, div, point, px,
-};
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
-use gpui::{
-    AppContext, Entity, InteractiveElement, SharedString, WindowButton, WindowButtonLayout,
-    WindowDecorations, prelude::FluentBuilder,
+    AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Entity, Hsla,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba, SharedString,
+    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowButton, WindowButtonLayout,
+    WindowControlArea, WindowDecorations, div, point, prelude::FluentBuilder, px,
 };
 use theme::Theme;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
