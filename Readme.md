@@ -2,38 +2,6 @@
 
 思考の速度で編集する。日本語入力のための軽量で高速な原稿用紙アプリ。
 
-## ローカル開発でログインする
-
-`genko` のログインは `soukou.dev` と Supabase Auth を経由します。ローカルで試すときは `soukou.dev` と `soukou-supabase` も一緒に立ち上げてください。
-
-1. `soukou-supabase` で `supabase start` を実行する。
-2. `supabase status` の `API URL` と `anon key` を確認する。
-3. `genko/.env` に少なくとも次を設定する。
-
-```dotenv
-SOUKOU_SITE_URL=http://localhost:3000
-SOUKOU_SUPABASE_URL=http://127.0.0.1:54321
-SOUKOU_SUPABASE_PUBLISHABLE_KEY=<supabase status の anon key>
-SOUKOU_AUTH_CALLBACK_SCHEME=soukou
-```
-
-4. `soukou.dev/.env` にも同じ Supabase 情報を設定する。
-
-```dotenv
-VITE_SITE_URL=http://localhost:3000
-VITE_SUPABASE_URL=http://127.0.0.1:54321
-VITE_SUPABASE_PUBLISHABLE_KEY=<supabase status の anon key>
-SITE_URL=http://localhost:3000
-SUPABASE_URL=http://127.0.0.1:54321
-SUPABASE_SERVICE_ROLE_KEY=<supabase status の service_role key>
-```
-
-5. `soukou.dev` を `npm run dev` で起動し、`genko` を起動する。
-
-補足:
-- local Supabase で Google ログインまで使う場合は、`soukou-supabase/supabase/config.toml` に加えて Google OAuth の `client_id` / `secret` 設定が必要です。
-- 既存の hosted Supabase を使う場合も、Auth の redirect allowlist に `http://localhost:3000/signin` と `http://localhost:3000/auth/native/callback` を追加してください。
-
 ## roadmap
 
 ### Version 0.2

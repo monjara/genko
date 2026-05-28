@@ -22,10 +22,6 @@ jobs:
   bundle_linux:
     runs-on: ubuntu-22.04
     timeout-minutes: 60
-    env:
-      SOUKOU_SITE_URL: https://soukou.dev
-      SOUKOU_SUPABASE_URL: ${{ secrets.SOUKOU_SUPABASE_URL }}
-      SOUKOU_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SOUKOU_SUPABASE_PUBLISHABLE_KEY }}
     strategy:
       matrix:
         target:
@@ -86,8 +82,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          repository: monjara/Soukou.app
-          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
+          repository: monjara/genko
+          token: ${{ github.token }}
           tag_name: ${{ github.ref_name }}
           target_commitish: main
           files: target/${{ matrix.target }}/release/草稿-linux-*.tar.gz

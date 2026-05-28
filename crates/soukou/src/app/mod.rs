@@ -1,4 +1,4 @@
-use crate::{auth, document::ActiveDocument};
+use crate::document::ActiveDocument;
 use bottom_bar::BottomBar;
 use editor::EditorController;
 use gpui::{App, Entity};
@@ -8,7 +8,6 @@ use theme::Theme;
 use title_bar::TitleBar;
 use ui::TextInput;
 
-mod auth_flow;
 mod document_io;
 mod export_flow;
 mod render;
@@ -36,14 +35,12 @@ const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんで�
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
 const EPUB_METADATA_TITLE: &str = "EPUBメタデータ";
-const PRO_REQUIRED_TITLE: &str = "Proプランが必要です";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
 const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
 const CURRENT_DIRECTORY_FALLBACK: &str = ".";
 const WINDOW_TITLE_SEPARATOR: &str = " - ";
-const RELEASES_LATEST_API_URL: &str =
-    "https://api.github.com/repos/monjara/Soukou.app/releases/latest";
+const RELEASES_LATEST_API_URL: &str = "https://api.github.com/repos/monjara/genko/releases/latest";
 const MODAL_ERROR_ICON_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../assets/icons/modal_error.svg"
@@ -51,10 +48,6 @@ const MODAL_ERROR_ICON_PATH: &str = concat!(
 const MODAL_INFO_ICON_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../assets/icons/modal_info.svg"
-);
-const MODAL_PRO_ICON_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/icons/modal_pro.svg"
 );
 const MODAL_UPDATE_ICON_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -80,17 +73,6 @@ pub(crate) struct SoukouApp {
     epub_metadata_form: Option<EpubMetadataForm>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
-    window_handle: Option<gpui::AnyWindowHandle>,
-    auth_state: auth::AuthState,
-    auth_config: auth::AuthConfig,
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FeatureGate {
-    RichText,
-    ExportWord,
-    ExportEpub,
 }
 
 #[derive(Clone, Debug)]
@@ -107,9 +89,6 @@ enum AppModal {
         current_version: String,
         latest_version: String,
         release_page_url: String,
-    },
-    ProRequired {
-        feature: FeatureGate,
     },
 }
 

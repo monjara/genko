@@ -3,27 +3,24 @@ use std::process::Command;
 
 use bottom_bar::BottomBar;
 use editor::{
-    AppCapabilities, EditorController, ProFeature, RequestProForRichText, ToggleBold,
-    ToggleStrikethrough, VimCommandQuit, VimCommandWrite,
+    EditorController, RequestProForRichText, ToggleBold, ToggleStrikethrough, VimCommandQuit,
+    VimCommandWrite,
 };
 use gpui::{
     App, AppContext, Context, ExternalPaths, FocusHandle, Focusable, KeyBinding, MouseDownEvent,
     Window,
 };
 use settings::AppSettings;
-use title_bar::{TitleBar, TitleBarAuthActions, TitleBarAuthState, TitleBarMenu, TitleBarUser};
+use title_bar::{TitleBar, TitleBarMenu};
 use ui::{MenuBarItem, MenuBarMenu};
 
 use crate::{
-    CheckForUpdates, ExportEpub, ExportTxt, ExportWord, OpenAccountSettings, OpenFile,
-    OpenSettings, Quit, SaveFile, SignIn, SignOut,
+    CheckForUpdates, ExportEpub, ExportTxt, ExportWord, OpenFile, OpenSettings, Quit, SaveFile,
     app::{
         APP_NAME, AppModal, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_EPUB_MENU_LABEL,
-        EXPORT_TXT_MENU_LABEL, EXPORT_WORD_MENU_LABEL, FILE_MENU_LABEL, FeatureGate,
-        OPEN_PROMPT_LABEL, QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL, SoukouApp,
-        WINDOW_TITLE_SEPARATOR,
+        EXPORT_TXT_MENU_LABEL, EXPORT_WORD_MENU_LABEL, FILE_MENU_LABEL, OPEN_PROMPT_LABEL,
+        QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL, SoukouApp, WINDOW_TITLE_SEPARATOR,
     },
-    auth,
     document::{ActiveDocument, DocumentKind, ExportFormat},
 };
 
@@ -113,36 +110,17 @@ impl SoukouApp {
         ]);
 
         let editor_controller = cx.new(EditorController::new);
-        let title_bar = cx.new(|cx| {
-            TitleBar::new(
-                APP_NAME,
-                Self::title_bar_menus(),
-                Some(TitleBarAuthActions::new(
-                    |window, cx| window.dispatch_action(Box::new(SignIn), cx),
-                    |window, cx| window.dispatch_action(Box::new(OpenAccountSettings), cx),
-                    |window, cx| window.dispatch_action(Box::new(SignOut), cx),
-                )),
-                cx,
-            )
-        });
+        let title_bar = cx.new(|cx| TitleBar::new(APP_NAME, Self::title_bar_menus(), cx));
         let bottom_bar = cx.new(BottomBar::new);
-        let auth_config = auth::AuthConfig::from_env();
 
-        let mut app = Self {
+        Self {
             editor_controller,
             active_document: ActiveDocument::default(),
             active_modal: None,
             epub_metadata_form: None,
             title_bar,
             bottom_bar,
-            window_handle: None,
-            auth_state: auth::AuthState::Restoring,
-            auth_config,
-        };
-        app.sync_title_bar_auth_state(cx);
-        app.sync_bottom_bar_plan(cx);
-        app.restore_auth_session(cx);
-        app
+        }
     }
 
     fn title_bar_menus() -> Vec<TitleBarMenu> {
@@ -195,66 +173,6 @@ impl SoukouApp {
         window.set_window_title(&self.window_title(cx));
     }
 
-    pub(super) fn set_auth_state(&mut self, auth_state: auth::AuthState, cx: &mut Context<Self>) {
-        self.auth_state = auth_state;
-        self.sync_app_capabilities(cx);
-        self.sync_title_bar_auth_state(cx);
-        self.sync_bottom_bar_plan(cx);
-        cx.notify();
-    }
-
-    fn sync_title_bar_auth_state(&mut self, cx: &mut Context<Self>) {
-        let title_bar_auth_state = match &self.auth_state {
-            auth::AuthState::Authenticated(session) => {
-                TitleBarAuthState::Authenticated(TitleBarUser {
-                    display_name: session.user.display_name.clone(),
-                    email: session.user.email.clone(),
-                    avatar_url: session.user.avatar_url.clone(),
-                })
-            }
-            auth::AuthState::Anonymous | auth::AuthState::Restoring => TitleBarAuthState::Anonymous,
-        };
-
-        self.title_bar.update(cx, |title_bar, cx| {
-            title_bar.set_auth_state(title_bar_auth_state, cx);
-        });
-    }
-
-    fn sync_bottom_bar_plan(&mut self, cx: &mut Context<Self>) {
-        let label = self.current_plan_key().label().to_string();
-        self.bottom_bar.update(cx, |bottom_bar, cx| {
-            bottom_bar.set_plan_label(label, cx);
-        });
-    }
-
-    fn sync_app_capabilities(&mut self, cx: &mut Context<Self>) {
-        let pro_enabled = self.current_plan_key().supports_rich_text();
-        AppCapabilities::global_mut(cx).set_pro_enabled(pro_enabled);
-    }
-
-    fn current_plan_key(&self) -> auth::PlanKey {
-        if env::development_mode() {
-            // for development mode (ex, makers dev)
-            return auth::PlanKey::Pro;
-        }
-
-        match &self.auth_state {
-            auth::AuthState::Authenticated(session) => session.user.plan.plan_key,
-            auth::AuthState::Anonymous | auth::AuthState::Restoring => auth::PlanKey::Free,
-        }
-    }
-
-    pub(super) fn prompt_pro_required(
-        &mut self,
-        feature: FeatureGate,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let _ = window;
-        self.active_modal = Some(AppModal::ProRequired { feature });
-        cx.notify();
-    }
-
     pub(super) fn dismiss_active_modal(
         &mut self,
         _: &MouseDownEvent,
@@ -276,7 +194,6 @@ impl SoukouApp {
         cx.notify();
 
         match modal {
-            Some(AppModal::ProRequired { .. }) => self.open_account_settings(window, cx),
             Some(AppModal::UpdateAvailable {
                 release_page_url, ..
             }) => self.open_external_url(release_page_url.as_str(), window, cx),
@@ -368,10 +285,9 @@ impl SoukouApp {
     pub(super) fn request_pro_for_richtext_action(
         &mut self,
         _: &RequestProForRichText,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
     ) {
-        self.prompt_pro_required(FeatureGate::RichText, window, cx);
     }
 
     pub(super) fn current_document_is_richtext(&self, cx: &App) -> bool {
@@ -384,14 +300,6 @@ impl SoukouApp {
         } else {
             DocumentKind::PlainText
         }
-    }
-
-    pub(super) fn export_feature_available(&self, format: ExportFormat, cx: &App) -> bool {
-        let feature = match format {
-            ExportFormat::Word => ProFeature::ExportWord,
-            ExportFormat::Epub => ProFeature::ExportEpub,
-        };
-        AppCapabilities::global(cx).supports(feature)
     }
 }
 

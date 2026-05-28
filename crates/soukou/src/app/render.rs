@@ -1,19 +1,16 @@
+use editor::{ClearHeading, SetHeadingLarge, SetHeadingMedium, ToggleBold, ToggleStrikethrough};
 use gpui::{
     Anchor, App, BoxShadow, Context, Decorations, Entity, FontWeight, Hsla, InteractiveElement,
     IntoElement, ParentElement, Render, Styled, Window, anchored, deferred, div, point,
     prelude::FluentBuilder, px, svg, transparent_black,
-};
-use editor::{
-    ClearHeading, SetHeadingLarge, SetHeadingMedium, ToggleBold, ToggleStrikethrough,
 };
 use theme::APP_FONT_FAMILY;
 use theme::Theme;
 use ui::TextInput;
 
 use crate::app::{
-    AppModal, EPUB_METADATA_TITLE, FeatureGate, MODAL_ERROR_ICON_PATH, MODAL_INFO_ICON_PATH,
-    MODAL_PRO_ICON_PATH, MODAL_UPDATE_ICON_PATH, PRO_REQUIRED_TITLE, SoukouApp,
-    UPDATE_AVAILABLE_TITLE, mix, toolbar_border_color,
+    AppModal, EPUB_METADATA_TITLE, MODAL_ERROR_ICON_PATH, MODAL_INFO_ICON_PATH,
+    MODAL_UPDATE_ICON_PATH, SoukouApp, UPDATE_AVAILABLE_TITLE, mix, toolbar_border_color,
 };
 
 fn toolbar_button(
@@ -97,15 +94,24 @@ impl SoukouApp {
                         .child(toolbar_button("S", |window: &mut Window, cx: &mut App| {
                             window.dispatch_action(Box::new(ToggleStrikethrough), cx);
                         }))
-                        .child(toolbar_button("大見出し", |window: &mut Window, cx: &mut App| {
-                            window.dispatch_action(Box::new(SetHeadingLarge), cx);
-                        }))
-                        .child(toolbar_button("小見出し", |window: &mut Window, cx: &mut App| {
-                            window.dispatch_action(Box::new(SetHeadingMedium), cx);
-                        }))
-                        .child(toolbar_button("本文", |window: &mut Window, cx: &mut App| {
-                            window.dispatch_action(Box::new(ClearHeading), cx);
-                        })),
+                        .child(toolbar_button(
+                            "大見出し",
+                            |window: &mut Window, cx: &mut App| {
+                                window.dispatch_action(Box::new(SetHeadingLarge), cx);
+                            },
+                        ))
+                        .child(toolbar_button(
+                            "小見出し",
+                            |window: &mut Window, cx: &mut App| {
+                                window.dispatch_action(Box::new(SetHeadingMedium), cx);
+                            },
+                        ))
+                        .child(toolbar_button(
+                            "本文",
+                            |window: &mut Window, cx: &mut App| {
+                                window.dispatch_action(Box::new(ClearHeading), cx);
+                            },
+                        )),
                 ),
         ))
     }
@@ -143,24 +149,6 @@ impl SoukouApp {
                 ),
                 Some("あとで".to_string()),
                 Some("ダウンロード".to_string()),
-            ),
-            AppModal::ProRequired { feature } => (
-                MODAL_PRO_ICON_PATH,
-                PRO_REQUIRED_TITLE.to_string(),
-                match feature {
-                    FeatureGate::RichText => {
-                        "リッチテキスト編集は Pro プランで利用できます。".to_string()
-                    }
-                    FeatureGate::ExportWord => {
-                        "Word書き出しは Pro プランで利用できます。".to_string()
-                    }
-                    FeatureGate::ExportEpub => {
-                        "EPUB書き出しは Pro プランで利用できます。".to_string()
-                    }
-                },
-                "アカウント設定を開いて、プラン管理と機能の詳細を確認できます。".to_string(),
-                Some("あとで".to_string()),
-                Some("アカウント設定".to_string()),
             ),
         };
 
@@ -259,21 +247,6 @@ impl SoukouApp {
                                         ),
                                 ),
                         )
-                        .when(matches!(modal, AppModal::ProRequired { .. }), |this| {
-                            this.child(
-                                div()
-                                    .w_full()
-                                    .px_4()
-                                    .py_3()
-                                    .rounded_md()
-                                    .bg(Theme::global(cx).bg_senodary())
-                                    .text_sm()
-                                    .text_color(Theme::global(cx).text_primary())
-                                    .child(
-                                        "Pro ではリッチテキスト編集と書き出し機能が有効になります。",
-                                    ),
-                            )
-                        })
                         .child(
                             div()
                                 .flex()
@@ -466,7 +439,6 @@ impl SoukouApp {
 impl Render for SoukouApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         title_bar::sync_client_window_inset(window);
-        self.window_handle = Some(window.window_handle());
         self.sync_window_title(window, cx);
         let bar_height = title_bar::platform_title_bar_height(window);
         let mut editor_viewport_size = window.viewport_size();
@@ -534,9 +506,6 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
-                    .on_action(cx.listener(Self::sign_in_action))
-                    .on_action(cx.listener(Self::open_account_settings_action))
-                    .on_action(cx.listener(Self::sign_out_action))
                     .on_action(cx.listener(Self::request_pro_for_richtext_action))
                     .child(self.title_bar.clone().into_element())
                     .child(
