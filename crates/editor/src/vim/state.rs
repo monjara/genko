@@ -16,12 +16,6 @@ pub(crate) enum VimOperator {
     Yank,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TextObjectModifier {
-    Inner,
-    Around,
-}
-
 pub(crate) fn operator_key_context(
     operator: VimOperator,
     modifier: Option<TextObjectModifier>,
@@ -51,24 +45,7 @@ pub(crate) fn operator_key_context(
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TextObjectTarget {
-    Word,
-    BigWord,
-    DoubleQuote,
-    SingleQuote,
-    Paren,
-    Bracket,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MotionKind {
-    WordForward,
-    BigWordForward,
-    WordEndForward,
-    WordBackward,
-    BigWordBackward,
-}
+pub(crate) use crate::editor::command_types::{MotionKind, TextObjectModifier, TextObjectTarget};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BlockInsertKind {

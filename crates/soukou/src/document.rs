@@ -59,21 +59,8 @@ impl ActiveDocument {
         self.path.as_deref()
     }
 
-    pub fn kind(&self) -> DocumentKind {
-        self.kind
-    }
-
     pub fn set_path(&mut self, path: PathBuf) {
         self.kind = DocumentKind::from_path(path.as_path()).unwrap_or(DocumentKind::PlainText);
         self.path = Some(path);
-    }
-
-    pub fn set_kind(&mut self, kind: DocumentKind) {
-        self.kind = kind;
-        if let Some(path) = &self.path
-            && DocumentKind::from_path(path.as_path()) != Some(kind)
-        {
-            self.path = None;
-        }
     }
 }

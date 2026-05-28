@@ -177,10 +177,25 @@ impl TextRope {
         let normalized_end = self.ceil_char_boundary(range.end);
         let range = normalized_start..normalized_end;
 
+        if range.start == 0 && range.end == self.len_bytes() {
+            self.root = RopeNode::from_str(text, self.rows_per_column, self.hanging_punctuation);
+            return;
+        }
+
         if range.start == range.end
             && range.end == self.len_bytes()
             && self.try_append_to_last_leaf(text)
         {
+            return;
+        }
+
+        if range.start == range.end && range.end == self.len_bytes() {
+            self.root = concat_nodes(
+                self.root.take(),
+                RopeNode::from_str(text, self.rows_per_column, self.hanging_punctuation),
+                self.rows_per_column,
+                self.hanging_punctuation,
+            );
             return;
         }
 
@@ -218,11 +233,26 @@ impl TextRope {
         let normalized_end = self.ceil_char_boundary(range.end);
         let range = normalized_start..normalized_end;
 
+        if range.start == 0 && range.end == self.len_bytes() {
+            self.root = RopeNode::from_string(text, self.rows_per_column, self.hanging_punctuation);
+            return;
+        }
+
         if range.start == range.end
             && range.end == self.len_bytes()
             && self.root.is_some()
             && self.try_append_to_last_leaf(&text)
         {
+            return;
+        }
+
+        if range.start == range.end && range.end == self.len_bytes() {
+            self.root = concat_nodes(
+                self.root.take(),
+                RopeNode::from_string(text, self.rows_per_column, self.hanging_punctuation),
+                self.rows_per_column,
+                self.hanging_punctuation,
+            );
             return;
         }
 
@@ -1883,5 +1913,45 @@ mod tests {
         assert_eq!(visible[0].text, "開");
         assert_eq!(visible[1].text, "始");
         assert_eq!(visible[2].text, "文");
+    }
+
+    #[test]
+    fn rope_replaces_entire_document_with_owned_large_text() {
+        let mut rope = TextRope::from_str("開始終了");
+        let replacement = "文".repeat(20_000);
+
+        rope.replace_range_owned(0..rope.len_bytes(), replacement.clone());
+
+        assert_eq!(rope.len_graphemes(), 20_000);
+        assert_eq!(rope.to_string(), replacement);
+        assert!(rope.shared_leaf_count() > 0);
+        assert!(rope.height() <= 32);
+        rope.assert_balanced();
+
+        let visible = rope.visible_graphemes(0, 3);
+        assert_eq!(visible[0].text, "文");
+        assert_eq!(visible[1].text, "文");
+        assert_eq!(visible[2].text, "文");
+    }
+
+    #[test]
+    fn rope_appends_owned_large_text_at_document_end() {
+        let mut rope = TextRope::from_str("開始終了");
+        let append_at = rope.len_bytes();
+
+        rope.replace_range_owned(append_at..append_at, "文".repeat(20_000));
+
+        assert_eq!(rope.len_graphemes(), 20_004);
+        assert!(rope.shared_leaf_count() > 0);
+        assert!(rope.height() <= 32);
+        rope.assert_balanced();
+
+        let visible = rope.visible_graphemes(0, 6);
+        assert_eq!(visible[0].text, "開");
+        assert_eq!(visible[1].text, "始");
+        assert_eq!(visible[2].text, "終");
+        assert_eq!(visible[3].text, "了");
+        assert_eq!(visible[4].text, "文");
+        assert_eq!(visible[5].text, "文");
     }
 }

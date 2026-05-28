@@ -1,6 +1,6 @@
 [package]
 name = "soukou"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 
 [package.metadata.bundle]
@@ -18,10 +18,9 @@ path = "src/main.rs"
 [dependencies]
 bottom_bar = { workspace = true }
 document_export = { workspace = true }
-dotenvy = "0.15"
+dotenvy = { workspace = true }
 editor = { workspace = true, features = ["embedded-ipadic"] }
 env = { workspace = true }
-futures = "0.3"
 gpui = { workspace = true }
 gpui_platform = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = [
@@ -31,16 +30,13 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 richtext = { workspace = true }
 rope = { workspace = true }
-semver = "1"
+semver = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 settings = { workspace = true }
 theme = { workspace = true }
 title_bar = { workspace = true }
 ui = { workspace = true }
-unicode-segmentation = "1"
-url = "2"
-urlencoding = "2"
+unicode-segmentation = { workspace = true }
 xdg = { workspace = true }
 
 [build-dependencies]

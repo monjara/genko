@@ -1,5 +1,6 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
+use std::time::Instant;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFeatures,
@@ -11,7 +12,12 @@ use rope::CellText;
 use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, Theme};
 
-use crate::editor::{AUTOMATIC_ROWS_RESERVED_CELLS, Editor, RichTextDecorations};
+use crate::editor::layout::{
+    cell_bounds_for_logical_index, column_number_header_height, row_column_for_logical_index,
+};
+use crate::editor::{Editor, RichTextDecorations};
+
+use crate::perf::{PerfScope, log_paste_perf, paste_perf_enabled};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CellPaintKind {
@@ -35,6 +41,12 @@ struct PaintState {
     visible_rows: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
+}
+
+#[derive(Clone, Copy)]
+struct PreparedCellPaint {
+    bounds: Option<Bounds<Pixels>>,
+    rich_style: CellRichStyle,
 }
 
 #[derive(Clone)]
@@ -123,6 +135,17 @@ impl Element for EditorCanvas {
         window: &mut Window,
         cx: &mut App,
     ) {
+        let _paint_perf = paste_perf_enabled().then(|| {
+            let visible_columns = self.editor.read(cx).visible_columns();
+            let visible_rows = self.editor.read(cx).visible_rows();
+            PerfScope::new(move |elapsed| {
+                log_paste_perf(
+                    "editor_canvas.paint",
+                    move || format!("cols={} rows={}", visible_columns, visible_rows),
+                    elapsed,
+                );
+            })
+        });
         let column_number_mode = AppSettings::global(cx).column_number_mode;
         let header_height = {
             let editor = self.editor.read(cx);
@@ -173,6 +196,18 @@ impl Element for EditorCanvas {
             cell_size,
             ruby_gutter_size,
         } = paint_state;
+        let prepared_cells = prepare_cell_paint_data(
+            &visible_text,
+            &richtext_decorations,
+            content_bounds,
+            scroll_column,
+            scroll_row,
+            rows_per_column,
+            visible_columns,
+            visible_rows,
+            cell_size,
+            ruby_gutter_size,
+        );
 
         paint_paper(bounds, window, cx);
         paint_column_numbers(
@@ -223,7 +258,6 @@ impl Element for EditorCanvas {
             });
             paint_grid(
                 content_bounds,
-                rows_per_column,
                 visible_columns,
                 scroll_row,
                 visible_rows,
@@ -234,31 +268,13 @@ impl Element for EditorCanvas {
                 cx,
             );
         }
-        paint_text(
-            &visible_text,
-            &richtext_decorations,
-            content_bounds,
-            scroll_column,
-            scroll_row,
-            rows_per_column,
-            visible_columns,
-            visible_rows,
-            cell_size,
-            ruby_gutter_size,
-            window,
-            cx,
-        );
+        paint_text(&visible_text, &prepared_cells, window, cx);
         paint_strikethrough_overlay(
             &visible_text,
-            &richtext_decorations,
-            content_bounds,
             scroll_column,
-            scroll_row,
             rows_per_column,
             visible_columns,
-            visible_rows,
-            cell_size,
-            ruby_gutter_size,
+            &prepared_cells,
             window,
             cx,
         );
@@ -282,14 +298,6 @@ impl Element for EditorCanvas {
 
 fn paint_paper(bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
     window.paint_quad(fill(bounds, Theme::global(cx).bg_primary()));
-}
-
-fn column_number_header_height(mode: ColumnNumberMode, cell_size: f32) -> Pixels {
-    if mode == ColumnNumberMode::Hidden {
-        Pixels::ZERO
-    } else {
-        px((cell_size * 0.8).round().max(18.0))
-    }
 }
 
 fn paint_column_numbers(
@@ -351,7 +359,6 @@ fn paint_column_numbers(
 
 fn paint_grid(
     bounds: Bounds<Pixels>,
-    _rows_per_column: usize,
     visible_columns: usize,
     _first_visible_row: usize,
     visible_rows: usize,
@@ -553,30 +560,12 @@ fn paint_selection(
 
 fn paint_text(
     visible_text: &[CellText],
-    richtext_decorations: &RichTextDecorations,
-    bounds: Bounds<Pixels>,
-    scroll_column: usize,
-    first_visible_row: usize,
-    rows_per_column: usize,
-    visible_columns: usize,
-    visible_rows: usize,
-    cell_size: f32,
-    ruby_gutter_size: f32,
+    prepared_cells: &[PreparedCellPaint],
     window: &mut Window,
     cx: &mut App,
 ) {
-    for cell_text in visible_text {
-        let Some(cell_bounds) = cell_bounds_for_logical_index(
-            bounds,
-            cell_text.logical_index,
-            scroll_column,
-            first_visible_row,
-            rows_per_column,
-            visible_columns,
-            visible_rows,
-            cell_size,
-            ruby_gutter_size,
-        ) else {
+    for (cell_text, prepared) in visible_text.iter().zip(prepared_cells.iter()) {
+        let Some(cell_bounds) = prepared.bounds else {
             continue;
         };
 
@@ -584,8 +573,8 @@ fn paint_text(
             CellPaintKind::Main => paint_cell_text(
                 cell_text,
                 cell_bounds,
-                cell_size,
-                rich_style_for_range(richtext_decorations, cell_text.range.clone()),
+                cell_bounds.size.width.as_f32(),
+                prepared.rich_style,
                 window,
                 cx,
             ),
@@ -621,6 +610,7 @@ fn paint_cell_text(
             &cell_text.text,
             vertical_text_font(style.font()),
             rich_style.color(cx),
+            rich_style,
             cx,
         ),
     );
@@ -642,37 +632,21 @@ fn paint_cell_text(
 
 fn paint_strikethrough_overlay(
     visible_text: &[CellText],
-    richtext_decorations: &RichTextDecorations,
-    bounds: Bounds<Pixels>,
     scroll_column: usize,
-    first_visible_row: usize,
     rows_per_column: usize,
     visible_columns: usize,
-    visible_rows: usize,
-    cell_size: f32,
-    ruby_gutter_size: f32,
+    prepared_cells: &[PreparedCellPaint],
     window: &mut Window,
     cx: &mut App,
 ) {
     let mut current_segment: Option<StrikeSegment> = None;
 
-    for cell_text in visible_text {
-        let rich_style = rich_style_for_range(richtext_decorations, cell_text.range.clone());
-        let Some(cell_bounds) = cell_bounds_for_logical_index(
-            bounds,
-            cell_text.logical_index,
-            scroll_column,
-            first_visible_row,
-            rows_per_column,
-            visible_columns,
-            visible_rows,
-            cell_size,
-            ruby_gutter_size,
-        ) else {
+    for (cell_text, prepared) in visible_text.iter().zip(prepared_cells.iter()) {
+        let Some(cell_bounds) = prepared.bounds else {
             continue;
         };
 
-        if !rich_style.strikethrough {
+        if !prepared.rich_style.strikethrough {
             flush_strike_segment(&mut current_segment, window, cx);
             continue;
         }
@@ -691,7 +665,7 @@ fn paint_strikethrough_overlay(
             Some(segment)
                 if segment.column == column
                     && segment.last_row + 1 == row
-                    && segment.style == rich_style =>
+                    && segment.style == prepared.rich_style =>
             {
                 segment.last_row = row;
                 segment.end_bounds = cell_bounds;
@@ -702,7 +676,7 @@ fn paint_strikethrough_overlay(
                     column,
                     first_row: row,
                     last_row: row,
-                    style: rich_style,
+                    style: prepared.rich_style,
                     start_bounds: cell_bounds,
                     end_bounds: cell_bounds,
                 });
@@ -711,6 +685,57 @@ fn paint_strikethrough_overlay(
     }
 
     flush_strike_segment(&mut current_segment, window, cx);
+}
+
+fn prepare_cell_paint_data(
+    visible_text: &[CellText],
+    richtext_decorations: &RichTextDecorations,
+    bounds: Bounds<Pixels>,
+    scroll_column: usize,
+    first_visible_row: usize,
+    rows_per_column: usize,
+    visible_columns: usize,
+    visible_rows: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
+) -> Vec<PreparedCellPaint> {
+    let perf_enabled = paste_perf_enabled();
+    let perf_start = perf_enabled.then(Instant::now);
+    let prepared: Vec<PreparedCellPaint> = visible_text
+        .iter()
+        .map(|cell_text| PreparedCellPaint {
+            bounds: cell_bounds_for_logical_index(
+                bounds,
+                cell_text.logical_index,
+                scroll_column,
+                first_visible_row,
+                rows_per_column,
+                visible_columns,
+                visible_rows,
+                cell_size,
+                ruby_gutter_size,
+            ),
+            rich_style: rich_style_for_range(richtext_decorations, &cell_text.range),
+        })
+        .collect();
+    if let Some(start) = perf_start {
+        log_paste_perf(
+            "prepare_cell_paint_data",
+            || {
+                format!(
+                    "cells={} cols={} rows={} inline_marks={} blocks={} cell_size={:.1}",
+                    prepared.len(),
+                    visible_columns,
+                    visible_rows,
+                    richtext_decorations.inline_marks.len(),
+                    richtext_decorations.blocks.len(),
+                    cell_size
+                )
+            },
+            start.elapsed(),
+        );
+    }
+    prepared
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -758,6 +783,7 @@ fn paint_attached_punctuation(
             &cell_text.text,
             vertical_text_font(style.font()),
             Theme::global(cx).text_primary(),
+            CellRichStyle::default(),
             cx,
         ),
     );
@@ -800,6 +826,7 @@ fn paint_corner_punctuation(
             &cell_text.text,
             vertical_text_font(style.font()),
             Theme::global(cx).text_primary(),
+            CellRichStyle::default(),
             cx,
         ),
     );
@@ -843,7 +870,14 @@ fn cell_paint_kind(cell_text: &CellText) -> CellPaintKind {
     }
 }
 
-fn text_run(text: &str, font: Font, color: gpui::Rgba, _cx: &mut App) -> TextRun {
+fn text_run(
+    text: &str,
+    font: Font,
+    color: gpui::Rgba,
+    rich_style: CellRichStyle,
+    _cx: &mut App,
+) -> TextRun {
+    let font = if rich_style.bold { font.bold() } else { font };
     TextRun {
         len: text.len(),
         font,
@@ -866,13 +900,7 @@ impl CellRichStyle {
         match self.block_kind {
             BlockKind::HeadingLarge => 0.94,
             BlockKind::HeadingMedium => 0.84,
-            BlockKind::Body => {
-                if self.bold {
-                    0.8
-                } else {
-                    0.75
-                }
-            }
+            BlockKind::Body => 0.75,
         }
     }
 
@@ -899,7 +927,7 @@ impl CellRichStyle {
     }
 }
 
-fn rich_style_for_range(decorations: &RichTextDecorations, range: Range<usize>) -> CellRichStyle {
+fn rich_style_for_range(decorations: &RichTextDecorations, range: &Range<usize>) -> CellRichStyle {
     let mut style = CellRichStyle::default();
     for mark in &decorations.inline_marks {
         if mark.start < range.end && range.start < mark.end {
@@ -909,7 +937,7 @@ fn rich_style_for_range(decorations: &RichTextDecorations, range: Range<usize>) 
             }
         }
     }
-    style.block_kind = block_kind_for_range(&decorations.blocks, &range);
+    style.block_kind = block_kind_for_range(&decorations.blocks, range);
     style
 }
 
@@ -944,16 +972,15 @@ fn vertical_text_paint_offset(line: &gpui::ShapedLine) -> gpui::Point<Pixels> {
 
     #[cfg(target_os = "macos")]
     {
-        let (min_x, min_y) = line
-            .runs
-            .iter()
-            .flat_map(|run| run.glyphs.iter())
-            .fold((0.0f32, 0.0f32), |(min_x, min_y), glyph| {
+        let (min_x, min_y) = line.runs.iter().flat_map(|run| run.glyphs.iter()).fold(
+            (0.0f32, 0.0f32),
+            |(min_x, min_y), glyph| {
                 (
                     min_x.min(glyph.position.x.as_f32()),
                     min_y.min(glyph.position.y.as_f32()),
                 )
-            });
+            },
+        );
 
         point(px(-min_x), px(-min_y))
     }
@@ -1035,91 +1062,6 @@ fn block_selection_indices(
     })
 }
 
-fn row_column_for_logical_index(
-    logical_index: usize,
-    first_visible_column: usize,
-    rows_per_column: usize,
-    visible_columns: usize,
-) -> Option<(usize, usize)> {
-    let rows_per_column = rows_per_column.max(1);
-    let visible_columns = visible_columns.max(1);
-    let logical_column = logical_index / rows_per_column;
-    if logical_column < first_visible_column {
-        return None;
-    }
-
-    let column_from_right = logical_column - first_visible_column;
-    if column_from_right >= visible_columns {
-        return None;
-    }
-
-    let row = logical_index % rows_per_column;
-    let column = visible_columns - 1 - column_from_right;
-    Some((row, column))
-}
-
-pub(crate) fn cell_bounds_for_logical_index(
-    board_bounds: Bounds<Pixels>,
-    logical_index: usize,
-    first_visible_column: usize,
-    first_visible_row: usize,
-    rows_per_column: usize,
-    visible_columns: usize,
-    visible_rows: usize,
-    cell_size: f32,
-    ruby_gutter_size: f32,
-) -> Option<Bounds<Pixels>> {
-    let (row, column) = row_column_for_logical_index(
-        logical_index,
-        first_visible_column,
-        rows_per_column,
-        visible_columns,
-    )?;
-    if row < first_visible_row || row >= first_visible_row + visible_rows {
-        return None;
-    }
-    Some(Bounds::new(
-        point(
-            board_x_for_visible_column(board_bounds.left(), column, cell_size, ruby_gutter_size),
-            board_bounds.top() + px((row - first_visible_row) as f32 * cell_size),
-        ),
-        size(px(cell_size), px(cell_size)),
-    ))
-}
-
-pub(crate) fn logical_index_for_point(
-    board_bounds: Bounds<Pixels>,
-    position: gpui::Point<Pixels>,
-    first_visible_column: usize,
-    first_visible_row: usize,
-    rows_per_column: usize,
-    visible_columns: usize,
-    visible_rows: usize,
-    cell_size: f32,
-    ruby_gutter_size: f32,
-) -> Option<usize> {
-    let rows_per_column = rows_per_column.max(1);
-    let visible_columns = visible_columns.max(1);
-    if !board_bounds.contains(&position) {
-        return None;
-    }
-
-    let local_x = position.x - board_bounds.left();
-    let stride = px(cell_size + ruby_gutter_size);
-    let column = (local_x / stride)
-        .floor()
-        .clamp(0.0, (visible_columns - 1) as f32) as usize;
-    let column_offset = local_x - px(column as f32 * (cell_size + ruby_gutter_size));
-    if column_offset > px(cell_size) {
-        return None;
-    }
-    let row = ((position.y - board_bounds.top()) / px(cell_size))
-        .floor()
-        .clamp(0.0, (visible_rows.saturating_sub(1)) as f32) as usize;
-    let column_from_right = visible_columns - 1 - column;
-    Some((first_visible_column + column_from_right) * rows_per_column + first_visible_row + row)
-}
-
 fn board_width_for_columns(
     visible_columns: usize,
     cell_size: f32,
@@ -1141,33 +1083,10 @@ fn board_x_for_visible_column(
     board_left + px(column as f32 * (cell_size + ruby_gutter_size))
 }
 
-pub(crate) fn visible_columns_for_window_width(
-    width: Pixels,
-    cell_size: f32,
-    ruby_gutter_size: f32,
-) -> usize {
-    ((width / px(cell_size + ruby_gutter_size)).floor() as usize)
-        .saturating_sub(2)
-        .max(1)
-}
-
-pub(crate) fn rows_per_column_for_window_height(height: Pixels, cell_size: f32) -> usize {
-    ((height / px(cell_size)).floor() as usize)
-        .saturating_sub(AUTOMATIC_ROWS_RESERVED_CELLS)
-        .clamp(1, AppSettings::max_rows_per_column())
-}
-
-pub(crate) fn content_height_for_window_height(
-    height: Pixels,
-    mode: ColumnNumberMode,
-    cell_size: f32,
-) -> Pixels {
-    (height - column_number_header_height(mode, cell_size)).max(Pixels::ZERO)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::layout::logical_index_for_point;
 
     const DEFAULT_ROWS_PER_COLUMN: usize = 16;
     const VISIBLE_COLUMNS: usize = 20;

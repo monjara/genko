@@ -9,6 +9,6 @@ name = "document_export"
 path = "src/lib.rs"
 
 [dependencies]
-crc32fast = "1"
+crc32fast = { workspace = true }
 richtext = { workspace = true }
-xmlwriter = "0.1"
+xmlwriter = { workspace = true }

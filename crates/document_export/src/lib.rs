@@ -81,7 +81,10 @@ fn export_docx(document: &RichDocument, options: ExportOptions) -> Vec<u8> {
         build_docx_document_rels().into_bytes(),
     );
     zip.push_stored("_rels/.rels", build_root_relationships_xml().into_bytes());
-    zip.push_stored("[Content_Types].xml", build_docx_content_types().into_bytes());
+    zip.push_stored(
+        "[Content_Types].xml",
+        build_docx_content_types().into_bytes(),
+    );
     zip.finish()
 }
 
@@ -394,7 +397,12 @@ fn build_epub_package_xml(document: &ExportDocument, options: &ExportOptions) ->
         .description
         .as_deref()
         .filter(|value| !value.is_empty())
-        .map(|value| format!("    <dc:description>{}</dc:description>\n", xml_escape(value)))
+        .map(|value| {
+            format!(
+                "    <dc:description>{}</dc:description>\n",
+                xml_escape(value)
+            )
+        })
         .unwrap_or_default();
     let publisher = metadata
         .publisher
@@ -543,9 +551,18 @@ fn resolved_epub_metadata(
 
 fn first_heading_title(document: &ExportDocument) -> Option<String> {
     document.paragraphs.iter().find_map(|paragraph| {
-        matches!(paragraph.block_kind, BlockKind::HeadingLarge | BlockKind::HeadingMedium)
-            .then_some(paragraph.runs.iter().map(|run| run.text.as_str()).collect::<String>())
-            .filter(|value| !value.is_empty())
+        matches!(
+            paragraph.block_kind,
+            BlockKind::HeadingLarge | BlockKind::HeadingMedium
+        )
+        .then_some(
+            paragraph
+                .runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<String>(),
+        )
+        .filter(|value| !value.is_empty())
     })
 }
 
@@ -575,7 +592,9 @@ struct ZipEntry {
 
 impl SimpleZip {
     fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     fn push_stored(&mut self, name: impl Into<String>, data: Vec<u8>) {
@@ -686,7 +705,10 @@ fn write_end_of_central_directory(
 
 #[cfg(test)]
 mod tests {
-    use super::{ExportDocument, ExportFormat, ExportOptions, ExportWritingMode, build_epub_package_xml, build_epub_text_xml, export_docx, export_epub};
+    use super::{
+        ExportDocument, ExportFormat, ExportOptions, ExportWritingMode, build_epub_package_xml,
+        build_epub_text_xml, export_docx, export_epub,
+    };
     use richtext::{BlockKind, EpubMetadata, InlineStyle, RichDocument};
 
     fn sample_document() -> RichDocument {

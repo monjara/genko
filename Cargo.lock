@@ -5162,6 +5162,7 @@ dependencies = [
 name = "richtext"
 version = "0.1.0"
 dependencies = [
+ "gpui",
  "serde",
  "serde_json",
 ]
@@ -5876,7 +5877,6 @@ dependencies = [
  "editor",
  "embed-resource",
  "env",
- "futures",
  "gpui",
  "gpui_platform",
  "reqwest 0.12.28",
@@ -5884,14 +5884,11 @@ dependencies = [
  "rope",
  "semver",
  "serde",
- "serde_json",
  "settings",
  "theme",
  "title_bar",
  "ui",
  "unicode-segmentation",
- "url",
- "urlencoding",
  "xdg",
 ]
 
@@ -6692,6 +6689,7 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "theme",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -6804,12 +6802,6 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
-
-[[package]]
-name = "urlencoding"
-version = "2.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "usvg"

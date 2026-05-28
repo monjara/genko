@@ -1,20 +1,33 @@
+pub(crate) mod commands;
+pub(crate) mod command_types;
+mod default_input;
+mod history;
+pub(crate) mod layout;
+pub(crate) mod motions;
+mod selection;
+
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Instant;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, EntityInputHandler, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
-    Pixels, Render, ScrollWheelEvent, Size, Styled, UTF16Selection, Window, actions, div, px,
+    App, Bounds, Context, EntityInputHandler, FocusHandle, Focusable, IntoElement, Pixels,
+    Render, Size, UTF16Selection, Window, actions, px,
 };
-use richtext::{ResolvedBlock, RichDocument};
+use richtext::{
+    BlockKind, EpubMetadata, InlineStyle, ResolvedBlock, RichDocument, single_change,
+};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
-use crate::editor_canvas::{
-    EditorCanvas, GridPathCache, cell_bounds_for_logical_index, content_height_for_window_height,
-    logical_index_for_point, rows_per_column_for_window_height, visible_columns_for_window_width,
+use self::{history as editor_history, selection as editor_selection};
+use crate::capabilities::{AppCapabilities, ProFeature};
+use crate::editor::layout::{
+    content_height_for_window_height, rows_per_column_for_window_height,
+    visible_columns_for_window_width,
 };
-use crate::vim::{VimMode, VimNormalMode, VimState};
+use crate::editor_canvas::GridPathCache;
+use crate::perf::{log_paste_perf, paste_perf_enabled};
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
@@ -26,37 +39,7 @@ const IME_ANCHOR_INSET: f32 = 3.0;
 const IME_CANDIDATE_GAP: f32 = 16.0;
 
 pub(crate) fn init(cx: &mut App) {
-    const EDITOR_CONTEXT: Option<&str> = Some("vim_mode == insert || vim_mode == disabled");
-
-    cx.bind_keys([
-        KeyBinding::new("backspace", Backspace, EDITOR_CONTEXT),
-        KeyBinding::new("delete", Delete, EDITOR_CONTEXT),
-        KeyBinding::new("up", Up, EDITOR_CONTEXT),
-        KeyBinding::new("down", Down, EDITOR_CONTEXT),
-        KeyBinding::new("left", Left, EDITOR_CONTEXT),
-        KeyBinding::new("right", Right, EDITOR_CONTEXT),
-        KeyBinding::new("shift-up", SelectUp, EDITOR_CONTEXT),
-        KeyBinding::new("shift-down", SelectDown, EDITOR_CONTEXT),
-        KeyBinding::new("shift-left", SelectLeft, EDITOR_CONTEXT),
-        KeyBinding::new("shift-right", SelectRight, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-a", SelectAll, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-a", SelectAll, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-v", Paste, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-v", Paste, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-c", Copy, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-c", Copy, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-x", Cut, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-x", Cut, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-z", Undo, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-z", Undo, EDITOR_CONTEXT),
-        KeyBinding::new("cmd-shift-z", Redo, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-u", Redo, EDITOR_CONTEXT),
-        KeyBinding::new("enter", Enter, EDITOR_CONTEXT),
-        KeyBinding::new("escape", ClearSelection, EDITOR_CONTEXT),
-        KeyBinding::new("home", Home, EDITOR_CONTEXT),
-        KeyBinding::new("end", End, EDITOR_CONTEXT),
-        KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, EDITOR_CONTEXT),
-    ]);
+    default_input::init(cx);
 }
 
 actions!(
@@ -86,6 +69,18 @@ actions!(
     ]
 );
 
+actions!(
+    editor_richtext,
+    [
+        ToggleBold,
+        ToggleStrikethrough,
+        SetHeadingLarge,
+        SetHeadingMedium,
+        ClearHeading,
+        RequestProForRichText
+    ]
+);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EditorViewState {
     pub(crate) selected_range: Range<usize>,
@@ -103,10 +98,24 @@ pub(crate) struct BlockSelection {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct EditOperation {
+pub struct EditOperation {
     pub(crate) start: usize,
     pub(crate) removed_text: String,
     pub(crate) inserted_text: String,
+}
+
+impl EditOperation {
+    pub fn start(&self) -> usize {
+        self.start
+    }
+
+    pub fn removed_text(&self) -> &str {
+        self.removed_text.as_str()
+    }
+
+    pub fn inserted_text(&self) -> &str {
+        self.inserted_text.as_str()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,6 +129,22 @@ pub(crate) struct EditTransaction {
 pub(crate) struct PendingTransaction {
     pub(crate) before: EditorViewState,
     pub(crate) edits: Vec<EditOperation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppliedEditBatch {
+    revision: u64,
+    edits: Vec<EditOperation>,
+}
+
+impl AppliedEditBatch {
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    pub fn edits(&self) -> &[EditOperation] {
+        &self.edits
+    }
 }
 
 #[derive(Default)]
@@ -162,12 +187,17 @@ pub(crate) struct Editor {
     pub(crate) max_visible_rows: usize,
     pub(crate) text_input_enabled: bool,
     pub(crate) history: EditorHistory,
+    rich_document: Option<RichDocument>,
+    last_richtext_revision: u64,
     pub(crate) richtext_decorations: RichTextDecorations,
     visible_text_cache: Option<VisibleTextCache>,
+    last_applied_edit_batch: Option<AppliedEditBatch>,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) grid_path_cache: Option<GridPathCache>,
     last_viewport_size: Option<Size<Pixels>>,
+    mouse_selection_anchor_cell: Option<usize>,
+    is_mouse_selecting: bool,
 }
 impl Editor {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -192,12 +222,17 @@ impl Editor {
             max_visible_rows: rows_per_column,
             text_input_enabled: true,
             history: EditorHistory::default(),
+            rich_document: None,
+            last_richtext_revision: 0,
             richtext_decorations: RichTextDecorations::default(),
             visible_text_cache: None,
+            last_applied_edit_batch: None,
             focus_handle: cx.focus_handle(),
             grid_path_cache: None,
             last_board_bounds: None,
             last_viewport_size: None,
+            mouse_selection_anchor_cell: None,
+            is_mouse_selecting: false,
         }
     }
 
@@ -222,6 +257,8 @@ impl Editor {
     }
 
     pub(crate) fn visible_text(&mut self) -> Arc<[CellText]> {
+        let perf_enabled = paste_perf_enabled();
+        let perf_start = perf_enabled.then(Instant::now);
         let visible_rows = self.visible_rows();
         if let Some(cache) = &self.visible_text_cache
             && cache.draft_revision == self.draft_revision
@@ -230,6 +267,20 @@ impl Editor {
             && cache.visible_columns == self.visible_columns
             && cache.visible_rows == visible_rows
         {
+            if let Some(start) = perf_start {
+                log_paste_perf(
+                    "visible_text(cache_hit)",
+                    || {
+                        format!(
+                            "cells={} cols={} rows={}",
+                            cache.cells.len(),
+                            self.visible_columns,
+                            visible_rows
+                        )
+                    },
+                    start.elapsed(),
+                );
+            }
             return cache.cells.clone();
         }
 
@@ -247,6 +298,21 @@ impl Editor {
             visible_rows,
             cells: cells.clone(),
         });
+        if let Some(start) = perf_start {
+            log_paste_perf(
+                "visible_text(rebuild)",
+                || {
+                    format!(
+                        "cells={} cols={} rows={} revision={}",
+                        cells.len(),
+                        self.visible_columns,
+                        visible_rows,
+                        self.draft_revision
+                    )
+                },
+                start.elapsed(),
+            );
+        }
         cells
     }
 
@@ -342,39 +408,22 @@ impl Editor {
     }
 
     pub(crate) fn previous_boundary(&self, offset: usize) -> usize {
-        let grapheme_index = self.draft.grapheme_index_for_byte(offset);
-        if grapheme_index == 0 {
-            0
-        } else {
-            self.draft
-                .byte_offset_for_grapheme_index(grapheme_index - 1)
-        }
+        editor_selection::previous_boundary(self, offset)
     }
 
     pub(crate) fn next_boundary(&self, offset: usize) -> usize {
-        self.draft
-            .byte_offset_for_grapheme_index(self.draft.grapheme_index_for_byte(offset) + 1)
+        editor_selection::next_boundary(self, offset)
     }
 
     pub(crate) fn materialize_cursor_cell_for_insert(
         &mut self,
         range: Range<usize>,
     ) -> Range<usize> {
-        if !range.is_empty() {
-            return range;
-        }
-
-        let offset = self.draft.materialize_display_cell(self.cursor_cell);
-        self.bump_draft_revision();
-        offset..offset
+        editor_selection::materialize_cursor_cell_for_insert(self, range)
     }
 
     pub(crate) fn editing_range(&self, range_utf16: Option<Range<usize>>) -> Range<usize> {
-        range_utf16
-            .as_ref()
-            .map(|range| self.range_from_utf16(range))
-            .or_else(|| self.marked_range.clone())
-            .unwrap_or_else(|| self.selected_range.clone())
+        editor_selection::editing_range(self, range_utf16)
     }
 
     pub fn byte_offset_for_display_cell(&self, display_cell_index: usize) -> usize {
@@ -382,31 +431,19 @@ impl Editor {
     }
 
     pub(crate) fn materialize_display_cell(&mut self, display_cell_index: usize) -> usize {
-        let offset = self.draft.materialize_display_cell(display_cell_index);
-        self.bump_draft_revision();
-        offset
+        editor_selection::materialize_display_cell(self, display_cell_index)
     }
 
     pub(crate) fn set_cursor_from_offset(&mut self, cursor_offset: usize) {
-        self.selected_range = cursor_offset..cursor_offset;
-        self.selection_reversed = false;
-        self.cursor_cell = self.display_cell_for_byte(cursor_offset);
-        self.marked_range = None;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
+        editor_selection::set_cursor_from_offset(self, cursor_offset);
     }
 
     pub(crate) fn selected_utf16_selection(&self) -> UTF16Selection {
-        UTF16Selection {
-            range: self.range_to_utf16(&self.selected_range),
-            reversed: self.selection_reversed,
-        }
+        editor_selection::selected_utf16_selection(self)
     }
 
     pub(crate) fn marked_range_utf16(&self) -> Option<Range<usize>> {
-        self.marked_range
-            .as_ref()
-            .map(|range| self.range_to_utf16(range))
+        editor_selection::marked_range_utf16(self)
     }
 
     pub(crate) fn view_state(&self) -> EditorViewState {
@@ -493,6 +530,10 @@ impl Editor {
         self.draft.slice(0..self.draft.len_bytes())
     }
 
+    pub fn last_applied_edit_batch(&self) -> Option<AppliedEditBatch> {
+        self.last_applied_edit_batch.clone()
+    }
+
     pub fn draft_revision(&self) -> u64 {
         self.draft_revision
     }
@@ -510,6 +551,30 @@ impl Editor {
         self.draft = draft;
         self.bump_draft_revision();
         self.history = EditorHistory::default();
+        self.last_applied_edit_batch = None;
+        self.rich_document = None;
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
+        self.scroll_column = 0;
+        self.scroll_row = 0;
+        self.scroll_remainder_columns = 0.0;
+        self.set_cursor_from_offset(0);
+        cx.notify();
+    }
+
+    pub fn load_rich_document(&mut self, document: RichDocument, cx: &mut Context<Self>) {
+        let rows_per_column = self.rows_per_column;
+        let hanging_punctuation = self.draft.hanging_punctuation();
+        let mut draft = TextRope::from_str_with_rows(document.plain_text(), rows_per_column);
+        draft.set_hanging_punctuation(hanging_punctuation);
+
+        self.draft = draft;
+        self.bump_draft_revision();
+        self.history = EditorHistory::default();
+        self.last_applied_edit_batch = None;
+        self.rich_document = Some(document);
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
         self.scroll_column = 0;
         self.scroll_row = 0;
         self.scroll_remainder_columns = 0.0;
@@ -530,41 +595,69 @@ impl Editor {
         self.bounds_for_byte_range(self.selected_range.clone(), board_bounds)
     }
 
-    pub fn set_richtext_document(
-        &mut self,
-        document: Option<&RichDocument>,
-        cx: &mut Context<Self>,
-    ) {
-        self.richtext_decorations = document
-            .map(|document| RichTextDecorations {
-                inline_marks: document.spans.clone(),
-                blocks: document.resolved_blocks(),
+    pub fn has_richtext_document(&self) -> bool {
+        self.rich_document.is_some()
+    }
+
+    pub fn richtext_document(&mut self) -> Option<RichDocument> {
+        self.sync_richtext_from_draft();
+        self.rich_document.clone()
+    }
+
+    pub fn current_epub_metadata(&mut self) -> Option<EpubMetadata> {
+        self.sync_richtext_from_draft();
+        self.rich_document
+            .as_ref()
+            .and_then(|document| document.epub_metadata.clone())
+    }
+
+    pub fn first_heading_title(&mut self) -> Option<String> {
+        self.sync_richtext_from_draft();
+        self.rich_document
+            .as_ref()
+            .and_then(|document| {
+                document.resolved_blocks().into_iter().find_map(|block| {
+                    matches!(block.kind, BlockKind::HeadingLarge | BlockKind::HeadingMedium)
+                        .then(|| document.plain_text()[block.range.clone()].trim().to_string())
+                        .filter(|title| !title.is_empty())
+                })
             })
-            .unwrap_or_default();
-        cx.notify();
+            .or_else(|| {
+                self.snapshot_text()
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+                    .map(ToString::to_string)
+            })
+    }
+
+    pub fn set_epub_metadata(&mut self, metadata: EpubMetadata) {
+        self.sync_richtext_from_draft();
+        if let Some(document) = self.rich_document.as_mut() {
+            document.epub_metadata = Some(metadata);
+            self.refresh_richtext_decorations();
+            self.last_richtext_revision = self.draft_revision;
+        }
     }
 
     pub fn offset_after_cursor(&self) -> usize {
-        self.next_boundary(self.cursor_offset())
+        editor_selection::offset_after_cursor(self)
     }
 
     pub fn move_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let target = self.cursor_cell.saturating_add_signed(delta);
-        self.move_to_display_cell(target, cx);
+        editor_selection::move_cursor_by(self, delta, cx);
     }
 
     pub fn move_cursor_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
-        self.move_to_display_cell(cell_index, cx);
+        editor_selection::move_cursor_to_display_cell(self, cell_index, cx);
     }
 
     pub fn move_cursor_to_byte_offset(&mut self, byte_offset: usize, cx: &mut Context<Self>) {
-        let cell_index = self.display_cell_for_byte(byte_offset);
-        self.move_to_display_cell(cell_index, cx);
+        editor_selection::move_cursor_to_byte_offset(self, byte_offset, cx);
     }
 
     pub fn select_cursor_by(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let target = self.cursor_cell.saturating_add_signed(delta);
-        self.select_to_display_cell(target, cx);
+        editor_selection::select_cursor_by(self, delta, cx);
     }
 
     pub fn select_visual_range(
@@ -573,18 +666,7 @@ impl Editor {
         cursor_cell: usize,
         cx: &mut Context<Self>,
     ) {
-        let start_cell = anchor_cell.min(cursor_cell);
-        let end_cell = anchor_cell.max(cursor_cell);
-        let start = self.draft.byte_offset_for_display_cell(start_cell);
-        let end = self
-            .next_boundary(self.draft.byte_offset_for_display_cell(end_cell))
-            .max(start);
-        self.selected_range = start..end;
-        self.selection_reversed = cursor_cell < anchor_cell;
-        self.cursor_cell = cursor_cell;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
-        cx.notify();
+        editor_selection::select_visual_range(self, anchor_cell, cursor_cell, cx);
     }
 
     pub fn set_block_selection(
@@ -593,39 +675,19 @@ impl Editor {
         cursor_cell: usize,
         cx: &mut Context<Self>,
     ) {
-        let cursor_offset = self.byte_offset_for_display_cell(cursor_cell);
-        self.selected_range = cursor_offset..cursor_offset;
-        self.selection_reversed = false;
-        self.cursor_cell = cursor_cell;
-        self.marked_range = None;
-        self.block_selection = Some(BlockSelection {
-            anchor_cell,
-            cursor_cell,
-        });
-        self.ensure_cursor_visible();
-        cx.notify();
+        editor_selection::set_block_selection(self, anchor_cell, cursor_cell, cx);
     }
 
     pub fn clear_block_selection(&mut self, cx: &mut Context<Self>) {
-        if self.block_selection.take().is_some() {
-            cx.notify();
-        }
+        editor_selection::clear_block_selection(self, cx);
     }
 
     pub fn collapse_selection_to_cursor_offset(&mut self, cx: &mut Context<Self>) {
-        let cursor_offset = self.cursor_offset();
-        self.selected_range = cursor_offset..cursor_offset;
-        self.selection_reversed = false;
-        self.marked_range = None;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
-        cx.notify();
+        editor_selection::collapse_selection_to_cursor_offset(self, cx);
     }
 
     pub fn collapse_selection_to_cursor_cell(&mut self, cx: &mut Context<Self>) {
-        let cursor_offset = self.byte_offset_for_display_cell(self.cursor_cell);
-        self.set_cursor_from_offset(cursor_offset);
-        cx.notify();
+        editor_selection::collapse_selection_to_cursor_cell(self, cx);
     }
 
     pub fn replace_byte_range(
@@ -638,124 +700,159 @@ impl Editor {
     }
 
     pub fn begin_transaction(&mut self) {
-        if self.history.active_transaction.is_none() {
-            self.history.active_transaction = Some(PendingTransaction {
-                before: self.view_state(),
-                edits: Vec::new(),
-            });
-        }
+        editor_history::begin_transaction(self);
     }
 
     pub fn commit_transaction(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(pending) = self.history.active_transaction.take() else {
-            return false;
-        };
-        let after = self.view_state();
-        if pending.edits.is_empty() && pending.before == after {
-            return false;
-        }
-
-        self.history.undo_stack.push(EditTransaction {
-            before: pending.before,
-            after,
-            edits: pending.edits,
-        });
-        self.history.redo_stack.clear();
-        cx.notify();
-        true
+        editor_history::commit_transaction(self, cx)
     }
 
     pub fn active_transaction_inserted_text(&self) -> Option<String> {
-        self.history
-            .active_transaction
-            .as_ref()
-            .map(|transaction| transaction_inserted_text(&transaction.edits))
+        editor_history::active_transaction_inserted_text(self)
     }
 
     pub fn last_transaction_inserted_text(&self) -> Option<String> {
-        self.history
-            .undo_stack
-            .last()
-            .map(|transaction| transaction_inserted_text(&transaction.edits))
+        editor_history::last_transaction_inserted_text(self)
     }
 
     pub fn undo(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(transaction) = self.history.undo_stack.pop() else {
-            return false;
-        };
-        for edit in transaction.edits.iter().rev() {
-            let inserted_end = edit.start + edit.inserted_text.len();
-            self.draft.replace_range(
-                inserted_end.saturating_sub(edit.inserted_text.len())..inserted_end,
-                &edit.removed_text,
-            );
-        }
-        self.bump_draft_revision();
-        self.restore_view_state(transaction.before.clone());
-        self.history.redo_stack.push(transaction);
-        cx.notify();
-        true
+        editor_history::undo(self, cx)
     }
 
     pub fn redo(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(transaction) = self.history.redo_stack.pop() else {
-            return false;
-        };
-        for edit in &transaction.edits {
-            let removed_end = edit.start + edit.removed_text.len();
-            self.draft.replace_range(
-                removed_end.saturating_sub(edit.removed_text.len())..removed_end,
-                &edit.inserted_text,
-            );
+        editor_history::redo(self, cx)
+    }
+
+    pub fn toggle_bold_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_inline_style(InlineStyle::Bold, window, cx);
+    }
+
+    pub fn toggle_strikethrough_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_inline_style(InlineStyle::Strikethrough, window, cx);
+    }
+
+    pub fn set_heading_large_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_block_kind(BlockKind::HeadingLarge, window, cx);
+    }
+
+    pub fn set_heading_medium_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_block_kind(BlockKind::HeadingMedium, window, cx);
+    }
+
+    pub fn clear_heading_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_block_kind(BlockKind::Body, window, cx);
+    }
+
+    fn select_between_display_cells(
+        &mut self,
+        anchor_cell: usize,
+        cursor_cell: usize,
+        cx: &mut Context<Self>,
+    ) {
+        editor_selection::select_between_display_cells(self, anchor_cell, cursor_cell, cx);
+    }
+
+    fn selection_anchor_cell(&self) -> usize {
+        editor_selection::selection_anchor_cell(self)
+    }
+
+    fn clamped_display_cell_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
+        editor_selection::clamped_display_cell_for_point(self, position)
+    }
+
+    fn refresh_richtext_decorations(&mut self) {
+        self.richtext_decorations = self
+            .rich_document
+            .as_ref()
+            .map(|document| RichTextDecorations {
+                inline_marks: document.spans.clone(),
+                blocks: document.resolved_blocks(),
+            })
+            .unwrap_or_default();
+    }
+
+    fn sync_richtext_from_draft(&mut self) {
+        if self.rich_document.is_none() || self.draft_revision == self.last_richtext_revision {
+            return;
         }
-        self.bump_draft_revision();
-        self.restore_view_state(transaction.after.clone());
-        self.history.undo_stack.push(transaction);
-        cx.notify();
+
+        let text = self.snapshot_text();
+        if let Some(document) = self.rich_document.as_mut() {
+            if let Some(batch) = self.last_applied_edit_batch.as_ref()
+                && batch.revision() == self.draft_revision
+                && can_apply_edit_batch(document.plain_text(), batch.edits(), &text)
+            {
+                for edit in batch.edits() {
+                    let range = edit.start()..edit.start() + edit.removed_text().len();
+                    document.replace_text(range, edit.inserted_text());
+                }
+            } else if let Some((range, replacement)) = single_change(document.plain_text(), &text) {
+                document.replace_text(range, replacement.as_str());
+            } else if document.plain_text() != text {
+                let epub_metadata = document.epub_metadata.clone();
+                *document = RichDocument::new(text);
+                document.epub_metadata = epub_metadata;
+            }
+        }
+
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
+    }
+
+    fn ensure_richtext_document(&mut self) -> bool {
+        self.sync_richtext_from_draft();
+        if self.rich_document.is_some() {
+            return true;
+        }
+
+        self.rich_document = Some(RichDocument::new(self.snapshot_text()));
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
         true
     }
 
-    fn move_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
-        let offset = self.byte_offset_for_display_cell(cell_index);
-        if self.cursor_cell == cell_index
-            && self.selected_range.start == offset
-            && self.selected_range.end == offset
-            && !self.selection_reversed
-            && self.block_selection.is_none()
-        {
+    fn apply_inline_style(
+        &mut self,
+        style: InlineStyle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !AppCapabilities::global(cx).supports(ProFeature::RichText) {
+            window.dispatch_action(Box::new(RequestProForRichText), cx);
             return;
         }
-        self.selected_range = offset..offset;
-        self.selection_reversed = false;
-        self.cursor_cell = cell_index;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
+        if !self.ensure_richtext_document() {
+            return;
+        }
+
+        let selected_range = self.selected_byte_range();
+        if selected_range.is_empty() {
+            return;
+        }
+
+        if let Some(document) = self.rich_document.as_mut() {
+            document.toggle_inline_style(selected_range, style);
+        }
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
         cx.notify();
     }
 
-    fn select_to_display_cell(&mut self, cell_index: usize, cx: &mut Context<Self>) {
-        let offset = self.byte_offset_for_display_cell(cell_index);
-        let original_range = self.selected_range.clone();
-        let original_reversed = self.selection_reversed;
-        if self.selection_reversed {
-            self.selected_range.start = offset;
-        } else {
-            self.selected_range.end = offset;
-        }
-        if self.selected_range.end < self.selected_range.start {
-            self.selection_reversed = !self.selection_reversed;
-            self.selected_range = self.selected_range.end..self.selected_range.start;
-        }
-        self.cursor_cell = cell_index;
-        self.block_selection = None;
-        self.ensure_cursor_visible();
-        if self.cursor_cell == cell_index
-            && self.selected_range == original_range
-            && self.selection_reversed == original_reversed
-            && self.block_selection.is_none()
-        {
+    fn apply_block_kind(&mut self, kind: BlockKind, window: &mut Window, cx: &mut Context<Self>) {
+        if !AppCapabilities::global(cx).supports(ProFeature::RichText) {
+            window.dispatch_action(Box::new(RequestProForRichText), cx);
             return;
         }
+        if !self.ensure_richtext_document() {
+            return;
+        }
+
+        let selected_range = self.selected_byte_range();
+        if let Some(document) = self.rich_document.as_mut() {
+            document.set_block_kind_for_range(selected_range, kind);
+        }
+        self.refresh_richtext_decorations();
+        self.last_richtext_revision = self.draft_revision;
         cx.notify();
     }
 
@@ -787,9 +884,12 @@ impl Editor {
         let cursor = range.start + new_text.len();
         self.set_cursor_from_offset(cursor);
         if implicit_transaction {
-            let _ = self.commit_transaction(cx);
+            if !self.commit_transaction(cx) {
+                cx.notify();
+            }
+        } else {
+            cx.notify();
         }
-        cx.notify();
     }
 
     fn replace_text_in_byte_range_owned(
@@ -798,6 +898,15 @@ impl Editor {
         new_text: String,
         cx: &mut Context<Self>,
     ) {
+        let perf_enabled = paste_perf_enabled();
+        let perf_start = perf_enabled.then(Instant::now);
+        let mut slice_elapsed = None;
+        let mut clone_elapsed = None;
+        let mut rope_replace_elapsed = None;
+        let mut cursor_elapsed = None;
+        let mut commit_elapsed = None;
+        let requested_range = range.clone();
+        let inserted_bytes = new_text.len();
         let implicit_transaction = self.history.active_transaction.is_none();
         if implicit_transaction {
             self.begin_transaction();
@@ -807,22 +916,89 @@ impl Editor {
         } else {
             self.materialize_cursor_cell_for_insert(range)
         };
-        let removed_text = self.draft.slice(range.clone());
+        let removed_text = if perf_enabled {
+            let started = Instant::now();
+            let removed_text = self.draft.slice(range.clone());
+            slice_elapsed = Some(started.elapsed());
+            removed_text
+        } else {
+            self.draft.slice(range.clone())
+        };
+        let removed_bytes = removed_text.len();
+        let normalized_start = range.start;
+        let normalized_end = range.end;
         if let Some(transaction) = self.history.active_transaction.as_mut() {
+            let inserted_text = if perf_enabled {
+                let started = Instant::now();
+                let inserted_text = new_text.clone();
+                clone_elapsed = Some(started.elapsed());
+                inserted_text
+            } else {
+                new_text.clone()
+            };
             transaction.edits.push(EditOperation {
                 start: range.start,
                 removed_text,
-                inserted_text: new_text.clone(),
+                inserted_text,
             });
         }
         let cursor = range.start + new_text.len();
-        self.draft.replace_range_owned(range, new_text);
-        self.bump_draft_revision();
-        self.set_cursor_from_offset(cursor);
-        if implicit_transaction {
-            let _ = self.commit_transaction(cx);
+        if perf_enabled {
+            let started = Instant::now();
+            self.draft.replace_range_owned(range, new_text);
+            rope_replace_elapsed = Some(started.elapsed());
+        } else {
+            self.draft.replace_range_owned(range, new_text);
         }
-        cx.notify();
+        self.bump_draft_revision();
+        if perf_enabled {
+            let started = Instant::now();
+            self.set_cursor_from_offset(cursor);
+            cursor_elapsed = Some(started.elapsed());
+        } else {
+            self.set_cursor_from_offset(cursor);
+        }
+        if implicit_transaction {
+            let committed = if perf_enabled {
+                let started = Instant::now();
+                let committed = self.commit_transaction(cx);
+                commit_elapsed = Some(started.elapsed());
+                committed
+            } else {
+                self.commit_transaction(cx)
+            };
+            if !committed {
+                cx.notify();
+            }
+        } else {
+            cx.notify();
+        }
+        if let Some(start) = perf_start {
+            let final_cursor = self.cursor_cell;
+            let revision = self.draft_revision;
+            log_paste_perf(
+                "replace_text_in_byte_range_owned",
+                move || {
+                    format!(
+                        "inserted_bytes={} removed_bytes={} requested_range={}..{} normalized_range={}..{} cursor_cell={} revision={} slice_ms={:.2} clone_ms={:.2} rope_replace_ms={:.2} cursor_ms={:.2} commit_ms={:.2}",
+                        inserted_bytes,
+                        removed_bytes,
+                        requested_range.start,
+                        requested_range.end,
+                        normalized_start,
+                        normalized_end,
+                        final_cursor,
+                        revision,
+                        slice_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
+                        clone_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
+                        rope_replace_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
+                        cursor_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
+                        commit_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+                    )
+                },
+                start.elapsed(),
+            );
+        }
     }
 
     fn scroll_columns_by(&mut self, delta_columns: isize, cx: &mut Context<Self>) {
@@ -842,19 +1018,7 @@ impl Editor {
     }
 
     fn byte_offset_for_point(&self, position: gpui::Point<Pixels>) -> Option<usize> {
-        let bounds = self.last_board_bounds?;
-        let index = logical_index_for_point(
-            bounds,
-            position,
-            self.scroll_column,
-            self.scroll_row,
-            self.rows_per_column(),
-            self.visible_columns(),
-            self.visible_rows(),
-            self.cell_size(),
-            self.ruby_gutter_size(),
-        )?;
-        Some(self.draft.byte_offset_for_display_cell(index))
+        editor_selection::byte_offset_for_point(self, position)
     }
 
     fn bounds_for_byte_range(
@@ -862,284 +1026,9 @@ impl Editor {
         range: Range<usize>,
         board_bounds: Bounds<Pixels>,
     ) -> Option<Bounds<Pixels>> {
-        let logical_index = if range.is_empty() && range.start == self.selected_range.start {
-            self.cursor_cell
-        } else {
-            self.display_cell_for_byte(range.start)
-        };
-        let cell_bounds = cell_bounds_for_logical_index(
-            board_bounds,
-            logical_index,
-            self.scroll_column,
-            self.scroll_row,
-            self.rows_per_column(),
-            self.visible_columns(),
-            self.visible_rows(),
-            self.cell_size(),
-            self.ruby_gutter_size(),
-        )?;
-        Some(ime_anchor_bounds_for_cell(cell_bounds, board_bounds))
+        editor_selection::bounds_for_byte_range(self, range, board_bounds)
     }
 
-    fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            let previous = self.previous_boundary(self.cursor_offset());
-            self.selected_range = previous..self.cursor_offset();
-        }
-        self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
-        invalidate_ime_position(window);
-    }
-
-    fn delete_forward(&mut self, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            let next = self.next_boundary(self.cursor_offset());
-            self.selected_range = self.cursor_offset()..next;
-        }
-        self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
-    }
-
-    fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
-        self.delete_forward(cx);
-        invalidate_ime_position(window);
-    }
-
-    fn up(&mut self, _: &Up, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(-1, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn down(&mut self, _: &Down, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(1, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn left(&mut self, _: &Left, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(self.rows_per_column() as isize, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn right(&mut self, _: &Right, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_cursor_by(-(self.rows_per_column() as isize), cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_up(&mut self, _: &SelectUp, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(-1, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_down(&mut self, _: &SelectDown, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(1, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_left(&mut self, _: &SelectLeft, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(self.rows_per_column() as isize, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_right(&mut self, _: &SelectRight, window: &mut Window, cx: &mut Context<Self>) {
-        self.select_cursor_by(-(self.rows_per_column() as isize), cx);
-        invalidate_ime_position(window);
-    }
-
-    fn select_all(&mut self, _: &SelectAll, window: &mut Window, cx: &mut Context<Self>) {
-        self.selected_range = 0..self.draft.len_bytes();
-        self.selection_reversed = false;
-        self.cursor_cell = self.used_cells();
-        self.block_selection = None;
-        invalidate_ime_position(window);
-        cx.notify();
-    }
-
-    fn home(&mut self, _: &Home, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_display_cell(0, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn end(&mut self, _: &End, window: &mut Window, cx: &mut Context<Self>) {
-        self.move_to_display_cell(self.used_cells(), cx);
-        invalidate_ime_position(window);
-    }
-
-    fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_byte_range_owned(self.selected_range.clone(), text, cx);
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn enter(&mut self, _: &Enter, window: &mut Window, cx: &mut Context<Self>) {
-        let inserted_text = if AppSettings::global(cx).indent_on_enter {
-            "\n "
-        } else {
-            "\n"
-        };
-        self.replace_text_in_byte_range(self.selected_range.clone(), inserted_text, cx);
-        invalidate_ime_position(window);
-    }
-
-    fn clear_selection_action(
-        &mut self,
-        _: &ClearSelection,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if AppSettings::global(cx).vim_mode && VimState::global(cx).mode == VimMode::Insert {
-            window.dispatch_action(Box::new(VimNormalMode), cx);
-            return;
-        }
-
-        if self.block_selection.is_some() {
-            self.clear_block_selection(cx);
-            invalidate_ime_position(window);
-            return;
-        }
-
-        if !self.selected_range.is_empty() {
-            self.collapse_selection_to_cursor_offset(cx);
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn copy(&mut self, _: &Copy, _window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.draft.slice(self.selected_range.clone()),
-            ));
-        }
-    }
-
-    fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.draft.slice(self.selected_range.clone()),
-            ));
-            self.replace_text_in_byte_range(self.selected_range.clone(), "", cx);
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn show_character_palette(
-        &mut self,
-        _: &ShowCharacterPalette,
-        window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-        window.show_character_palette();
-    }
-
-    fn undo_action(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
-        if self.undo(cx) {
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn redo_action(&mut self, _: &Redo, window: &mut Window, cx: &mut Context<Self>) {
-        if self.redo(cx) {
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn on_board_mouse_down(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        window.focus(&self.focus_handle, cx);
-        let Some(bounds) = self.last_board_bounds else {
-            return;
-        };
-        if let Some(cell_index) = logical_index_for_point(
-            bounds,
-            event.position,
-            self.scroll_column,
-            self.scroll_row,
-            self.rows_per_column(),
-            self.visible_columns(),
-            self.visible_rows(),
-            self.cell_size(),
-            self.ruby_gutter_size(),
-        ) {
-            if event.modifiers.shift {
-                self.select_to_display_cell(cell_index, cx);
-            } else {
-                self.move_to_display_cell(cell_index, cx);
-            }
-            invalidate_ime_position(window);
-        }
-    }
-
-    fn on_scroll_wheel(
-        &mut self,
-        event: &ScrollWheelEvent,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let delta = event.delta.pixel_delta(px(self.cell_size()));
-        let column_delta = if delta.x == Pixels::ZERO {
-            -(delta.y / px(self.cell_size()))
-        } else {
-            -(delta.x / px(self.cell_size()))
-        };
-
-        self.scroll_remainder_columns += column_delta;
-        let whole_columns = self.scroll_remainder_columns.trunc() as isize;
-        if whole_columns != 0 {
-            self.scroll_remainder_columns -= whole_columns as f32;
-            self.scroll_columns_by(whole_columns, cx);
-        }
-    }
-}
-
-fn transaction_inserted_text(edits: &[EditOperation]) -> String {
-    let mut inserted_edits = edits.iter().filter(|edit| !edit.inserted_text.is_empty());
-    let Some(first_edit) = inserted_edits.next() else {
-        return String::new();
-    };
-
-    let mut region_start = first_edit.start;
-    let mut region = first_edit.removed_text.clone();
-    replace_region_text(
-        &mut region,
-        0..first_edit.removed_text.len(),
-        &first_edit.inserted_text,
-    );
-
-    for edit in inserted_edits {
-        let edit_start = edit.start;
-        let edit_end = edit.start + edit.removed_text.len();
-        if edit_start < region_start {
-            let prefix_len = region_start - edit_start;
-            let prefix = &edit.removed_text[..prefix_len.min(edit.removed_text.len())];
-            region.insert_str(0, prefix);
-            region_start = edit_start;
-        }
-
-        let current_region_end = region_start + region.len();
-        if edit_start > current_region_end {
-            break;
-        }
-
-        if edit_end > current_region_end {
-            let suffix_start = edit
-                .removed_text
-                .len()
-                .saturating_sub(edit_end - current_region_end);
-            region.push_str(&edit.removed_text[suffix_start..]);
-        }
-
-        let local_start = edit_start.saturating_sub(region_start);
-        let local_end = local_start + edit.removed_text.len();
-        replace_region_text(&mut region, local_start..local_end, &edit.inserted_text);
-    }
-
-    region
-}
-
-fn replace_region_text(region: &mut String, range: Range<usize>, replacement: &str) {
-    region.replace_range(range, replacement);
 }
 
 fn ime_anchor_bounds_for_cell(
@@ -1291,34 +1180,8 @@ impl EntityInputHandler for Editor {
 
 impl Render for Editor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .track_focus(&self.focus_handle(cx))
-            .key_context("Soukou")
-            .on_action(cx.listener(Self::backspace))
-            .on_action(cx.listener(Self::delete))
-            .on_action(cx.listener(Self::up))
-            .on_action(cx.listener(Self::down))
-            .on_action(cx.listener(Self::left))
-            .on_action(cx.listener(Self::right))
-            .on_action(cx.listener(Self::select_up))
-            .on_action(cx.listener(Self::select_down))
-            .on_action(cx.listener(Self::select_left))
-            .on_action(cx.listener(Self::select_right))
-            .on_action(cx.listener(Self::select_all))
-            .on_action(cx.listener(Self::home))
-            .on_action(cx.listener(Self::end))
-            .on_action(cx.listener(Self::paste))
-            .on_action(cx.listener(Self::cut))
-            .on_action(cx.listener(Self::copy))
-            .on_action(cx.listener(Self::undo_action))
-            .on_action(cx.listener(Self::redo_action))
-            .on_action(cx.listener(Self::enter))
-            .on_action(cx.listener(Self::clear_selection_action))
-            .on_action(cx.listener(Self::show_character_palette))
-            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_board_mouse_down))
-            .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
-            .cursor(CursorStyle::IBeam)
-            .child(EditorCanvas::new(cx.entity()))
+        self.sync_richtext_from_draft();
+        default_input::render(self, cx)
     }
 }
 
@@ -1326,4 +1189,19 @@ impl Focusable for Editor {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
     }
+}
+
+fn can_apply_edit_batch(text: &str, edits: &[EditOperation], expected_text: &str) -> bool {
+    let mut scratch = text.to_string();
+    for edit in edits {
+        let range = edit.start()..edit.start() + edit.removed_text().len();
+        if range.end > scratch.len() {
+            return false;
+        }
+        if !scratch.is_char_boundary(range.start) || !scratch.is_char_boundary(range.end) {
+            return false;
+        }
+        scratch.replace_range(range, edit.inserted_text());
+    }
+    scratch == expected_text
 }

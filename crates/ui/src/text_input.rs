@@ -1,12 +1,12 @@
 use std::ops::Range;
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, InteractiveElement,
-    IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    PaintQuad, Pixels, Point, SharedString, ShapedLine, Style, Styled, TextRun,
-    UnderlineStyle, UTF16Selection, Window, actions, div, fill, hsla, point, prelude::*, px,
-    relative, rgba, size, white,
+    Action, App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId,
+    InteractiveElement, IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement, Pixels, Point, Render, ShapedLine,
+    SharedString, Style, Styled, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
+    fill, hsla, point, px, relative, rgba, size, white,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -30,24 +30,37 @@ actions!(
 );
 
 pub fn init(cx: &mut App) {
+    fn binding<A: Action>(key: &str, action: A) -> KeyBinding {
+        KeyBinding::new(key, action, Some("SoukouTextInput"))
+    }
+
     cx.bind_keys([
-        KeyBinding::new("backspace", Backspace, Some("SoukouTextInput")),
-        KeyBinding::new("delete", Delete, Some("SoukouTextInput")),
-        KeyBinding::new("left", Left, Some("SoukouTextInput")),
-        KeyBinding::new("right", Right, Some("SoukouTextInput")),
-        KeyBinding::new("shift-left", SelectLeft, Some("SoukouTextInput")),
-        KeyBinding::new("shift-right", SelectRight, Some("SoukouTextInput")),
-        KeyBinding::new("cmd-a", SelectAll, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-a", SelectAll, Some("SoukouTextInput")),
-        KeyBinding::new("cmd-v", Paste, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-v", Paste, Some("SoukouTextInput")),
-        KeyBinding::new("cmd-c", Copy, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-c", Copy, Some("SoukouTextInput")),
-        KeyBinding::new("cmd-x", Cut, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-x", Cut, Some("SoukouTextInput")),
-        KeyBinding::new("home", Home, Some("SoukouTextInput")),
-        KeyBinding::new("end", End, Some("SoukouTextInput")),
-        KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, Some("SoukouTextInput")),
+        binding("backspace", Backspace),
+        binding("delete", Delete),
+        binding("left", Left),
+        binding("right", Right),
+        binding("shift-left", SelectLeft),
+        binding("shift-right", SelectRight),
+        #[cfg(target_os = "macos")]
+        binding("cmd-a", SelectAll),
+        #[cfg(not(target_os = "macos"))]
+        binding("ctrl-a", SelectAll),
+        #[cfg(target_os = "macos")]
+        binding("cmd-v", Paste),
+        #[cfg(not(target_os = "macos"))]
+        binding("ctrl-v", Paste),
+        #[cfg(target_os = "macos")]
+        binding("cmd-c", Copy),
+        #[cfg(not(target_os = "macos"))]
+        binding("ctrl-c", Copy),
+        #[cfg(target_os = "macos")]
+        binding("cmd-x", Cut),
+        #[cfg(not(target_os = "macos"))]
+        binding("ctrl-x", Cut),
+        binding("home", Home),
+        binding("end", End),
+        #[cfg(target_os = "macos")]
+        binding("ctrl-cmd-space", ShowCharacterPalette),
     ]);
 }
 
@@ -389,7 +402,8 @@ impl EntityInputHandler for TextInput {
 
         self.content =
             (self.content[..range.start].to_owned() + new_text + &self.content[range.end..]).into();
-        self.marked_range = (!new_text.is_empty()).then_some(range.start..range.start + new_text.len());
+        self.marked_range =
+            (!new_text.is_empty()).then_some(range.start..range.start + new_text.len());
         self.selected_range = new_selected_range_utf16
             .as_ref()
             .map(|range_utf16| self.range_from_utf16(range_utf16))
@@ -551,8 +565,14 @@ impl Element for TextElement {
             (
                 Some(fill(
                     Bounds::from_corners(
-                        point(bounds.left() + line.x_for_index(selected_range.start), bounds.top()),
-                        point(bounds.left() + line.x_for_index(selected_range.end), bounds.bottom()),
+                        point(
+                            bounds.left() + line.x_for_index(selected_range.start),
+                            bounds.top(),
+                        ),
+                        point(
+                            bounds.left() + line.x_for_index(selected_range.end),
+                            bounds.bottom(),
+                        ),
                     ),
                     rgba(0x3355aa33),
                 )),
