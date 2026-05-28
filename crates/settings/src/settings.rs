@@ -1171,7 +1171,7 @@ impl AppSettings {
     fn existing_keymap_file_path() -> Option<PathBuf> {
         #[cfg(target_os = "windows")]
         {
-            Self::keymap_file_path()
+            Self::keymap_file_path().filter(|path| path.exists())
         }
 
         #[cfg(not(target_os = "windows"))]
@@ -1193,6 +1193,12 @@ impl AppSettings {
             let xdg_dirs = xdg::BaseDirectories::with_prefix("soukou");
             xdg_dirs.place_config_file(SETTINGS_FILE).ok()
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn keymap_file_path() -> Option<PathBuf> {
+        std::env::var_os("APPDATA")
+            .map(|appdata| PathBuf::from(appdata).join("soukou").join(KEYMAP_FILE))
     }
 
     fn load_from_config_file(settings_path: Option<PathBuf>) -> Self {

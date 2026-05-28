@@ -1,11 +1,13 @@
 use gpui::{
-    AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Hsla,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba, SharedString,
-    StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowControlArea, div, point,
-    prelude::FluentBuilder, px,
+    AnyElement, App, BoxShadow, ClickEvent, Context, Decorations, Hsla, IntoElement, ParentElement,
+    Pixels, Render, Rgba, StatefulInteractiveElement, Styled, TitlebarOptions, Window,
+    WindowControlArea, div, point, px,
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-use gpui::{Entity, WindowButton, WindowButtonLayout, WindowDecorations};
+use gpui::{
+    AppContext, Entity, InteractiveElement, SharedString, WindowButton, WindowButtonLayout,
+    WindowDecorations, prelude::FluentBuilder,
+};
 use theme::Theme;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use ui::MenuBar;
@@ -93,6 +95,7 @@ impl PlatformStyle {
 }
 
 pub struct TitleBar {
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     title: SharedString,
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     menu_bar: Entity<MenuBar>,
@@ -106,7 +109,11 @@ impl TitleBar {
         #[cfg(any(target_os = "linux", target_os = "freebsd"))] cx: &mut Context<Self>,
         #[cfg(not(any(target_os = "linux", target_os = "freebsd")))] _cx: &mut Context<Self>,
     ) -> Self {
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+        let _ = title;
+
         Self {
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             title: title.into(),
             #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             menu_bar: cx.new(|cx| MenuBar::new(menus, cx)),
