@@ -1,11 +1,12 @@
 use crate::document::ActiveDocument;
 use bottom_bar::BottomBar;
 use editor::EditorController;
-use gpui::{App, Entity};
+use gpui::{App, Entity, Subscription};
 use semver::Version;
 use serde::Deserialize;
 use theme::Theme;
 use title_bar::TitleBar;
+use workspace::Workspace;
 
 mod document_io;
 mod export_flow;
@@ -64,8 +65,10 @@ struct AvailableUpdate {
 
 pub(crate) struct SoukouApp {
     editor_controller: Entity<EditorController>,
+    workspace: Entity<Workspace>,
     active_document: ActiveDocument,
     active_modal: Option<AppModal>,
+    _workspace_subscription: Subscription,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
 }

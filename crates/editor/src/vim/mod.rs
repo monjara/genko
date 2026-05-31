@@ -1818,7 +1818,6 @@ impl VimController {
             (VimMode::Normal, Some(operator), modifier) => operator_key_context(operator, modifier),
         }
     }
-
 }
 
 fn parse_command_action(command_line: &str) -> Option<CommandAction> {

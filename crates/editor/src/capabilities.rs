@@ -1,8 +1,7 @@
 use gpui::{App, Global};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProFeature {
-}
+pub enum ProFeature {}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AppCapabilities;

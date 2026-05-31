@@ -1,17 +1,43 @@
 use gpui::{
-    BoxShadow, Context, Decorations, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Render, Styled, Window, div, point, prelude::FluentBuilder, px, svg,
-    transparent_black,
+    div, point, prelude::FluentBuilder, px, svg, transparent_black, BoxShadow, Context,
+    Decorations, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window,
 };
-use theme::APP_FONT_FAMILY;
 use theme::Theme;
+use theme::APP_FONT_FAMILY;
+use workspace::{ToggleWorkspacePane, WorkspaceState, COLLAPSED_WORKSPACE_RAIL_WIDTH};
 
 use crate::app::{
-    AppModal, MODAL_ERROR_ICON_PATH, MODAL_INFO_ICON_PATH, MODAL_UPDATE_ICON_PATH, SoukouApp,
-    UPDATE_AVAILABLE_TITLE, mix, toolbar_border_color,
+    mix, toolbar_border_color, AppModal, SoukouApp, MODAL_ERROR_ICON_PATH, MODAL_INFO_ICON_PATH,
+    MODAL_UPDATE_ICON_PATH, UPDATE_AVAILABLE_TITLE,
 };
 
 impl SoukouApp {
+    fn render_unsupported_document(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let file_name = WorkspaceState::global(cx)
+            .unsupported_file()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or("選択したファイル")
+            .to_string();
+
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_2()
+                    .text_color(Theme::global(cx).text_senodary())
+                    .child(div().font_weight(FontWeight::BOLD).child(file_name))
+                    .child(div().text_sm().child("このファイルはサポートしていません")),
+            )
+    }
+
     fn render_active_modal(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let modal = self.active_modal.clone()?;
         let accent = mix(Theme::global(cx).primary(), Theme::global(cx).white(), 0.84);
@@ -186,7 +212,6 @@ impl SoukouApp {
                 ),
         )
     }
-
 }
 
 impl Render for SoukouApp {
@@ -194,13 +219,24 @@ impl Render for SoukouApp {
         title_bar::sync_client_window_inset(window);
         self.sync_window_title(window, cx);
         let bar_height = title_bar::platform_title_bar_height(window);
+        let occupied_workspace_width = if self.workspace_pane_visible(cx) {
+            WorkspaceState::global(cx).pane_width()
+        } else {
+            COLLAPSED_WORKSPACE_RAIL_WIDTH
+        };
         let mut editor_viewport_size = window.viewport_size();
+        editor_viewport_size.width =
+            px((editor_viewport_size.width.as_f32() - occupied_workspace_width).max(0.0));
         editor_viewport_size.height -= bar_height * 2.0;
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.update_viewport_size(editor_viewport_size, cx);
         });
 
-        let content = self.editor_controller.clone().into_element();
+        let content = if WorkspaceState::global(cx).unsupported_file().is_some() {
+            self.render_unsupported_document(cx).into_any_element()
+        } else {
+            self.editor_controller.clone().into_any_element()
+        };
 
         div()
             .size_full()
@@ -252,6 +288,8 @@ impl Render for SoukouApp {
                     .can_drop(|value, _, _| value.is::<gpui::ExternalPaths>())
                     .on_drop(cx.listener(Self::drop_external_paths))
                     .on_action(cx.listener(Self::open_file_action))
+                    .on_action(cx.listener(Self::open_workspace_action))
+                    .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .on_action(cx.listener(Self::save_file_action))
                     .on_action(cx.listener(Self::export_txt_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
@@ -259,15 +297,48 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::vim_command_quit_action))
                     .child(self.title_bar.clone().into_element())
                     .child(
-                        div().flex_1().w_full().flex().child(
-                            div()
-                                .flex_1()
-                                .h_full()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(content),
-                        ),
+                        div()
+                            .flex_1()
+                            .w_full()
+                            .flex()
+                            .when(self.workspace_pane_visible(cx), |this| {
+                                this.child(self.workspace.clone().into_element())
+                            })
+                            .when(!self.workspace_pane_visible(cx), |this| {
+                                this.child(
+                                    div()
+                                        .id("workspace-collapsed-rail")
+                                        .w(px(COLLAPSED_WORKSPACE_RAIL_WIDTH))
+                                        .h_full()
+                                        .flex_none()
+                                        .border_r_1()
+                                        .border_color(Theme::global(cx).senodary())
+                                        .bg(Theme::global(cx).bg_senodary())
+                                        .flex()
+                                        .items_start()
+                                        .justify_center()
+                                        .pt_3()
+                                        .cursor_pointer()
+                                        .text_sm()
+                                        .text_color(Theme::global(cx).text_senodary())
+                                        .hover(|style| style.bg(Theme::global(cx).white()))
+                                        .child("開")
+                                        .on_click(|_, window, cx| {
+                                            window
+                                                .dispatch_action(Box::new(ToggleWorkspacePane), cx);
+                                        }),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(content),
+                            ),
                     )
                     .when_some(self.render_active_modal(cx), |this, modal| {
                         this.child(modal)

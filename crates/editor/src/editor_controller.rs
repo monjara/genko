@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use gpui::{
-    App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement, Pixels,
-    Render, Window,
+    App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement, Pixels, Render,
+    Window,
 };
 
 use crate::vim::VimController;
@@ -35,16 +35,11 @@ impl EditorController {
         self.vim_controller.read(cx).selection_bounds(cx)
     }
 
-    pub fn update_viewport_size(
-        &mut self,
-        size: gpui::Size<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {
         self.vim_controller.update(cx, |vim_controller, cx| {
             vim_controller.update_viewport_size(size, cx);
         });
     }
-
 }
 
 impl Render for EditorController {

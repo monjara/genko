@@ -33,6 +33,7 @@ fn main() {
         font::init(cx);
         theme::init(cx);
         settings::init(cx);
+        workspace::WorkspaceState::init(cx);
         editor::init(cx);
         menu::init(cx);
         ui::init(cx);

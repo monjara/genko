@@ -24,20 +24,12 @@
     "keystroke": "ctrl-s"
   },
   {
-    "id": "app.toggle_bold.mac",
-    "keystroke": "cmd-b"
+    "id": "workspace.toggle.mac",
+    "keystroke": "cmd-shift-e"
   },
   {
-    "id": "app.toggle_bold.ctrl",
-    "keystroke": "ctrl-b"
-  },
-  {
-    "id": "app.toggle_strikethrough.mac",
-    "keystroke": "cmd-shift-x"
-  },
-  {
-    "id": "app.toggle_strikethrough.ctrl",
-    "keystroke": "ctrl-shift-x"
+    "id": "workspace.toggle.ctrl",
+    "keystroke": "ctrl-shift-e"
   },
   {
     "id": "editor.backspace",

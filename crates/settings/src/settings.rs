@@ -1043,10 +1043,7 @@ impl From<&AppSettings> for PersistedAppSettings {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        env, fs,
-        path::PathBuf,
-    };
+    use std::{env, fs, path::PathBuf};
 
     use gpui::SharedString;
 

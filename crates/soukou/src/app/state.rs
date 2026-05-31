@@ -10,15 +10,18 @@ use gpui::{
 use settings::AppSettings;
 use title_bar::{TitleBar, TitleBarMenu};
 use ui::{MenuBarItem, MenuBarMenu};
+use workspace::{
+    Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceState,
+};
 
 use crate::{
-    CheckForUpdates, ExportTxt, OpenFile, OpenSettings, Quit, SaveFile,
     app::{
-        APP_NAME, AppModal, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_TXT_MENU_LABEL, FILE_MENU_LABEL,
-        OPEN_PROMPT_LABEL, QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL, SoukouApp,
+        AppModal, SoukouApp, APP_NAME, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_TXT_MENU_LABEL,
+        FILE_MENU_LABEL, OPEN_PROMPT_LABEL, QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL,
         WINDOW_TITLE_SEPARATOR,
     },
     document::{ActiveDocument, DocumentKind},
+    CheckForUpdates, ExportTxt, OpenFile, OpenSettings, Quit, SaveFile,
 };
 
 impl SoukouApp {
@@ -78,10 +81,13 @@ impl SoukouApp {
         let quit_mac = AppSettings::global(cx).keymap_keystroke("app.quit.mac");
         let open_file_mac = AppSettings::global(cx).keymap_keystroke("app.open_file.mac");
         let save_file_mac = AppSettings::global(cx).keymap_keystroke("app.save_file.mac");
+        let toggle_workspace_mac = AppSettings::global(cx).keymap_keystroke("workspace.toggle.mac");
 
         let open_settings_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_settings.ctrl");
         let open_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_file.ctrl");
         let save_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.save_file.ctrl");
+        let toggle_workspace_ctrl =
+            AppSettings::global(cx).keymap_keystroke("workspace.toggle.ctrl");
 
         cx.bind_keys([
             KeyBinding::new(quit_mac.as_ref(), Quit, None),
@@ -90,16 +96,25 @@ impl SoukouApp {
             KeyBinding::new(open_file_ctrl.as_ref(), OpenFile, None),
             KeyBinding::new(save_file_mac.as_ref(), SaveFile, None),
             KeyBinding::new(save_file_ctrl.as_ref(), SaveFile, None),
+            KeyBinding::new(toggle_workspace_mac.as_ref(), ToggleWorkspacePane, None),
+            KeyBinding::new(toggle_workspace_ctrl.as_ref(), ToggleWorkspacePane, None),
         ]);
 
         let editor_controller = cx.new(EditorController::new);
+        let workspace = cx.new(Workspace::new);
+        let workspace_subscription =
+            cx.subscribe(&workspace, |this, _workspace, event, cx| match event {
+                WorkspaceEvent::OpenPath(path) => this.open_workspace_path(path.clone(), cx),
+            });
         let title_bar = cx.new(|cx| TitleBar::new(APP_NAME, Self::title_bar_menus(), cx));
         let bottom_bar = cx.new(BottomBar::new);
 
         Self {
             editor_controller,
+            workspace,
             active_document: ActiveDocument::default(),
             active_modal: None,
+            _workspace_subscription: workspace_subscription,
             title_bar,
             bottom_bar,
         }
@@ -139,7 +154,10 @@ impl SoukouApp {
     }
 
     fn window_title(&self, _cx: &App) -> String {
-        match self.active_document.path() {
+        match WorkspaceState::global(_cx)
+            .active_path()
+            .or_else(|| self.active_document.path())
+        {
             Some(path) => format!("{APP_NAME}{WINDOW_TITLE_SEPARATOR}{}", path.display()),
             _ => APP_NAME.to_string(),
         }
@@ -184,6 +202,26 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.open_file(window, cx);
+    }
+
+    pub(super) fn open_workspace_action(
+        &mut self,
+        _: &OpenWorkspace,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_file(window, cx);
+    }
+
+    pub(super) fn toggle_workspace_pane_action(
+        &mut self,
+        _: &ToggleWorkspacePane,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        WorkspaceState::global_mut(cx).toggle_pane();
+        self.workspace.update(cx, |_, cx| cx.notify());
+        cx.notify();
     }
 
     pub(super) fn save_file_action(
@@ -242,6 +280,10 @@ impl SoukouApp {
 
     pub(super) fn current_document_kind(&self, _cx: &App) -> DocumentKind {
         DocumentKind::PlainText
+    }
+
+    pub(super) fn workspace_pane_visible(&self, cx: &App) -> bool {
+        WorkspaceState::global(cx).is_pane_visible()
     }
 }
 

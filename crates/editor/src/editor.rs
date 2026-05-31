@@ -1,5 +1,5 @@
-pub(crate) mod commands;
 pub(crate) mod command_types;
+pub(crate) mod commands;
 mod default_input;
 mod history;
 pub(crate) mod layout;
@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
-    App, Bounds, Context, EntityInputHandler, FocusHandle, Focusable, IntoElement, Pixels,
-    Render, Size, UTF16Selection, Window, actions, px,
+    App, Bounds, Context, EntityInputHandler, FocusHandle, Focusable, IntoElement, Pixels, Render,
+    Size, UTF16Selection, Window, actions, px,
 };
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
@@ -816,7 +816,6 @@ impl Editor {
     ) -> Option<Bounds<Pixels>> {
         editor_selection::bounds_for_byte_range(self, range, board_bounds)
     }
-
 }
 
 fn ime_anchor_bounds_for_cell(
