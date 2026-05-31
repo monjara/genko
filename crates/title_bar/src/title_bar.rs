@@ -1,5 +1,5 @@
 use gpui::{
-    AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Entity, Hsla,
+    AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Div, Entity, Hsla,
     InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba, SharedString,
     StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowButton, WindowButtonLayout,
     WindowControlArea, WindowDecorations, div, point, prelude::FluentBuilder, px,
@@ -40,6 +40,47 @@ pub fn sync_client_window_inset(window: &mut Window) {
     };
 
     window.set_client_inset(inset);
+}
+
+pub fn apply_client_side_shadow_padding(container: Div, window: &Window) -> Div {
+    match window.window_decorations() {
+        Decorations::Server => container,
+        Decorations::Client { tiling } => container
+            .when(!tiling.top, |container| {
+                container.pt(CLIENT_SIDE_SHADOW_SIZE)
+            })
+            .when(!tiling.bottom, |container| {
+                container.pb(CLIENT_SIDE_SHADOW_SIZE)
+            })
+            .when(!tiling.left, |container| {
+                container.pl(CLIENT_SIDE_SHADOW_SIZE)
+            })
+            .when(!tiling.right, |container| {
+                container.pr(CLIENT_SIDE_SHADOW_SIZE)
+            }),
+    }
+}
+
+pub fn apply_client_side_window_frame(container: Div, window: &Window) -> Div {
+    match window.window_decorations() {
+        Decorations::Server => container,
+        Decorations::Client { tiling } => container
+            .when(!(tiling.top || tiling.right), |container| {
+                container.rounded_tr(CLIENT_SIDE_DECORATION_ROUNDING)
+            })
+            .when(!(tiling.top || tiling.left), |container| {
+                container.rounded_tl(CLIENT_SIDE_DECORATION_ROUNDING)
+            })
+            .when(!(tiling.bottom || tiling.right), |container| {
+                container.rounded_br(CLIENT_SIDE_DECORATION_ROUNDING)
+            })
+            .when(!(tiling.bottom || tiling.left), |container| {
+                container.rounded_bl(CLIENT_SIDE_DECORATION_ROUNDING)
+            })
+            .when(!tiling.is_tiled(), |container| {
+                container.shadow(client_window_shadow())
+            }),
+    }
 }
 
 // TODO crates fix visibility of this function

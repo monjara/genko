@@ -1,6 +1,6 @@
 use gpui::{
-    Context, Decorations, InteractiveElement, IntoElement, ParentElement, Render, Styled, Window,
-    div, prelude::FluentBuilder, px, transparent_black,
+    Context, InteractiveElement, IntoElement, ParentElement, Render, Styled, Window, div,
+    prelude::FluentBuilder, px, transparent_black,
 };
 use menu::MenuActionHandler;
 use theme::APP_FONT_FAMILY;
@@ -36,22 +36,7 @@ impl Render for SoukouApp {
         div()
             .size_full()
             .bg(transparent_black())
-            .map(|this| match window.window_decorations() {
-                Decorations::Server => this,
-                Decorations::Client { tiling } => this
-                    .when(!tiling.top, |this| {
-                        this.pt(title_bar::CLIENT_SIDE_SHADOW_SIZE)
-                    })
-                    .when(!tiling.bottom, |this| {
-                        this.pb(title_bar::CLIENT_SIDE_SHADOW_SIZE)
-                    })
-                    .when(!tiling.left, |this| {
-                        this.pl(title_bar::CLIENT_SIDE_SHADOW_SIZE)
-                    })
-                    .when(!tiling.right, |this| {
-                        this.pr(title_bar::CLIENT_SIDE_SHADOW_SIZE)
-                    }),
-            })
+            .map(|this| title_bar::apply_client_side_shadow_padding(this, window))
             .child(
                 div()
                     .size_full()
@@ -61,25 +46,7 @@ impl Render for SoukouApp {
                     .flex_col()
                     .items_center()
                     .overflow_hidden()
-                    .map(|this| match window.window_decorations() {
-                        Decorations::Server => this,
-                        Decorations::Client { tiling } => this
-                            .when(!(tiling.top || tiling.right), |this| {
-                                this.rounded_tr(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-                            })
-                            .when(!(tiling.top || tiling.left), |this| {
-                                this.rounded_tl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-                            })
-                            .when(!(tiling.bottom || tiling.right), |this| {
-                                this.rounded_br(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-                            })
-                            .when(!(tiling.bottom || tiling.left), |this| {
-                                this.rounded_bl(title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-                            })
-                            .when(!tiling.is_tiled(), |this| {
-                                this.shadow(title_bar::client_window_shadow())
-                            }),
-                    })
+                    .map(|this| title_bar::apply_client_side_window_frame(this, window))
                     .can_drop(|value, _, _| value.is::<gpui::ExternalPaths>())
                     .on_drop(cx.listener(Self::drop_external_paths))
                     .on_action(cx.listener(Self::open_file_action))

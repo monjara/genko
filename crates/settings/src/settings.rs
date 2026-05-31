@@ -4,10 +4,10 @@ use std::{
 };
 
 use gpui::{
-    App, AppContext, Bounds, ClickEvent, Context, Decorations, Entity, FontWeight, Global,
-    InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Window, WindowBounds, WindowControlArea, WindowDecorations,
-    WindowOptions, div, prelude::FluentBuilder, px, size, transparent_black,
+    App, AppContext, Bounds, ClickEvent, Context, Entity, FontWeight, Global, InteractiveElement,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
+    WindowBounds, WindowControlArea, WindowDecorations, WindowOptions, div, prelude::FluentBuilder,
+    px, size, transparent_black,
 };
 use serde::{Deserialize, Serialize};
 use theme::{APP_FONT_FAMILY, Theme};
@@ -625,22 +625,7 @@ impl Render for SettingsWindow {
         div()
             .size_full()
             .bg(transparent_black())
-            .map(|this| match window.window_decorations() {
-                Decorations::Server => this,
-                Decorations::Client { tiling } => this
-                    .when(!tiling.top, |this| {
-                        this.pt(app_title_bar::CLIENT_SIDE_SHADOW_SIZE)
-                    })
-                    .when(!tiling.bottom, |this| {
-                        this.pb(app_title_bar::CLIENT_SIDE_SHADOW_SIZE)
-                    })
-                    .when(!tiling.left, |this| {
-                        this.pl(app_title_bar::CLIENT_SIDE_SHADOW_SIZE)
-                    })
-                    .when(!tiling.right, |this| {
-                        this.pr(app_title_bar::CLIENT_SIDE_SHADOW_SIZE)
-                    }),
-            })
+            .map(|this| app_title_bar::apply_client_side_shadow_padding(this, window))
             .child(
                 div()
                     .size_full()
@@ -650,25 +635,7 @@ impl Render for SettingsWindow {
                     .flex_col()
                     .text_color(Theme::global(cx).text_primary())
                     .overflow_hidden()
-                    .map(|this| match window.window_decorations() {
-                        Decorations::Server => this,
-                        Decorations::Client { tiling } => this
-                            .when(!(tiling.top || tiling.right), |this| {
-                                this.rounded_tr(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-                            })
-                            .when(!(tiling.top || tiling.left), |this| {
-                                this.rounded_tl(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-                            })
-                            .when(!(tiling.bottom || tiling.right), |this| {
-                                this.rounded_br(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-                            })
-                            .when(!(tiling.bottom || tiling.left), |this| {
-                                this.rounded_bl(app_title_bar::CLIENT_SIDE_DECORATION_ROUNDING)
-                            })
-                            .when(!tiling.is_tiled(), |this| {
-                                this.shadow(app_title_bar::client_window_shadow())
-                            }),
-                    })
+                    .map(|this| app_title_bar::apply_client_side_window_frame(this, window))
                     .child(
                         div()
                             .window_control_area(WindowControlArea::Drag)
