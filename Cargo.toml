@@ -6,6 +6,7 @@ members = [
   "crates/editor",
   "crates/env",
   "crates/icons",
+  "crates/menu",
   "crates/rope",
   "crates/settings",
   "crates/soukou",
@@ -41,6 +42,7 @@ bottom_bar = { path = "crates/bottom_bar" }
 editor = { path = "crates/editor" }
 env = { path = "crates/env" }
 icons = { path = "crates/icons" }
+menu = { path = "crates/menu" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 theme = { path = "crates/theme" }

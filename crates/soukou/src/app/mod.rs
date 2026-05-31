@@ -2,56 +2,27 @@ use crate::document::ActiveDocument;
 use bottom_bar::BottomBar;
 use editor::EditorController;
 use gpui::{App, Entity, Subscription};
-use semver::Version;
-use serde::Deserialize;
 use theme::Theme;
 use title_bar::TitleBar;
 use workspace::Workspace;
 
 mod active_modal;
 mod document_io;
-mod export_flow;
+mod menu_actions;
 mod render;
 mod state;
 mod unsupported_document;
-mod updates;
 
-pub(crate) const APP_NAME: &str = "草稿";
 pub(crate) const APP_ID: &str = "dev.monj.soukou";
 pub(crate) const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub(crate) const MAIN_WINDOW_WIDTH: f32 = 1200.0;
 pub(crate) const MAIN_WINDOW_HEIGHT: f32 = 800.0;
 
-const OPEN_PROMPT_LABEL: &str = "開く";
-const SETTINGS_MENU_LABEL: &str = "設定";
-const CHECK_FOR_UPDATES_MENU_LABEL: &str = "更新を確認";
-const QUIT_MENU_LABEL: &str = "終了";
-const FILE_MENU_LABEL: &str = "ファイル";
-const SAVE_MENU_LABEL: &str = "保存";
-const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
 const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
 const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
-const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
-const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
-const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
-const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
-const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
 const CURRENT_DIRECTORY_FALLBACK: &str = ".";
 const WINDOW_TITLE_SEPARATOR: &str = " - ";
-const RELEASES_LATEST_API_URL: &str = "https://api.github.com/repos/monjara/genko/releases/latest";
-
-#[derive(Deserialize)]
-struct GitHubRelease {
-    html_url: String,
-    tag_name: String,
-}
-
-struct AvailableUpdate {
-    current_version: Version,
-    latest_version: Version,
-    release_page_url: String,
-}
 
 pub(crate) struct SoukouApp {
     editor_controller: Entity<EditorController>,

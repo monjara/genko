@@ -3777,6 +3777,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "menu"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "reqwest 0.12.28",
+ "semver",
+ "serde",
+ "title_bar",
+ "ui",
+]
+
+[[package]]
 name = "metal"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5866,10 +5878,8 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "icons",
- "reqwest 0.12.28",
+ "menu",
  "rope",
- "semver",
- "serde",
  "settings",
  "theme",
  "title_bar",

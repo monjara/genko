@@ -23,14 +23,8 @@ env = { workspace = true }
 gpui = { workspace = true }
 gpui_platform = { workspace = true }
 icons = { workspace = true }
-reqwest = { version = "0.12", default-features = false, features = [
-  "blocking",
-  "json",
-  "rustls-tls"
-] }
+menu = { workspace = true }
 rope = { workspace = true }
-semver = { workspace = true }
-serde = { workspace = true }
 settings = { workspace = true }
 theme = { workspace = true }
 title_bar = { workspace = true }

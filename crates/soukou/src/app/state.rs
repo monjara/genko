@@ -4,21 +4,16 @@ use std::process::Command;
 use bottom_bar::BottomBar;
 use editor::{EditorController, VimCommandQuit, VimCommandWrite};
 use gpui::{App, AppContext, Context, ExternalPaths, FocusHandle, Focusable, KeyBinding, Window};
+use menu::{MenuActionHandler, OpenFile, OpenSettings, Quit, SaveFile};
 use settings::AppSettings;
-use title_bar::{TitleBar, TitleBarMenu};
-use ui::{MenuBarItem, MenuBarMenu};
+use title_bar::TitleBar;
 use workspace::{
     Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceState,
 };
 
 use crate::{
-    CheckForUpdates, DismissActiveModal, ExportTxt, OpenFile, OpenModalPrimary, OpenSettings, Quit,
-    SaveFile,
-    app::{
-        APP_NAME, AppModal, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_TXT_MENU_LABEL, FILE_MENU_LABEL,
-        OPEN_PROMPT_LABEL, QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL, SoukouApp,
-        WINDOW_TITLE_SEPARATOR,
-    },
+    DismissActiveModal, OpenModalPrimary,
+    app::{AppModal, SoukouApp, WINDOW_TITLE_SEPARATOR},
     document::{ActiveDocument, DocumentKind},
 };
 
@@ -104,7 +99,7 @@ impl SoukouApp {
             cx.subscribe(&workspace, |this, _workspace, event, cx| match event {
                 WorkspaceEvent::OpenPath(path) => this.open_workspace_path(path.clone(), cx),
             });
-        let title_bar = cx.new(|cx| TitleBar::new(APP_NAME, Self::title_bar_menus(), cx));
+        let title_bar = cx.new(|cx| TitleBar::new(menu::APP_NAME, menu::title_bar_menus(), cx));
         let bottom_bar = cx.new(BottomBar::new);
 
         Self {
@@ -118,46 +113,17 @@ impl SoukouApp {
         }
     }
 
-    fn title_bar_menus() -> Vec<TitleBarMenu> {
-        vec![
-            MenuBarMenu::new(
-                APP_NAME,
-                vec![
-                    MenuBarItem::new(SETTINGS_MENU_LABEL, |window, cx| {
-                        window.dispatch_action(Box::new(OpenSettings), cx);
-                    }),
-                    MenuBarItem::new(CHECK_FOR_UPDATES_MENU_LABEL, |window, cx| {
-                        window.dispatch_action(Box::new(CheckForUpdates), cx);
-                    }),
-                    MenuBarItem::new(QUIT_MENU_LABEL, |window, cx| {
-                        window.dispatch_action(Box::new(Quit), cx);
-                    }),
-                ],
-            ),
-            MenuBarMenu::new(
-                FILE_MENU_LABEL,
-                vec![
-                    MenuBarItem::new(OPEN_PROMPT_LABEL, |window, cx| {
-                        window.dispatch_action(Box::new(OpenFile), cx);
-                    }),
-                    MenuBarItem::new(SAVE_MENU_LABEL, |window, cx| {
-                        window.dispatch_action(Box::new(SaveFile), cx);
-                    }),
-                    MenuBarItem::new(EXPORT_TXT_MENU_LABEL, |window, cx| {
-                        window.dispatch_action(Box::new(ExportTxt), cx);
-                    }),
-                ],
-            ),
-        ]
-    }
-
     fn window_title(&self, _cx: &App) -> String {
         match WorkspaceState::global(_cx)
             .active_path()
             .or_else(|| self.active_document.path())
         {
-            Some(path) => format!("{APP_NAME}{WINDOW_TITLE_SEPARATOR}{}", path.display()),
-            _ => APP_NAME.to_string(),
+            Some(path) => format!(
+                "{}{WINDOW_TITLE_SEPARATOR}{}",
+                menu::APP_NAME,
+                path.display()
+            ),
+            _ => menu::APP_NAME.to_string(),
         }
     }
 
@@ -193,22 +159,13 @@ impl SoukouApp {
         }
     }
 
-    pub(super) fn open_file_action(
-        &mut self,
-        _: &OpenFile,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_file(window, cx);
-    }
-
     pub(super) fn open_workspace_action(
         &mut self,
         _: &OpenWorkspace,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.open_file(window, cx);
+        MenuActionHandler::open_file(self, window, cx);
     }
 
     pub(super) fn toggle_workspace_pane_action(
@@ -222,40 +179,13 @@ impl SoukouApp {
         cx.notify();
     }
 
-    pub(super) fn save_file_action(
-        &mut self,
-        _: &SaveFile,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.save_file(window, cx);
-    }
-
-    pub(super) fn export_txt_action(
-        &mut self,
-        _: &ExportTxt,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.export_txt_document(window, cx);
-    }
-
-    pub(super) fn check_for_updates_action(
-        &mut self,
-        _: &CheckForUpdates,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.check_for_updates(window, cx);
-    }
-
     pub(super) fn vim_command_write_action(
         &mut self,
         _: &VimCommandWrite,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.save_file(window, cx);
+        MenuActionHandler::save_file(self, window, cx);
     }
 
     pub(super) fn vim_command_quit_action(

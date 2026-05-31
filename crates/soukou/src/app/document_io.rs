@@ -1,13 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use gpui::{AppContext, Context, ExternalPaths, PathPromptOptions, Window};
+use gpui::{AppContext, Context, ExternalPaths, Window};
 use workspace::{WorkspaceState, scan_workspace_entries};
 
 use crate::{
-    app::{
-        CURRENT_DIRECTORY_FALLBACK, FILE_OPEN_ERROR_TITLE, FILE_PICKER_ERROR_TITLE,
-        FILE_SAVE_ERROR_TITLE, OPEN_PROMPT_LABEL, SAVE_PATH_PICKER_ERROR_TITLE, SoukouApp,
-    },
+    app::{FILE_OPEN_ERROR_TITLE, FILE_SAVE_ERROR_TITLE, SoukouApp},
     document::DocumentKind,
 };
 
@@ -55,7 +52,7 @@ impl SoukouApp {
         cx.notify();
     }
 
-    fn save_document_to_path(
+    pub(super) fn save_document_to_path(
         &mut self,
         path: PathBuf,
         contents: String,
@@ -172,40 +169,12 @@ impl SoukouApp {
         }
     }
 
-    pub(super) fn open_file(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let picker = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: true,
-            multiple: false,
-            prompt: Some(OPEN_PROMPT_LABEL.into()),
-        });
-
-        cx.spawn(async move |this, cx| {
-            let Ok(result) = picker.await else {
-                return;
-            };
-
-            let Some(path) = (match result {
-                Ok(Some(mut paths)) => paths.pop(),
-                Ok(None) => None,
-                Err(error) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.show_error_modal(FILE_PICKER_ERROR_TITLE, error.to_string(), cx);
-                    });
-                    None
-                }
-            }) else {
-                return;
-            };
-            let _ = this.update(cx, |this, cx| {
-                if path.is_dir() {
-                    this.open_directory_path(path, cx);
-                } else {
-                    this.open_document_path(path, false, cx);
-                }
-            });
-        })
-        .detach();
+    pub(super) fn open_menu_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if path.is_dir() {
+            self.open_directory_path(path, cx);
+        } else {
+            self.open_document_path(path, false, cx);
+        }
     }
 
     pub(super) fn open_dropped_paths(
@@ -229,60 +198,5 @@ impl SoukouApp {
         } else {
             self.open_document_path(path, true, cx);
         }
-    }
-
-    pub(super) fn save_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if WorkspaceState::global(cx).unsupported_file().is_some() {
-            self.show_error_modal(
-                FILE_SAVE_ERROR_TITLE,
-                "サポートしていないファイルは保存できません".to_string(),
-                cx,
-            );
-            return;
-        }
-
-        let window_handle = window.window_handle();
-        let contents = match self.current_document_kind(cx) {
-            DocumentKind::PlainText => self.editor_controller.read(cx).snapshot_text(cx),
-        };
-
-        if let Some(path) = self.active_document.path().map(Path::to_path_buf) {
-            self.save_document_to_path(path, contents, window_handle, cx);
-            return;
-        }
-
-        let initial_directory = WorkspaceState::global(cx)
-            .suggested_save_directory()
-            .map(Path::to_path_buf)
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from(CURRENT_DIRECTORY_FALLBACK));
-        let suggested_name = WorkspaceState::global(cx)
-            .suggested_file_name()
-            .unwrap_or(self.current_document_kind(cx).default_file_name())
-            .to_string();
-        let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
-
-        cx.spawn(async move |this, cx| {
-            let Ok(result) = receiver.await else {
-                return;
-            };
-
-            let Some(path) = (match result {
-                Ok(path) => path,
-                Err(error) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.show_error_modal(SAVE_PATH_PICKER_ERROR_TITLE, error.to_string(), cx);
-                    });
-                    None
-                }
-            }) else {
-                return;
-            };
-
-            let _ = this.update(cx, |this, cx| {
-                this.save_document_to_path(path, contents, window_handle, cx);
-            });
-        })
-        .detach();
     }
 }

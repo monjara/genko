@@ -2,6 +2,7 @@ use gpui::{
     Context, Decorations, InteractiveElement, IntoElement, ParentElement, Render, Styled, Window,
     div, prelude::FluentBuilder, px, transparent_black,
 };
+use menu::MenuActionHandler;
 use theme::APP_FONT_FAMILY;
 use theme::Theme;
 use workspace::WorkspaceState;

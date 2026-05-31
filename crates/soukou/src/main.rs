@@ -1,28 +1,16 @@
 mod app;
 mod document;
 mod font;
-mod menu;
 
 use app::{APP_ID, MAIN_WINDOW_HEIGHT, MAIN_WINDOW_WIDTH, SoukouApp};
 use gpui::{
     App, AppContext, Bounds, Focusable, WindowBounds, WindowDecorations, WindowOptions, actions,
     px, size,
 };
+use menu::{OpenSettings, Quit};
 use settings::open_settings_window;
 
-actions!(
-    soukou,
-    [
-        OpenSettings,
-        CheckForUpdates,
-        OpenFile,
-        SaveFile,
-        ExportTxt,
-        DismissActiveModal,
-        OpenModalPrimary,
-        Quit
-    ]
-);
+actions!(soukou, [DismissActiveModal, OpenModalPrimary]);
 
 fn main() {
     if env::development_mode() {
