@@ -3,10 +3,7 @@ use std::process::Command;
 
 use bottom_bar::BottomBar;
 use editor::{EditorController, VimCommandQuit, VimCommandWrite};
-use gpui::{
-    App, AppContext, Context, ExternalPaths, FocusHandle, Focusable, KeyBinding, MouseDownEvent,
-    Window,
-};
+use gpui::{App, AppContext, Context, ExternalPaths, FocusHandle, Focusable, KeyBinding, Window};
 use settings::AppSettings;
 use title_bar::{TitleBar, TitleBarMenu};
 use ui::{MenuBarItem, MenuBarMenu};
@@ -15,7 +12,8 @@ use workspace::{
 };
 
 use crate::{
-    CheckForUpdates, ExportTxt, OpenFile, OpenSettings, Quit, SaveFile,
+    CheckForUpdates, DismissActiveModal, ExportTxt, OpenFile, OpenModalPrimary, OpenSettings, Quit,
+    SaveFile,
     app::{
         APP_NAME, AppModal, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_TXT_MENU_LABEL, FILE_MENU_LABEL,
         OPEN_PROMPT_LABEL, QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL, SoukouApp,
@@ -167,9 +165,9 @@ impl SoukouApp {
         window.set_window_title(&self.window_title(cx));
     }
 
-    pub(super) fn dismiss_active_modal(
+    pub(super) fn dismiss_active_modal_action(
         &mut self,
-        _: &MouseDownEvent,
+        _: &DismissActiveModal,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -179,7 +177,7 @@ impl SoukouApp {
 
     pub(super) fn open_modal_primary_action(
         &mut self,
-        _: &MouseDownEvent,
+        _: &OpenModalPrimary,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

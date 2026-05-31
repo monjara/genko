@@ -18,6 +18,8 @@ actions!(
         OpenFile,
         SaveFile,
         ExportTxt,
+        DismissActiveModal,
+        OpenModalPrimary,
         Quit
     ]
 );

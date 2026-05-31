@@ -4,11 +4,14 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, Global, InteractiveElement, IntoElement,
-    ParentElement, Render, StatefulInteractiveElement, Styled, Window, actions, div,
-    prelude::FluentBuilder, px, svg,
+    App, Context, EventEmitter, Global, InteractiveElement, IntoElement, ParentElement, Render,
+    StatefulInteractiveElement, Styled, Window, actions, div, prelude::FluentBuilder, px, svg,
 };
 use theme::Theme;
+
+mod workspace_entry_row;
+
+use workspace_entry_row::WorkspaceEntryRow;
 
 actions!(workspace, [ToggleWorkspacePane, OpenWorkspace]);
 
@@ -198,46 +201,6 @@ impl Workspace {
     ) {
         self.toggle_pane(cx);
     }
-
-    fn render_entry(
-        &self,
-        entry: &WorkspaceEntry,
-        workspace: Entity<Self>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let path = entry.path().to_path_buf();
-        let is_active = WorkspaceState::global(cx).active_path() == Some(path.as_path());
-        let label = entry.name().to_string();
-        let entry_id = format!("workspace-entry-{}", path.display());
-
-        div()
-            .id(entry_id)
-            .w_full()
-            .h(px(28.0))
-            .pl_3()
-            .pr_3()
-            .flex()
-            .items_center()
-            .rounded_sm()
-            .bg(if is_active {
-                Theme::global(cx).primary()
-            } else {
-                Theme::global(cx).bg_senodary()
-            })
-            .text_color(if is_active {
-                Theme::global(cx).white()
-            } else {
-                Theme::global(cx).text_primary()
-            })
-            .cursor_pointer()
-            .child(label)
-            .on_click(move |_, _, cx| {
-                workspace.update(cx, |_, cx| {
-                    cx.emit(Event::OpenPath(path.clone()));
-                });
-            })
-            .into_any_element()
-    }
 }
 
 impl EventEmitter<Event> for Workspace {}
@@ -256,7 +219,7 @@ impl Render for Workspace {
         let entry_count = entries.len();
         let entry_elements = entries
             .iter()
-            .map(|entry| self.render_entry(entry, workspace.clone(), cx))
+            .map(|entry| WorkspaceEntryRow::new(entry, workspace.clone(), cx).into_any_element())
             .collect::<Vec<_>>();
 
         div()

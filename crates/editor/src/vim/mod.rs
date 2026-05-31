@@ -5,8 +5,7 @@ use crate::editor::motions::MotionRangeBehavior;
 use crate::editor::{AppliedEditBatch, Editor};
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Window,
-    actions, div,
+    InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Window, actions, div,
 };
 use rope::BLANK_CELL;
 use settings::AppSettings;
@@ -17,6 +16,7 @@ pub(crate) mod state;
 #[cfg(test)]
 mod tests;
 pub(crate) mod text_objects;
+mod vim_mode_label;
 
 use block::{
     block_byte_ranges_from_cursor, block_insert_target_cells,
@@ -31,7 +31,7 @@ use state::{
 use text_objects::resolve_repeat_target_range;
 
 pub use state::{VimMode, VimState};
-use theme::Theme;
+pub use vim_mode_label::VimModeLabel;
 
 use self::state::operator_key_context;
 
@@ -1907,39 +1907,5 @@ impl Render for VimController {
 impl Focusable for VimController {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.editor.focus_handle(cx)
-    }
-}
-
-pub struct VimModeLabel {}
-
-impl VimModeLabel {
-    pub fn new(_cx: &mut Context<Self>) -> Self {
-        Self {}
-    }
-
-    fn mode_label(&self, _window: &mut Window, cx: &mut Context<Self>) -> String {
-        if let Some(command_line) = VimState::global(cx).command_line.as_ref() {
-            return format!(":{}", command_line);
-        }
-
-        match VimState::global(cx).mode {
-            VimMode::Normal => "-- NORMAL --".to_string(),
-            VimMode::Insert => "-- INSERT --".to_string(),
-            VimMode::Visual => "-- VISUAL --".to_string(),
-            VimMode::VisualBlock => "-- VISUAL BLOCK --".to_string(),
-            VimMode::Command => ":".to_string(),
-        }
-    }
-}
-
-impl Render for VimModeLabel {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .right_auto()
-            .py_1()
-            .text_color(Theme::global(cx).black())
-            .border_1()
-            .rounded_sm()
-            .child(self.mode_label(window, cx))
     }
 }

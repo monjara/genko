@@ -8,10 +8,12 @@ use theme::Theme;
 use title_bar::TitleBar;
 use workspace::Workspace;
 
+mod active_modal;
 mod document_io;
 mod export_flow;
 mod render;
 mod state;
+mod unsupported_document;
 mod updates;
 
 pub(crate) const APP_NAME: &str = "草稿";

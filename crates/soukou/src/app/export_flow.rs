@@ -7,7 +7,7 @@ use crate::app::{
 };
 
 impl SoukouApp {
-    pub(super) fn export_txt_document(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn export_txt_document(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let base_name = self
             .active_document
             .path()
@@ -23,7 +23,6 @@ impl SoukouApp {
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from(CURRENT_DIRECTORY_FALLBACK));
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
-        let _window_handle = window.window_handle();
         let contents = self.editor_controller.read(cx).snapshot_text(cx);
         let this = cx.entity().downgrade();
 
