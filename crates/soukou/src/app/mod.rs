@@ -38,18 +38,6 @@ const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
 const CURRENT_DIRECTORY_FALLBACK: &str = ".";
 const WINDOW_TITLE_SEPARATOR: &str = " - ";
 const RELEASES_LATEST_API_URL: &str = "https://api.github.com/repos/monjara/genko/releases/latest";
-const MODAL_ERROR_ICON_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/icons/modal_error.svg"
-);
-const MODAL_INFO_ICON_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/icons/modal_info.svg"
-);
-const MODAL_UPDATE_ICON_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/icons/modal_update.svg"
-);
 
 #[derive(Deserialize)]
 struct GitHubRelease {

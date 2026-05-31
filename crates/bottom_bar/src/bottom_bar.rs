@@ -8,10 +8,6 @@ use theme::Theme;
 use workspace::{ToggleWorkspacePane, WorkspaceState};
 
 const SIDE_SLOT_WIDTH: f32 = 160.0;
-const PANEL_LEFT_OPEN_ICON_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/icons/panel_left_open.svg"
-);
 
 pub struct BottomBar {
     vim_mode_status: Entity<VimModeLabel>,
@@ -70,7 +66,7 @@ impl Render for BottomBar {
                                     .hover(|style| style.bg(Theme::global(cx).white()))
                                     .child(
                                         svg()
-                                            .external_path(PANEL_LEFT_OPEN_ICON_PATH)
+                                            .external_path(icons::PANEL_LEFT_OPEN)
                                             .size_5()
                                             .text_color(workspace_icon_color),
                                     )

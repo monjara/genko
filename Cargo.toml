@@ -5,6 +5,7 @@ members = [
   "crates/bottom_bar",
   "crates/editor",
   "crates/env",
+  "crates/icons",
   "crates/rope",
   "crates/settings",
   "crates/soukou",
@@ -39,6 +40,7 @@ xmlwriter = "0.1"
 bottom_bar = { path = "crates/bottom_bar" }
 editor = { path = "crates/editor" }
 env = { path = "crates/env" }
+icons = { path = "crates/icons" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 theme = { path = "crates/theme" }

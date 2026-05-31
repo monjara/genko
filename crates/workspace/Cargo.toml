@@ -10,4 +10,5 @@ path = "src/workspace.rs"
 
 [dependencies]
 gpui = { workspace = true }
+icons = { workspace = true }
 theme = { workspace = true }

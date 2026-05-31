@@ -7,10 +7,7 @@ use theme::APP_FONT_FAMILY;
 use theme::Theme;
 use workspace::WorkspaceState;
 
-use crate::app::{
-    AppModal, MODAL_ERROR_ICON_PATH, MODAL_INFO_ICON_PATH, MODAL_UPDATE_ICON_PATH, SoukouApp,
-    UPDATE_AVAILABLE_TITLE, mix, toolbar_border_color,
-};
+use crate::app::{AppModal, SoukouApp, UPDATE_AVAILABLE_TITLE, mix, toolbar_border_color};
 
 impl SoukouApp {
     fn render_unsupported_document(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -43,7 +40,7 @@ impl SoukouApp {
         let accent = mix(Theme::global(cx).primary(), Theme::global(cx).white(), 0.84);
         let (icon_path, title, subtitle, detail, secondary_label, primary_label) = match &modal {
             AppModal::Error { title, detail } => (
-                MODAL_ERROR_ICON_PATH,
+                icons::MODAL_ERROR,
                 title.clone(),
                 "操作を完了できませんでした。".to_string(),
                 detail.clone(),
@@ -51,7 +48,7 @@ impl SoukouApp {
                 Some("閉じる".to_string()),
             ),
             AppModal::Info { title, detail } => (
-                MODAL_INFO_ICON_PATH,
+                icons::MODAL_INFO,
                 title.clone(),
                 String::new(),
                 detail.clone(),
@@ -63,7 +60,7 @@ impl SoukouApp {
                 latest_version,
                 ..
             } => (
-                MODAL_UPDATE_ICON_PATH,
+                icons::MODAL_UPDATE,
                 UPDATE_AVAILABLE_TITLE.to_string(),
                 "ダウンロードページを開いて更新できます。".to_string(),
                 format!(

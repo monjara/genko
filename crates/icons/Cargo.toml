@@ -1,0 +1,11 @@
+[package]
+name = "icons"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "icons"
+path = "src/icons.rs"
+
+[dependencies]

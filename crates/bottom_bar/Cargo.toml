@@ -11,6 +11,7 @@ path = "src/bottom_bar.rs"
 [dependencies]
 editor = { workspace = true }
 gpui = { workspace = true }
+icons = { workspace = true }
 settings = { workspace = true }
 theme = { workspace = true }
 title_bar = { workspace = true }

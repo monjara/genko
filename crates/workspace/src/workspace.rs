@@ -17,11 +17,6 @@ pub const MIN_WORKSPACE_PANE_WIDTH: f32 = 180.0;
 pub const MAX_WORKSPACE_PANE_WIDTH: f32 = 520.0;
 pub const COLLAPSED_WORKSPACE_RAIL_WIDTH: f32 = 36.0;
 
-const FOLDER_OPEN_ICON_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/icons/folder_open.svg"
-);
-
 #[derive(Clone, Debug)]
 pub enum Event {
     OpenPath(PathBuf),
@@ -301,7 +296,7 @@ impl Render for Workspace {
                                 .hover(|style| style.bg(Theme::global(cx).white()))
                                 .child(
                                     svg()
-                                        .external_path(FOLDER_OPEN_ICON_PATH)
+                                        .external_path(icons::FOLDER_OPEN)
                                         .size_5()
                                         .text_color(Theme::global(cx).primary()),
                                 )
