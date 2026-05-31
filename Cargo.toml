@@ -3,10 +3,8 @@ resolver = "3"
 members = [
   ".",
   "crates/bottom_bar",
-  "crates/document_export",
   "crates/editor",
   "crates/env",
-  "crates/richtext",
   "crates/rope",
   "crates/settings",
   "crates/soukou",
@@ -39,10 +37,8 @@ xdg = "3.0.0"
 xmlwriter = "0.1"
 
 bottom_bar = { path = "crates/bottom_bar" }
-document_export = { path = "crates/document_export" }
 editor = { path = "crates/editor" }
 env = { path = "crates/env" }
-richtext = { path = "crates/richtext" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 theme = { path = "crates/theme" }

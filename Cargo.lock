@@ -1513,15 +1513,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "document_export"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
- "richtext",
- "xmlwriter",
-]
-
-[[package]]
 name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1579,7 +1570,6 @@ dependencies = [
  "env",
  "gpui",
  "lindera",
- "richtext",
  "rope",
  "settings",
  "theme",
@@ -5159,15 +5149,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "richtext"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5869,10 +5850,9 @@ dependencies = [
 
 [[package]]
 name = "soukou"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bottom_bar",
- "document_export",
  "dotenvy",
  "editor",
  "embed-resource",
@@ -5880,7 +5860,6 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "reqwest 0.12.28",
- "richtext",
  "rope",
  "semver",
  "serde",

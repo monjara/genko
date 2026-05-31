@@ -2,10 +2,7 @@
 use std::process::Command;
 
 use bottom_bar::BottomBar;
-use editor::{
-    EditorController, RequestProForRichText, ToggleBold, ToggleStrikethrough, VimCommandQuit,
-    VimCommandWrite,
-};
+use editor::{EditorController, VimCommandQuit, VimCommandWrite};
 use gpui::{
     App, AppContext, Context, ExternalPaths, FocusHandle, Focusable, KeyBinding, MouseDownEvent,
     Window,
@@ -15,13 +12,13 @@ use title_bar::{TitleBar, TitleBarMenu};
 use ui::{MenuBarItem, MenuBarMenu};
 
 use crate::{
-    CheckForUpdates, ExportEpub, ExportTxt, ExportWord, OpenFile, OpenSettings, Quit, SaveFile,
+    CheckForUpdates, ExportTxt, OpenFile, OpenSettings, Quit, SaveFile,
     app::{
-        APP_NAME, AppModal, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_EPUB_MENU_LABEL,
-        EXPORT_TXT_MENU_LABEL, EXPORT_WORD_MENU_LABEL, FILE_MENU_LABEL, OPEN_PROMPT_LABEL,
-        QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL, SoukouApp, WINDOW_TITLE_SEPARATOR,
+        APP_NAME, AppModal, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_TXT_MENU_LABEL, FILE_MENU_LABEL,
+        OPEN_PROMPT_LABEL, QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL, SoukouApp,
+        WINDOW_TITLE_SEPARATOR,
     },
-    document::{ActiveDocument, DocumentKind, ExportFormat},
+    document::{ActiveDocument, DocumentKind},
 };
 
 impl SoukouApp {
@@ -81,16 +78,10 @@ impl SoukouApp {
         let quit_mac = AppSettings::global(cx).keymap_keystroke("app.quit.mac");
         let open_file_mac = AppSettings::global(cx).keymap_keystroke("app.open_file.mac");
         let save_file_mac = AppSettings::global(cx).keymap_keystroke("app.save_file.mac");
-        let toggle_bold_mac = AppSettings::global(cx).keymap_keystroke("app.toggle_bold.mac");
-        let toggle_strikethrough_mac =
-            AppSettings::global(cx).keymap_keystroke("app.toggle_strikethrough.mac");
 
         let open_settings_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_settings.ctrl");
         let open_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_file.ctrl");
         let save_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.save_file.ctrl");
-        let toggle_bold_ctrl = AppSettings::global(cx).keymap_keystroke("app.toggle_bold.ctrl");
-        let toggle_strikethrough_ctrl =
-            AppSettings::global(cx).keymap_keystroke("app.toggle_strikethrough.ctrl");
 
         cx.bind_keys([
             KeyBinding::new(quit_mac.as_ref(), Quit, None),
@@ -99,14 +90,6 @@ impl SoukouApp {
             KeyBinding::new(open_file_ctrl.as_ref(), OpenFile, None),
             KeyBinding::new(save_file_mac.as_ref(), SaveFile, None),
             KeyBinding::new(save_file_ctrl.as_ref(), SaveFile, None),
-            KeyBinding::new(toggle_bold_mac.as_ref(), ToggleBold, None),
-            KeyBinding::new(toggle_bold_ctrl.as_ref(), ToggleBold, None),
-            KeyBinding::new(toggle_strikethrough_mac.as_ref(), ToggleStrikethrough, None),
-            KeyBinding::new(
-                toggle_strikethrough_ctrl.as_ref(),
-                ToggleStrikethrough,
-                None,
-            ),
         ]);
 
         let editor_controller = cx.new(EditorController::new);
@@ -117,7 +100,6 @@ impl SoukouApp {
             editor_controller,
             active_document: ActiveDocument::default(),
             active_modal: None,
-            epub_metadata_form: None,
             title_bar,
             bottom_bar,
         }
@@ -150,12 +132,6 @@ impl SoukouApp {
                     }),
                     MenuBarItem::new(EXPORT_TXT_MENU_LABEL, |window, cx| {
                         window.dispatch_action(Box::new(ExportTxt), cx);
-                    }),
-                    MenuBarItem::new(EXPORT_WORD_MENU_LABEL, |window, cx| {
-                        window.dispatch_action(Box::new(ExportWord), cx);
-                    }),
-                    MenuBarItem::new(EXPORT_EPUB_MENU_LABEL, |window, cx| {
-                        window.dispatch_action(Box::new(ExportEpub), cx);
                     }),
                 ],
             ),
@@ -228,24 +204,6 @@ impl SoukouApp {
         self.export_txt_document(window, cx);
     }
 
-    pub(super) fn export_word_action(
-        &mut self,
-        _: &ExportWord,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.export_document(ExportFormat::Word, window, cx);
-    }
-
-    pub(super) fn export_epub_action(
-        &mut self,
-        _: &ExportEpub,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.export_document(ExportFormat::Epub, window, cx);
-    }
-
     pub(super) fn check_for_updates_action(
         &mut self,
         _: &CheckForUpdates,
@@ -282,24 +240,8 @@ impl SoukouApp {
         self.open_dropped_paths(paths, window, cx);
     }
 
-    pub(super) fn request_pro_for_richtext_action(
-        &mut self,
-        _: &RequestProForRichText,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) {
-    }
-
-    pub(super) fn current_document_is_richtext(&self, cx: &App) -> bool {
-        self.editor_controller.read(cx).has_richtext_document(cx)
-    }
-
-    pub(super) fn current_document_kind(&self, cx: &App) -> DocumentKind {
-        if self.current_document_is_richtext(cx) {
-            DocumentKind::RichText
-        } else {
-            DocumentKind::PlainText
-        }
+    pub(super) fn current_document_kind(&self, _cx: &App) -> DocumentKind {
+        DocumentKind::PlainText
     }
 }
 

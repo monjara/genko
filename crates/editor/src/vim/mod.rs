@@ -2,16 +2,12 @@ use std::ops::Range;
 
 use crate::editor::command_types::{MotionKind, PastePosition, TextObjectTarget};
 use crate::editor::motions::MotionRangeBehavior;
-use crate::editor::{
-    AppliedEditBatch, ClearHeading, Editor, SetHeadingLarge, SetHeadingMedium, ToggleBold,
-    ToggleStrikethrough,
-};
+use crate::editor::{AppliedEditBatch, Editor};
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Window,
     actions, div,
 };
-use richtext::{EpubMetadata, RichDocument};
 use rope::BLANK_CELL;
 use settings::AppSettings;
 
@@ -145,33 +141,6 @@ impl VimController {
 
     pub fn selection_bounds(&self, cx: &App) -> Option<Bounds<Pixels>> {
         self.editor.read(cx).selection_bounds()
-    }
-
-    pub fn load_rich_document(&mut self, document: RichDocument, cx: &mut Context<Self>) {
-        self.editor
-            .update(cx, |editor, cx| editor.load_rich_document(document, cx));
-    }
-
-    pub fn has_richtext_document(&self, cx: &App) -> bool {
-        self.editor.read(cx).has_richtext_document()
-    }
-
-    pub fn richtext_document(&mut self, cx: &mut Context<Self>) -> Option<RichDocument> {
-        self.editor.update(cx, |editor, _cx| editor.richtext_document())
-    }
-
-    pub fn current_epub_metadata(&mut self, cx: &mut Context<Self>) -> Option<EpubMetadata> {
-        self.editor
-            .update(cx, |editor, _cx| editor.current_epub_metadata())
-    }
-
-    pub fn first_heading_title(&mut self, cx: &mut Context<Self>) -> Option<String> {
-        self.editor.update(cx, |editor, _cx| editor.first_heading_title())
-    }
-
-    pub fn set_epub_metadata(&mut self, metadata: EpubMetadata, cx: &mut Context<Self>) {
-        self.editor
-            .update(cx, |editor, _cx| editor.set_epub_metadata(metadata));
     }
 
     pub fn update_viewport_size(&mut self, size: gpui::Size<gpui::Pixels>, cx: &mut Context<Self>) {
@@ -1850,45 +1819,6 @@ impl VimController {
         }
     }
 
-    fn toggle_bold(&mut self, _: &ToggleBold, window: &mut Window, cx: &mut Context<Self>) {
-        self.editor
-            .update(cx, |editor, cx| editor.toggle_bold_action(window, cx));
-    }
-
-    fn toggle_strikethrough(
-        &mut self,
-        _: &ToggleStrikethrough,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.editor
-            .update(cx, |editor, cx| editor.toggle_strikethrough_action(window, cx));
-    }
-
-    fn set_heading_large(
-        &mut self,
-        _: &SetHeadingLarge,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.editor
-            .update(cx, |editor, cx| editor.set_heading_large_action(window, cx));
-    }
-
-    fn set_heading_medium(
-        &mut self,
-        _: &SetHeadingMedium,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.editor
-            .update(cx, |editor, cx| editor.set_heading_medium_action(window, cx));
-    }
-
-    fn clear_heading(&mut self, _: &ClearHeading, window: &mut Window, cx: &mut Context<Self>) {
-        self.editor
-            .update(cx, |editor, cx| editor.clear_heading_action(window, cx));
-    }
 }
 
 fn parse_command_action(command_line: &str) -> Option<CommandAction> {
@@ -1971,11 +1901,6 @@ impl Render for VimController {
             .on_action(cx.listener(Self::vim_undo))
             .on_action(cx.listener(Self::vim_redo))
             .on_action(cx.listener(Self::vim_repeat_last_change))
-            .on_action(cx.listener(Self::toggle_bold))
-            .on_action(cx.listener(Self::toggle_strikethrough))
-            .on_action(cx.listener(Self::set_heading_large))
-            .on_action(cx.listener(Self::set_heading_medium))
-            .on_action(cx.listener(Self::clear_heading))
             .child(self.editor.clone())
     }
 }

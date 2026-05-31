@@ -1,8 +1,6 @@
 use gpui::{App, Menu, MenuItem};
 
-use crate::{
-    CheckForUpdates, ExportEpub, ExportTxt, ExportWord, OpenFile, OpenSettings, Quit, SaveFile,
-};
+use crate::{CheckForUpdates, ExportTxt, OpenFile, OpenSettings, Quit, SaveFile};
 
 const APP_NAME: &str = "草稿";
 const OPEN_PROMPT_LABEL: &str = "開く";
@@ -12,8 +10,6 @@ const QUIT_MENU_LABEL: &str = "終了";
 const FILE_MENU_LABEL: &str = "ファイル";
 const SAVE_MENU_LABEL: &str = "保存";
 const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
-const EXPORT_WORD_MENU_LABEL: &str = "Wordエクスポート";
-const EXPORT_EPUB_MENU_LABEL: &str = "EPUBエクスポート";
 
 pub(crate) fn init(cx: &mut App) {
     cx.set_menus(vec![
@@ -35,8 +31,6 @@ pub(crate) fn init(cx: &mut App) {
                 MenuItem::action(SAVE_MENU_LABEL, SaveFile),
                 MenuItem::separator(),
                 MenuItem::action(EXPORT_TXT_MENU_LABEL, ExportTxt),
-                MenuItem::action(EXPORT_WORD_MENU_LABEL, ExportWord),
-                MenuItem::action(EXPORT_EPUB_MENU_LABEL, ExportEpub),
             ],
         },
     ])

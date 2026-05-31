@@ -7,15 +7,14 @@ use gpui::{
     GlobalElementId, IntoElement, LayoutId, Path, PathBuilder, Pixels, Style, TextAlign, TextRun,
     Window, fill, point, px, size,
 };
-use richtext::{BlockKind, InlineStyle, ResolvedBlock};
 use rope::CellText;
 use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, Theme};
 
+use crate::editor::Editor;
 use crate::editor::layout::{
     cell_bounds_for_logical_index, column_number_header_height, row_column_for_logical_index,
 };
-use crate::editor::{Editor, RichTextDecorations};
 
 use crate::perf::{PerfScope, log_paste_perf, paste_perf_enabled};
 
@@ -29,7 +28,6 @@ enum CellPaintKind {
 
 struct PaintState {
     visible_text: std::sync::Arc<[CellText]>,
-    richtext_decorations: RichTextDecorations,
     selected_range: Range<usize>,
     marked_range: Option<Range<usize>>,
     block_selection: Option<crate::editor::BlockSelection>,
@@ -46,7 +44,7 @@ struct PaintState {
 #[derive(Clone, Copy)]
 struct PreparedCellPaint {
     bounds: Option<Bounds<Pixels>>,
-    rich_style: CellRichStyle,
+    text_style: CellTextStyle,
 }
 
 #[derive(Clone)]
@@ -168,7 +166,6 @@ impl Element for EditorCanvas {
         let show_grid = AppSettings::global(cx).show_grid_lines;
         let paint_state = self.editor.update(cx, |editor, _cx| PaintState {
             visible_text: editor.visible_text(),
-            richtext_decorations: editor.richtext_decorations.clone(),
             selected_range: editor.selected_range.clone(),
             marked_range: editor.marked_range.clone(),
             block_selection: editor.block_selection,
@@ -183,7 +180,6 @@ impl Element for EditorCanvas {
         });
         let PaintState {
             visible_text,
-            richtext_decorations,
             selected_range,
             marked_range,
             block_selection,
@@ -198,7 +194,6 @@ impl Element for EditorCanvas {
         } = paint_state;
         let prepared_cells = prepare_cell_paint_data(
             &visible_text,
-            &richtext_decorations,
             content_bounds,
             scroll_column,
             scroll_row,
@@ -574,7 +569,7 @@ fn paint_text(
                 cell_text,
                 cell_bounds,
                 cell_bounds.size.width.as_f32(),
-                prepared.rich_style,
+                prepared.text_style,
                 window,
                 cx,
             ),
@@ -595,12 +590,12 @@ fn paint_cell_text(
     cell_text: &CellText,
     cell_bounds: Bounds<Pixels>,
     cell_size: f32,
-    rich_style: CellRichStyle,
+    text_style: CellTextStyle,
     window: &mut Window,
     cx: &mut App,
 ) {
     let style = window.text_style();
-    let font_size = px((cell_size * rich_style.font_scale()).round());
+    let font_size = px((cell_size * text_style.font_scale()).round());
     let line_height = px((cell_size * 0.86).round());
     let line = shape_text(
         window,
@@ -609,8 +604,8 @@ fn paint_cell_text(
         text_run(
             &cell_text.text,
             vertical_text_font(style.font()),
-            rich_style.color(cx),
-            rich_style,
+            text_style.color(cx),
+            text_style,
             cx,
         ),
     );
@@ -646,7 +641,7 @@ fn paint_strikethrough_overlay(
             continue;
         };
 
-        if !prepared.rich_style.strikethrough {
+        if !prepared.text_style.strikethrough {
             flush_strike_segment(&mut current_segment, window, cx);
             continue;
         }
@@ -665,7 +660,7 @@ fn paint_strikethrough_overlay(
             Some(segment)
                 if segment.column == column
                     && segment.last_row + 1 == row
-                    && segment.style == prepared.rich_style =>
+                    && segment.style == prepared.text_style =>
             {
                 segment.last_row = row;
                 segment.end_bounds = cell_bounds;
@@ -676,7 +671,7 @@ fn paint_strikethrough_overlay(
                     column,
                     first_row: row,
                     last_row: row,
-                    style: prepared.rich_style,
+                    style: prepared.text_style,
                     start_bounds: cell_bounds,
                     end_bounds: cell_bounds,
                 });
@@ -689,7 +684,6 @@ fn paint_strikethrough_overlay(
 
 fn prepare_cell_paint_data(
     visible_text: &[CellText],
-    richtext_decorations: &RichTextDecorations,
     bounds: Bounds<Pixels>,
     scroll_column: usize,
     first_visible_row: usize,
@@ -715,7 +709,7 @@ fn prepare_cell_paint_data(
                 cell_size,
                 ruby_gutter_size,
             ),
-            rich_style: rich_style_for_range(richtext_decorations, &cell_text.range),
+            text_style: CellTextStyle::default(),
         })
         .collect();
     if let Some(start) = perf_start {
@@ -723,12 +717,10 @@ fn prepare_cell_paint_data(
             "prepare_cell_paint_data",
             || {
                 format!(
-                    "cells={} cols={} rows={} inline_marks={} blocks={} cell_size={:.1}",
+                    "cells={} cols={} rows={} cell_size={:.1}",
                     prepared.len(),
                     visible_columns,
                     visible_rows,
-                    richtext_decorations.inline_marks.len(),
-                    richtext_decorations.blocks.len(),
                     cell_size
                 )
             },
@@ -743,7 +735,7 @@ struct StrikeSegment {
     column: usize,
     first_row: usize,
     last_row: usize,
-    style: CellRichStyle,
+    style: CellTextStyle,
     start_bounds: Bounds<Pixels>,
     end_bounds: Bounds<Pixels>,
 }
@@ -783,7 +775,7 @@ fn paint_attached_punctuation(
             &cell_text.text,
             vertical_text_font(style.font()),
             Theme::global(cx).text_primary(),
-            CellRichStyle::default(),
+            CellTextStyle::default(),
             cx,
         ),
     );
@@ -826,7 +818,7 @@ fn paint_corner_punctuation(
             &cell_text.text,
             vertical_text_font(style.font()),
             Theme::global(cx).text_primary(),
-            CellRichStyle::default(),
+            CellTextStyle::default(),
             cx,
         ),
     );
@@ -874,10 +866,10 @@ fn text_run(
     text: &str,
     font: Font,
     color: gpui::Rgba,
-    rich_style: CellRichStyle,
+    text_style: CellTextStyle,
     _cx: &mut App,
 ) -> TextRun {
-    let font = if rich_style.bold { font.bold() } else { font };
+    let font = if text_style.bold { font.bold() } else { font };
     TextRun {
         len: text.len(),
         font,
@@ -889,64 +881,27 @@ fn text_run(
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct CellRichStyle {
+struct CellTextStyle {
     bold: bool,
     strikethrough: bool,
-    block_kind: BlockKind,
 }
 
-impl CellRichStyle {
+impl CellTextStyle {
     fn font_scale(self) -> f32 {
-        match self.block_kind {
-            BlockKind::HeadingLarge => 0.94,
-            BlockKind::HeadingMedium => 0.84,
-            BlockKind::Body => 0.75,
-        }
+        0.75
     }
 
     fn color(self, cx: &App) -> gpui::Rgba {
-        match self.block_kind {
-            BlockKind::HeadingLarge => Theme::global(cx).text_primary(),
-            BlockKind::HeadingMedium => mix(
+        if self.bold {
+            mix(
                 Theme::global(cx).text_primary(),
-                Theme::global(cx).primary(),
-                0.22,
-            ),
-            BlockKind::Body => {
-                if self.bold {
-                    mix(
-                        Theme::global(cx).text_primary(),
-                        Theme::global(cx).black(),
-                        0.12,
-                    )
-                } else {
-                    Theme::global(cx).text_primary()
-                }
-            }
+                Theme::global(cx).black(),
+                0.12,
+            )
+        } else {
+            Theme::global(cx).text_primary()
         }
     }
-}
-
-fn rich_style_for_range(decorations: &RichTextDecorations, range: &Range<usize>) -> CellRichStyle {
-    let mut style = CellRichStyle::default();
-    for mark in &decorations.inline_marks {
-        if mark.start < range.end && range.start < mark.end {
-            match mark.style {
-                InlineStyle::Bold => style.bold = true,
-                InlineStyle::Strikethrough => style.strikethrough = true,
-            }
-        }
-    }
-    style.block_kind = block_kind_for_range(&decorations.blocks, range);
-    style
-}
-
-fn block_kind_for_range(blocks: &[ResolvedBlock], range: &Range<usize>) -> BlockKind {
-    blocks
-        .iter()
-        .find(|block| block.range.start < range.end && range.start < block.range.end)
-        .map(|block| block.kind)
-        .unwrap_or(BlockKind::Body)
 }
 
 fn shape_text(

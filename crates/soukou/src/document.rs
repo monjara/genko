@@ -1,42 +1,30 @@
 use std::path::{Path, PathBuf};
 
-use richtext::FILE_EXTENSION as RICHTEXT_FILE_EXTENSION;
-
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DocumentKind {
     PlainText,
-    RichText,
 }
 
 impl DocumentKind {
     pub fn default_file_name(self) -> &'static str {
         match self {
             Self::PlainText => "untitled.txt",
-            Self::RichText => "untitled.soukou",
         }
     }
 
     pub fn supported_open_error_detail() -> &'static str {
-        "現在は .txt と .soukou ファイルに対応しています"
+        "現在は .txt ファイルに対応しています"
     }
 
     pub fn from_path(path: &Path) -> Option<Self> {
         let extension = path.extension()?.to_str()?;
         if extension.eq_ignore_ascii_case("txt") {
-            Some(Self::PlainText)
-        } else if extension.eq_ignore_ascii_case(RICHTEXT_FILE_EXTENSION) {
-            Some(Self::RichText)
-        } else {
-            None
+            return Some(Self::PlainText);
         }
-    }
-}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ExportFormat {
-    Word,
-    Epub,
+        None
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

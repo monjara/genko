@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{AppContext, Context, ExternalPaths, PathPromptOptions, Window};
-use ::richtext::RichDocument;
 
 use crate::{
     app::{
@@ -23,18 +22,6 @@ impl SoukouApp {
         self.active_document.set_path(path);
     }
 
-    fn load_rich_document(
-        &mut self,
-        path: PathBuf,
-        document: RichDocument,
-        cx: &mut Context<Self>,
-    ) {
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.load_rich_document(document, cx)
-        });
-        self.active_document.set_path(path);
-    }
-
     fn open_standalone_plain_document(
         &mut self,
         path: PathBuf,
@@ -42,15 +29,6 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.load_plain_document(path, text, cx);
-    }
-
-    fn open_standalone_rich_document(
-        &mut self,
-        path: PathBuf,
-        document: RichDocument,
-        cx: &mut Context<Self>,
-    ) {
-        self.load_rich_document(path, document, cx);
     }
 
     fn save_document_to_path(
@@ -118,20 +96,6 @@ impl SoukouApp {
                                 this.open_standalone_plain_document(path, &text, cx);
                             }
                         }
-                        DocumentKind::RichText => match RichDocument::from_json(text.as_str()) {
-                            Ok(document) => {
-                                if preserve_workspace {
-                                    this.load_rich_document(path, document, cx);
-                                } else {
-                                    this.open_standalone_rich_document(path, document, cx);
-                                }
-                            }
-                            Err(error) => {
-                                let detail =
-                                    format!("リッチテキスト文書を解析できませんでした: {error}");
-                                this.show_error_modal(FILE_OPEN_ERROR_TITLE, detail, cx);
-                            }
-                        },
                     });
                 }
                 Err(error) => {
@@ -205,22 +169,6 @@ impl SoukouApp {
         let window_handle = window.window_handle();
         let contents = match self.current_document_kind(cx) {
             DocumentKind::PlainText => self.editor_controller.read(cx).snapshot_text(cx),
-            DocumentKind::RichText => match self
-                .editor_controller
-                .update(cx, |editor_controller, cx| editor_controller.richtext_document(cx))
-                .and_then(|document| document.to_json().ok())
-            {
-                Some(json) => json,
-                None => {
-                    let _ = window;
-                    self.show_error_modal(
-                        FILE_SAVE_ERROR_TITLE,
-                        "リッチテキスト文書を保存形式へ変換できませんでした".to_string(),
-                        cx,
-                    );
-                    return;
-                }
-            },
         };
 
         if let Some(path) = self.active_document.path().map(Path::to_path_buf) {

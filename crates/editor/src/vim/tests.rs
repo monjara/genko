@@ -1,5 +1,8 @@
 use super::*;
 use crate::vim::state::BlockRegister;
+use crate::vim::text_objects::{
+    resolve_motion_range, resolve_motion_target, resolve_text_object_range,
+};
 use rope::TextRope;
 
 fn rope(text: &str) -> TextRope {

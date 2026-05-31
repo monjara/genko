@@ -18,8 +18,6 @@ actions!(
         OpenFile,
         SaveFile,
         ExportTxt,
-        ExportWord,
-        ExportEpub,
         Quit
     ]
 );

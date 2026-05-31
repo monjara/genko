@@ -7,10 +7,6 @@ pub mod vim;
 
 pub use capabilities::{AppCapabilities, ProFeature};
 pub use editor_controller::EditorController;
-pub use editor::{
-    ClearHeading, RequestProForRichText, SetHeadingLarge, SetHeadingMedium, ToggleBold,
-    ToggleStrikethrough,
-};
 pub use vim::{VimCommandQuit, VimCommandWrite, VimController, VimMode, VimModeLabel, VimState};
 
 use gpui::App;

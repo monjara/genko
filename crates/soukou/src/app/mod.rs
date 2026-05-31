@@ -6,7 +6,6 @@ use semver::Version;
 use serde::Deserialize;
 use theme::Theme;
 use title_bar::TitleBar;
-use ui::TextInput;
 
 mod document_io;
 mod export_flow;
@@ -27,14 +26,11 @@ const QUIT_MENU_LABEL: &str = "終了";
 const FILE_MENU_LABEL: &str = "ファイル";
 const SAVE_MENU_LABEL: &str = "保存";
 const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
-const EXPORT_WORD_MENU_LABEL: &str = "Wordエクスポート";
-const EXPORT_EPUB_MENU_LABEL: &str = "EPUBエクスポート";
 const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
 const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
-const EPUB_METADATA_TITLE: &str = "EPUBメタデータ";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
 const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
@@ -70,7 +66,6 @@ pub(crate) struct SoukouApp {
     editor_controller: Entity<EditorController>,
     active_document: ActiveDocument,
     active_modal: Option<AppModal>,
-    epub_metadata_form: Option<EpubMetadataForm>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
 }
@@ -90,24 +85,6 @@ enum AppModal {
         latest_version: String,
         release_page_url: String,
     },
-}
-
-#[derive(Clone)]
-struct EpubMetadataForm {
-    title: Entity<TextInput>,
-    creators: Entity<TextInput>,
-    language: Entity<TextInput>,
-    identifier: Entity<TextInput>,
-    description: Entity<TextInput>,
-    publisher: Entity<TextInput>,
-    rights: Entity<TextInput>,
-    published_at: Entity<TextInput>,
-    error_message: Option<String>,
-}
-
-fn non_empty_option(value: String) -> Option<String> {
-    let value = value.trim().to_string();
-    (!value.is_empty()).then_some(value)
 }
 
 fn toolbar_border_color(cx: &App) -> gpui::Hsla {
