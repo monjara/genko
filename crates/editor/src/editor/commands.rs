@@ -78,8 +78,11 @@ impl Editor {
     }
 
     pub(crate) fn current_line_byte_range_command(&self) -> Option<Range<usize>> {
-        let cell_range =
-            current_column_cell_range(self.cursor_cell(), self.rows_per_column(), self.used_cells())?;
+        let cell_range = current_column_cell_range(
+            self.cursor_cell(),
+            self.rows_per_column(),
+            self.used_cells(),
+        )?;
         Some(
             self.byte_offset_for_display_cell(cell_range.start)
                 ..self.byte_offset_for_display_cell(cell_range.end),
@@ -99,19 +102,11 @@ impl Editor {
         }
     }
 
-    pub(crate) fn move_cursor_left_cell_command(
-        &mut self,
-        select: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn move_cursor_left_cell_command(&mut self, select: bool, cx: &mut Context<Self>) {
         self.move_cursor_by_cells_command(self.rows_per_column() as isize, select, cx);
     }
 
-    pub(crate) fn move_cursor_right_cell_command(
-        &mut self,
-        select: bool,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn move_cursor_right_cell_command(&mut self, select: bool, cx: &mut Context<Self>) {
         self.move_cursor_by_cells_command(-(self.rows_per_column() as isize), select, cx);
     }
 

@@ -1,12 +1,17 @@
 use editor::VimModeLabel;
 use gpui::{
     App, AppContext, Context, Decorations, Entity, InteractiveElement, IntoElement, ParentElement,
-    Render, Styled, Window, div, prelude::FluentBuilder, px,
+    Render, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder, px, svg,
 };
 use settings::AppSettings;
 use theme::Theme;
+use workspace::{ToggleWorkspacePane, WorkspaceState};
 
 const SIDE_SLOT_WIDTH: f32 = 160.0;
+const PANEL_LEFT_OPEN_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/panel_left_open.svg"
+);
 
 pub struct BottomBar {
     vim_mode_status: Entity<VimModeLabel>,
@@ -23,6 +28,12 @@ impl Render for BottomBar {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let height = title_bar::platform_title_bar_height(window);
         let background = background_color(window, cx);
+        let workspace_visible = WorkspaceState::global(cx).is_pane_visible();
+        let workspace_icon_color = if workspace_visible {
+            Theme::global(cx).primary()
+        } else {
+            Theme::global(cx).text_senodary()
+        };
 
         let bar = div()
             .id("soukou-bottom-bar")
@@ -39,7 +50,35 @@ impl Render for BottomBar {
                     .items_center()
                     .justify_between()
                     .px_3()
-                    .child(div().w(px(SIDE_SLOT_WIDTH)).flex_none())
+                    .child(
+                        div()
+                            .w(px(SIDE_SLOT_WIDTH))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .child(
+                                div()
+                                    .id("workspace-bottom-bar-toggle")
+                                    .w(px(28.0))
+                                    .h(px(28.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_sm()
+                                    .cursor_pointer()
+                                    .text_color(workspace_icon_color)
+                                    .hover(|style| style.bg(Theme::global(cx).white()))
+                                    .child(
+                                        svg()
+                                            .external_path(PANEL_LEFT_OPEN_ICON_PATH)
+                                            .size_5()
+                                            .text_color(workspace_icon_color),
+                                    )
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(ToggleWorkspacePane), cx);
+                                    }),
+                            ),
+                    )
                     .when(AppSettings::global(cx).vim_mode, |this| {
                         this.child(
                             div()

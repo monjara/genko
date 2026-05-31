@@ -1,15 +1,15 @@
 use gpui::{
-    div, point, prelude::FluentBuilder, px, svg, transparent_black, BoxShadow, Context,
-    Decorations, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Window,
+    BoxShadow, Context, Decorations, FontWeight, Hsla, InteractiveElement, IntoElement,
+    ParentElement, Render, Styled, Window, div, point, prelude::FluentBuilder, px, svg,
+    transparent_black,
 };
-use theme::Theme;
 use theme::APP_FONT_FAMILY;
-use workspace::{ToggleWorkspacePane, WorkspaceState, COLLAPSED_WORKSPACE_RAIL_WIDTH};
+use theme::Theme;
+use workspace::WorkspaceState;
 
 use crate::app::{
-    mix, toolbar_border_color, AppModal, SoukouApp, MODAL_ERROR_ICON_PATH, MODAL_INFO_ICON_PATH,
-    MODAL_UPDATE_ICON_PATH, UPDATE_AVAILABLE_TITLE,
+    AppModal, MODAL_ERROR_ICON_PATH, MODAL_INFO_ICON_PATH, MODAL_UPDATE_ICON_PATH, SoukouApp,
+    UPDATE_AVAILABLE_TITLE, mix, toolbar_border_color,
 };
 
 impl SoukouApp {
@@ -222,7 +222,7 @@ impl Render for SoukouApp {
         let occupied_workspace_width = if self.workspace_pane_visible(cx) {
             WorkspaceState::global(cx).pane_width()
         } else {
-            COLLAPSED_WORKSPACE_RAIL_WIDTH
+            0.0
         };
         let mut editor_viewport_size = window.viewport_size();
         editor_viewport_size.width =
@@ -303,31 +303,6 @@ impl Render for SoukouApp {
                             .flex()
                             .when(self.workspace_pane_visible(cx), |this| {
                                 this.child(self.workspace.clone().into_element())
-                            })
-                            .when(!self.workspace_pane_visible(cx), |this| {
-                                this.child(
-                                    div()
-                                        .id("workspace-collapsed-rail")
-                                        .w(px(COLLAPSED_WORKSPACE_RAIL_WIDTH))
-                                        .h_full()
-                                        .flex_none()
-                                        .border_r_1()
-                                        .border_color(Theme::global(cx).senodary())
-                                        .bg(Theme::global(cx).bg_senodary())
-                                        .flex()
-                                        .items_start()
-                                        .justify_center()
-                                        .pt_3()
-                                        .cursor_pointer()
-                                        .text_sm()
-                                        .text_color(Theme::global(cx).text_senodary())
-                                        .hover(|style| style.bg(Theme::global(cx).white()))
-                                        .child("開")
-                                        .on_click(|_, window, cx| {
-                                            window
-                                                .dispatch_action(Box::new(ToggleWorkspacePane), cx);
-                                        }),
-                                )
                             })
                             .child(
                                 div()

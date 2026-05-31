@@ -15,13 +15,13 @@ use workspace::{
 };
 
 use crate::{
+    CheckForUpdates, ExportTxt, OpenFile, OpenSettings, Quit, SaveFile,
     app::{
-        AppModal, SoukouApp, APP_NAME, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_TXT_MENU_LABEL,
-        FILE_MENU_LABEL, OPEN_PROMPT_LABEL, QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL,
+        APP_NAME, AppModal, CHECK_FOR_UPDATES_MENU_LABEL, EXPORT_TXT_MENU_LABEL, FILE_MENU_LABEL,
+        OPEN_PROMPT_LABEL, QUIT_MENU_LABEL, SAVE_MENU_LABEL, SETTINGS_MENU_LABEL, SoukouApp,
         WINDOW_TITLE_SEPARATOR,
     },
     document::{ActiveDocument, DocumentKind},
-    CheckForUpdates, ExportTxt, OpenFile, OpenSettings, Quit, SaveFile,
 };
 
 impl SoukouApp {

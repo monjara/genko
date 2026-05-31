@@ -14,3 +14,4 @@ gpui = { workspace = true }
 settings = { workspace = true }
 theme = { workspace = true }
 title_bar = { workspace = true }
+workspace = { workspace = true }

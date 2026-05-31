@@ -646,6 +646,7 @@ dependencies = [
  "settings",
  "theme",
  "title_bar",
+ "workspace",
 ]
 
 [[package]]

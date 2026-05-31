@@ -85,32 +85,17 @@ fn right(editor: &mut Editor, _: &Right, window: &mut Window, cx: &mut Context<E
     invalidate_ime_position(window);
 }
 
-fn select_up(
-    editor: &mut Editor,
-    _: &SelectUp,
-    window: &mut Window,
-    cx: &mut Context<Editor>,
-) {
+fn select_up(editor: &mut Editor, _: &SelectUp, window: &mut Window, cx: &mut Context<Editor>) {
     editor.move_cursor_by_cells_command(-1, true, cx);
     invalidate_ime_position(window);
 }
 
-fn select_down(
-    editor: &mut Editor,
-    _: &SelectDown,
-    window: &mut Window,
-    cx: &mut Context<Editor>,
-) {
+fn select_down(editor: &mut Editor, _: &SelectDown, window: &mut Window, cx: &mut Context<Editor>) {
     editor.move_cursor_by_cells_command(1, true, cx);
     invalidate_ime_position(window);
 }
 
-fn select_left(
-    editor: &mut Editor,
-    _: &SelectLeft,
-    window: &mut Window,
-    cx: &mut Context<Editor>,
-) {
+fn select_left(editor: &mut Editor, _: &SelectLeft, window: &mut Window, cx: &mut Context<Editor>) {
     editor.move_cursor_left_cell_command(true, cx);
     invalidate_ime_position(window);
 }
@@ -125,12 +110,7 @@ fn select_right(
     invalidate_ime_position(window);
 }
 
-fn select_all(
-    editor: &mut Editor,
-    _: &SelectAll,
-    window: &mut Window,
-    cx: &mut Context<Editor>,
-) {
+fn select_all(editor: &mut Editor, _: &SelectAll, window: &mut Window, cx: &mut Context<Editor>) {
     editor.select_all_command(window, cx);
 }
 

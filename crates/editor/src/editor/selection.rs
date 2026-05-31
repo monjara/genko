@@ -162,7 +162,11 @@ pub(super) fn collapse_selection_to_cursor_cell(editor: &mut Editor, cx: &mut Co
     cx.notify();
 }
 
-pub(super) fn move_to_display_cell(editor: &mut Editor, cell_index: usize, cx: &mut Context<Editor>) {
+pub(super) fn move_to_display_cell(
+    editor: &mut Editor,
+    cell_index: usize,
+    cx: &mut Context<Editor>,
+) {
     let offset = editor.byte_offset_for_display_cell(cell_index);
     if editor.cursor_cell == cell_index
         && editor.selected_range.start == offset

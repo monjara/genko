@@ -4,9 +4,9 @@ use std::{
 };
 
 use gpui::{
-    actions, canvas, div, prelude::FluentBuilder, px, AnyElement, App, Context, Entity,
-    EventEmitter, Global, InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window,
+    AnyElement, App, Context, Entity, EventEmitter, Global, InteractiveElement, IntoElement,
+    ParentElement, Render, StatefulInteractiveElement, Styled, Window, actions, div,
+    prelude::FluentBuilder, px, svg,
 };
 use theme::Theme;
 
@@ -16,6 +16,11 @@ pub const DEFAULT_WORKSPACE_PANE_WIDTH: f32 = 280.0;
 pub const MIN_WORKSPACE_PANE_WIDTH: f32 = 180.0;
 pub const MAX_WORKSPACE_PANE_WIDTH: f32 = 520.0;
 pub const COLLAPSED_WORKSPACE_RAIL_WIDTH: f32 = 36.0;
+
+const FOLDER_OPEN_ICON_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/icons/folder_open.svg"
+);
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -30,13 +35,6 @@ pub struct WorkspaceState {
     entries: Vec<WorkspaceEntry>,
     pane_visible: bool,
     pane_width: f32,
-    resize_drag: Option<WorkspaceResizeDrag>,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct WorkspaceResizeDrag {
-    start_x: f32,
-    start_width: f32,
 }
 
 impl WorkspaceState {
@@ -64,7 +62,7 @@ impl WorkspaceState {
         self.root_dir.as_deref()
     }
 
-    pub fn active_file(&self) -> Option<&Path> {
+    fn active_file(&self) -> Option<&Path> {
         self.active_file.as_deref()
     }
 
@@ -76,7 +74,7 @@ impl WorkspaceState {
         self.active_file().or_else(|| self.unsupported_file())
     }
 
-    pub fn entries(&self) -> &[WorkspaceEntry] {
+    fn entries(&self) -> &[WorkspaceEntry] {
         &self.entries
     }
 
@@ -133,25 +131,6 @@ impl WorkspaceState {
     pub fn toggle_pane(&mut self) {
         self.pane_visible = !self.pane_visible;
     }
-
-    pub fn start_resizing(&mut self, start_x: f32) {
-        self.resize_drag = Some(WorkspaceResizeDrag {
-            start_x,
-            start_width: self.pane_width,
-        });
-    }
-
-    pub fn resize_to(&mut self, current_x: f32) {
-        let Some(drag) = self.resize_drag else {
-            return;
-        };
-        let width = drag.start_width + current_x - drag.start_x;
-        self.pane_width = width.clamp(MIN_WORKSPACE_PANE_WIDTH, MAX_WORKSPACE_PANE_WIDTH);
-    }
-
-    pub fn stop_resizing(&mut self) {
-        self.resize_drag = None;
-    }
 }
 
 impl Global for WorkspaceState {}
@@ -165,7 +144,6 @@ impl Default for WorkspaceState {
             entries: Vec::new(),
             pane_visible: true,
             pane_width: DEFAULT_WORKSPACE_PANE_WIDTH,
-            resize_drag: None,
         }
     }
 }
@@ -215,52 +193,6 @@ impl Workspace {
     pub fn toggle_pane(&mut self, cx: &mut Context<Self>) {
         WorkspaceState::global_mut(cx).toggle_pane();
         cx.notify();
-    }
-
-    fn render_resize_handle(&self, workspace: Entity<Self>) -> impl IntoElement {
-        div()
-            .w(px(6.0))
-            .h_full()
-            .flex_none()
-            .cursor_col_resize()
-            .child(canvas(
-                |_, _, _| {},
-                move |bounds, _, window, _| {
-                    window.on_mouse_event({
-                        let workspace = workspace.clone();
-                        move |event: &MouseDownEvent, _, _, cx| {
-                            if !bounds.contains(&event.position) {
-                                return;
-                            }
-                            workspace.update(cx, |_, cx| {
-                                WorkspaceState::global_mut(cx)
-                                    .start_resizing(event.position.x.as_f32());
-                            });
-                        }
-                    });
-                    window.on_mouse_event({
-                        let workspace = workspace.clone();
-                        move |event: &MouseMoveEvent, _, _, cx| {
-                            if !event.dragging() {
-                                return;
-                            }
-                            workspace.update(cx, |_, cx| {
-                                WorkspaceState::global_mut(cx).resize_to(event.position.x.as_f32());
-                                cx.notify();
-                            });
-                        }
-                    });
-                    window.on_mouse_event({
-                        let workspace = workspace.clone();
-                        move |_: &MouseUpEvent, _, _, cx| {
-                            workspace.update(cx, |_, cx| {
-                                WorkspaceState::global_mut(cx).stop_resizing();
-                                cx.notify();
-                            });
-                        }
-                    });
-                },
-            ))
     }
 
     fn toggle_workspace_pane(
@@ -331,7 +263,6 @@ impl Render for Workspace {
             .iter()
             .map(|entry| self.render_entry(entry, workspace.clone(), cx))
             .collect::<Vec<_>>();
-        let close_workspace = workspace.clone();
 
         div()
             .id("workspace-pane")
@@ -353,48 +284,10 @@ impl Render for Workspace {
                     .flex_col()
                     .gap_3()
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .child(
-                                        div()
-                                            .font_weight(gpui::FontWeight::BOLD)
-                                            .child("Workspace"),
-                                    )
-                                    .child(
-                                        div()
-                                            .id("workspace-close-button")
-                                            .px_2()
-                                            .py_1()
-                                            .rounded_sm()
-                                            .cursor_pointer()
-                                            .hover(|style| style.bg(Theme::global(cx).white()))
-                                            .child("閉じる")
-                                            .on_click(move |_, _, cx| {
-                                                close_workspace.update(cx, |this, cx| {
-                                                    this.toggle_pane(cx);
-                                                });
-                                            }),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(Theme::global(cx).text_senodary())
-                                    .child(root_label),
-                            ),
-                    )
-                    .child(
                         div().flex().items_center().gap_2().child(
                             div()
                                 .id("workspace-open-file-button")
-                                .px_3()
+                                .w(px(34.0))
                                 .h(px(32.0))
                                 .flex()
                                 .items_center()
@@ -404,10 +297,25 @@ impl Render for Workspace {
                                 .border_color(Theme::global(cx).primary())
                                 .bg(Theme::global(cx).white())
                                 .cursor_pointer()
-                                .child("開く")
+                                .text_color(Theme::global(cx).primary())
+                                .hover(|style| style.bg(Theme::global(cx).white()))
+                                .child(
+                                    svg()
+                                        .external_path(FOLDER_OPEN_ICON_PATH)
+                                        .size_5()
+                                        .text_color(Theme::global(cx).primary()),
+                                )
                                 .on_click(move |_, window, cx| {
                                     window.dispatch_action(Box::new(OpenWorkspace), cx);
                                 }),
+                        ),
+                    )
+                    .child(
+                        div().flex_col().gap_1().child(
+                            div()
+                                .text_sm()
+                                .text_color(Theme::global(cx).text_senodary())
+                                .child(root_label),
                         ),
                     )
                     .child(
@@ -429,7 +337,6 @@ impl Render for Workspace {
                             .children(entry_elements),
                     ),
             )
-            .child(self.render_resize_handle(workspace))
     }
 }
 
@@ -511,18 +418,5 @@ mod tests {
         assert_eq!(entries[0].path(), dir.join("a.txt").as_path());
 
         fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn workspace_width_is_clamped_while_resizing() {
-        let mut workspace = WorkspaceState::new();
-        workspace.pane_width = DEFAULT_WORKSPACE_PANE_WIDTH;
-
-        workspace.start_resizing(100.0);
-        workspace.resize_to(-1000.0);
-        assert_eq!(workspace.pane_width(), MIN_WORKSPACE_PANE_WIDTH);
-
-        workspace.resize_to(1000.0);
-        assert_eq!(workspace.pane_width(), MAX_WORKSPACE_PANE_WIDTH);
     }
 }
