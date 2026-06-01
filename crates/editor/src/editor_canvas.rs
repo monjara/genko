@@ -808,7 +808,7 @@ fn paint_rich_text_overlays(
         };
 
         if prepared.text_style.emphasis {
-            paint_emphasis_mark(cell_bounds, window, cx);
+            paint_emphasis_mark(cell_bounds, ruby_gutter_size, window, cx);
         }
 
         if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
@@ -827,9 +827,15 @@ fn paint_rich_text_overlays(
     }
 }
 
-fn paint_emphasis_mark(cell_bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+fn paint_emphasis_mark(
+    cell_bounds: Bounds<Pixels>,
+    ruby_gutter_size: f32,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let mark_size = px((cell_bounds.size.width.as_f32() * 0.14).round().max(3.0));
-    let x = cell_bounds.right() - mark_size - px(2.0);
+    let gutter_width = px(ruby_gutter_size.max(mark_size.as_f32()));
+    let x = cell_bounds.right() + gutter_width * 0.5 - mark_size / 2.0;
     let y = cell_bounds.top() + cell_bounds.size.height / 2.0 - mark_size / 2.0;
     window.paint_quad(fill(
         Bounds::new(point(x, y), size(mark_size, mark_size)),
