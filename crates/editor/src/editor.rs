@@ -8,7 +8,6 @@ mod selection;
 
 use std::ops::Range;
 use std::sync::Arc;
-use std::time::Instant;
 
 use gpui::{
     App, Bounds, Context, EntityInputHandler, FocusHandle, Focusable, IntoElement, Pixels, Render,
@@ -23,7 +22,6 @@ use crate::editor::layout::{
     visible_columns_for_window_width,
 };
 use crate::editor_canvas::GridPathCache;
-use crate::perf::{log_paste_perf, paste_perf_enabled};
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const DEFAULT_CELL_SIZE: f32 = 28.0;
@@ -228,8 +226,6 @@ impl Editor {
     }
 
     pub(crate) fn visible_text(&mut self) -> Arc<[CellText]> {
-        let perf_enabled = paste_perf_enabled();
-        let perf_start = perf_enabled.then(Instant::now);
         let visible_rows = self.visible_rows();
         if let Some(cache) = &self.visible_text_cache
             && cache.draft_revision == self.draft_revision
@@ -238,20 +234,6 @@ impl Editor {
             && cache.visible_columns == self.visible_columns
             && cache.visible_rows == visible_rows
         {
-            if let Some(start) = perf_start {
-                log_paste_perf(
-                    "visible_text(cache_hit)",
-                    || {
-                        format!(
-                            "cells={} cols={} rows={}",
-                            cache.cells.len(),
-                            self.visible_columns,
-                            visible_rows
-                        )
-                    },
-                    start.elapsed(),
-                );
-            }
             return cache.cells.clone();
         }
 
@@ -269,21 +251,6 @@ impl Editor {
             visible_rows,
             cells: cells.clone(),
         });
-        if let Some(start) = perf_start {
-            log_paste_perf(
-                "visible_text(rebuild)",
-                || {
-                    format!(
-                        "cells={} cols={} rows={} revision={}",
-                        cells.len(),
-                        self.visible_columns,
-                        visible_rows,
-                        self.draft_revision
-                    )
-                },
-                start.elapsed(),
-            );
-        }
         cells
     }
 
@@ -685,15 +652,6 @@ impl Editor {
         new_text: String,
         cx: &mut Context<Self>,
     ) {
-        let perf_enabled = paste_perf_enabled();
-        let perf_start = perf_enabled.then(Instant::now);
-        let mut slice_elapsed = None;
-        let mut clone_elapsed = None;
-        let mut rope_replace_elapsed = None;
-        let mut cursor_elapsed = None;
-        let mut commit_elapsed = None;
-        let requested_range = range.clone();
-        let inserted_bytes = new_text.len();
         let implicit_transaction = self.history.active_transaction.is_none();
         if implicit_transaction {
             self.begin_transaction();
@@ -703,88 +661,25 @@ impl Editor {
         } else {
             self.materialize_cursor_cell_for_insert(range)
         };
-        let removed_text = if perf_enabled {
-            let started = Instant::now();
-            let removed_text = self.draft.slice(range.clone());
-            slice_elapsed = Some(started.elapsed());
-            removed_text
-        } else {
-            self.draft.slice(range.clone())
-        };
-        let removed_bytes = removed_text.len();
-        let normalized_start = range.start;
-        let normalized_end = range.end;
+        let removed_text = self.draft.slice(range.clone());
         if let Some(transaction) = self.history.active_transaction.as_mut() {
-            let inserted_text = if perf_enabled {
-                let started = Instant::now();
-                let inserted_text = new_text.clone();
-                clone_elapsed = Some(started.elapsed());
-                inserted_text
-            } else {
-                new_text.clone()
-            };
             transaction.edits.push(EditOperation {
                 start: range.start,
                 removed_text,
-                inserted_text,
+                inserted_text: new_text.to_string(),
             });
         }
         let cursor = range.start + new_text.len();
-        if perf_enabled {
-            let started = Instant::now();
-            self.draft.replace_range_owned(range, new_text);
-            rope_replace_elapsed = Some(started.elapsed());
-        } else {
-            self.draft.replace_range_owned(range, new_text);
-        }
+        self.draft.replace_range_owned(range, new_text);
         self.bump_draft_revision();
-        if perf_enabled {
-            let started = Instant::now();
-            self.set_cursor_from_offset(cursor);
-            cursor_elapsed = Some(started.elapsed());
-        } else {
-            self.set_cursor_from_offset(cursor);
-        }
+        self.set_cursor_from_offset(cursor);
         if implicit_transaction {
-            let committed = if perf_enabled {
-                let started = Instant::now();
-                let committed = self.commit_transaction(cx);
-                commit_elapsed = Some(started.elapsed());
-                committed
-            } else {
-                self.commit_transaction(cx)
-            };
+            let committed = self.commit_transaction(cx);
             if !committed {
                 cx.notify();
             }
         } else {
             cx.notify();
-        }
-        if let Some(start) = perf_start {
-            let final_cursor = self.cursor_cell;
-            let revision = self.draft_revision;
-            log_paste_perf(
-                "replace_text_in_byte_range_owned",
-                move || {
-                    format!(
-                        "inserted_bytes={} removed_bytes={} requested_range={}..{} normalized_range={}..{} cursor_cell={} revision={} slice_ms={:.2} clone_ms={:.2} rope_replace_ms={:.2} cursor_ms={:.2} commit_ms={:.2}",
-                        inserted_bytes,
-                        removed_bytes,
-                        requested_range.start,
-                        requested_range.end,
-                        normalized_start,
-                        normalized_end,
-                        final_cursor,
-                        revision,
-                        slice_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
-                        clone_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
-                        rope_replace_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
-                        cursor_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0),
-                        commit_elapsed.map_or(0.0, |d| d.as_secs_f64() * 1000.0)
-                    )
-                },
-                start.elapsed(),
-            );
         }
     }
 

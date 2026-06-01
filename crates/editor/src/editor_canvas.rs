@@ -1,6 +1,5 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
-use std::time::Instant;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFeatures,
@@ -15,8 +14,6 @@ use crate::editor::Editor;
 use crate::editor::layout::{
     cell_bounds_for_logical_index, column_number_header_height, row_column_for_logical_index,
 };
-
-use crate::perf::{PerfScope, log_paste_perf, paste_perf_enabled};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CellPaintKind {
@@ -133,17 +130,6 @@ impl Element for EditorCanvas {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let _paint_perf = paste_perf_enabled().then(|| {
-            let visible_columns = self.editor.read(cx).visible_columns();
-            let visible_rows = self.editor.read(cx).visible_rows();
-            PerfScope::new(move |elapsed| {
-                log_paste_perf(
-                    "editor_canvas.paint",
-                    move || format!("cols={} rows={}", visible_columns, visible_rows),
-                    elapsed,
-                );
-            })
-        });
         let column_number_mode = AppSettings::global(cx).column_number_mode;
         let header_height = {
             let editor = self.editor.read(cx);
@@ -192,6 +178,7 @@ impl Element for EditorCanvas {
             cell_size,
             ruby_gutter_size,
         } = paint_state;
+
         let prepared_cells = prepare_cell_paint_data(
             &visible_text,
             content_bounds,
@@ -702,8 +689,6 @@ fn prepare_cell_paint_data(
     cell_size: f32,
     ruby_gutter_size: f32,
 ) -> Vec<PreparedCellPaint> {
-    let perf_enabled = paste_perf_enabled();
-    let perf_start = perf_enabled.then(Instant::now);
     let prepared: Vec<PreparedCellPaint> = visible_text
         .iter()
         .map(|cell_text| PreparedCellPaint {
@@ -721,21 +706,6 @@ fn prepare_cell_paint_data(
             text_style: CellTextStyle::default(),
         })
         .collect();
-    if let Some(start) = perf_start {
-        log_paste_perf(
-            "prepare_cell_paint_data",
-            || {
-                format!(
-                    "cells={} cols={} rows={} cell_size={:.1}",
-                    prepared.len(),
-                    visible_columns,
-                    visible_rows,
-                    cell_size
-                )
-            },
-            start.elapsed(),
-        );
-    }
     prepared
 }
 

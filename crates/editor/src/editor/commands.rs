@@ -1,5 +1,4 @@
 use std::ops::Range;
-use std::time::Instant;
 
 use gpui::{
     ClipboardItem, Context, MouseMoveEvent, MouseUpEvent, Pixels, ScrollWheelEvent, Window, px,
@@ -11,7 +10,6 @@ use super::motions::{
     MotionRangeBehavior, resolve_motion_range, resolve_motion_target, resolve_text_object_range,
 };
 use super::{Editor, invalidate_ime_position};
-use crate::perf::{log_paste_perf, paste_perf_enabled};
 use crate::vim::block::current_column_cell_range;
 
 impl Editor {
@@ -147,25 +145,8 @@ impl Editor {
 
     pub(crate) fn paste_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            let perf_enabled = paste_perf_enabled();
-            let perf_start = perf_enabled.then(Instant::now);
-            let pasted_bytes = text.len();
             self.replace_text_in_byte_range_owned(self.selected_range.clone(), text, cx);
             invalidate_ime_position(window);
-            if let Some(start) = perf_start {
-                let revision = self.draft_revision;
-                let cursor_cell = self.cursor_cell;
-                log_paste_perf(
-                    "paste_total",
-                    move || {
-                        format!(
-                            "pasted_bytes={} cursor_cell={} revision={}",
-                            pasted_bytes, cursor_cell, revision
-                        )
-                    },
-                    start.elapsed(),
-                );
-            }
         }
     }
 
