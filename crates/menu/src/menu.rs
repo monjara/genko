@@ -34,10 +34,6 @@ const OPEN_DOCUMENT_PROMPT_LABEL: &str = "開く";
 const SAVE_DOCUMENT_MENU_LABEL: &str = "保存";
 const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
 const EXPORT_EPUB_MENU_LABEL: &str = "epubエクスポート";
-const RICH_TEXT_MENU_LABEL: &str = "リッチテキスト";
-const RICH_TEXT_BOLD_MENU_LABEL: &str = "太字";
-const RICH_TEXT_EMPHASIS_MENU_LABEL: &str = "傍点";
-const RICH_TEXT_HEADING_MENU_LABEL: &str = "見出し";
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
@@ -81,15 +77,6 @@ pub fn init(cx: &mut App) {
                 MenuItem::action(EXPORT_EPUB_MENU_LABEL, ExportEpub),
             ],
         },
-        Menu {
-            disabled: false,
-            name: RICH_TEXT_MENU_LABEL.into(),
-            items: vec![
-                MenuItem::action(RICH_TEXT_BOLD_MENU_LABEL, RichTextBold),
-                MenuItem::action(RICH_TEXT_EMPHASIS_MENU_LABEL, RichTextEmphasis),
-                MenuItem::action(RICH_TEXT_HEADING_MENU_LABEL, RichTextHeading),
-            ],
-        },
     ])
 }
 
@@ -123,20 +110,6 @@ pub fn title_bar_menus() -> Vec<TitleBarMenu> {
                 }),
                 MenuBarItem::new(EXPORT_EPUB_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(ExportEpub), cx);
-                }),
-            ],
-        ),
-        MenuBarMenu::new(
-            RICH_TEXT_MENU_LABEL,
-            vec![
-                MenuBarItem::new(RICH_TEXT_BOLD_MENU_LABEL, |window, cx| {
-                    window.dispatch_action(Box::new(RichTextBold), cx);
-                }),
-                MenuBarItem::new(RICH_TEXT_EMPHASIS_MENU_LABEL, |window, cx| {
-                    window.dispatch_action(Box::new(RichTextEmphasis), cx);
-                }),
-                MenuBarItem::new(RICH_TEXT_HEADING_MENU_LABEL, |window, cx| {
-                    window.dispatch_action(Box::new(RichTextHeading), cx);
                 }),
             ],
         ),
