@@ -35,7 +35,6 @@ pub struct WorkspaceState {
 impl WorkspaceState {
     pub fn init(cx: &mut App) {
         cx.set_global(Self {
-            pane_visible: true,
             pane_width: DEFAULT_WORKSPACE_PANE_WIDTH,
             ..Self::default()
         });
