@@ -10,6 +10,7 @@ pub struct Theme {
     text_senodary: Rgba,
     bg_primary: Rgba,
     bg_senodary: Rgba,
+    selection_range: Rgba,
     black: Rgba,
     white: Rgba,
 }
@@ -49,6 +50,9 @@ impl Theme {
     pub fn bg_senodary(&self) -> Rgba {
         self.bg_senodary
     }
+    pub fn selection_range(&self) -> Rgba {
+        self.selection_range
+    }
     pub fn black(&self) -> Rgba {
         self.black
     }
@@ -71,6 +75,7 @@ impl Theme {
             text_senodary: theme_json.text_senodary,
             bg_primary: theme_json.bg_primary,
             bg_senodary: theme_json.bg_senodary,
+            selection_range: theme_json.selection_range,
             black: Rgba {
                 r: 0.,
                 g: 0.,
@@ -95,4 +100,5 @@ struct ThemeJson {
     text_senodary: Rgba,
     bg_primary: Rgba,
     bg_senodary: Rgba,
+    selection_range: Rgba,
 }

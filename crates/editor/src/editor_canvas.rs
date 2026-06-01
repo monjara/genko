@@ -525,7 +525,7 @@ fn paint_selection(
             ) else {
                 continue;
             };
-            window.paint_quad(fill(cell_bounds, Theme::global(cx).bg_senodary()));
+            window.paint_quad(fill(cell_bounds, Theme::global(cx).selection_range()));
         }
     }
 
@@ -544,7 +544,7 @@ fn paint_selection(
             ) else {
                 continue;
             };
-            window.paint_quad(fill(cell_bounds, Theme::global(cx).bg_senodary()));
+            window.paint_quad(fill(cell_bounds, Theme::global(cx).selection_range()));
         } else if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
             let Some(cell_bounds) = cell_bounds_for_logical_index(
                 bounds,
