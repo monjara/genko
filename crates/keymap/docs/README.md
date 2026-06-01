@@ -4,7 +4,7 @@
 `keymap` はアプリのキーバインド定義を JSON から読み込み、GPUI の `KeyBinding` に変換する crate です。
 
 ## 役割
-- 既定キーマップを [`resources/default_keymap.json`](../resources/default_keymap.json) で管理。
+- 既定キーマップを `resources/default-macos.json`、`resources/default-linux.json`、`resources/default-windows.json` で管理。
 - XDG ベースディレクトリ配下の `keymap.json` を追加で読み込む。
 - JSON 内の action 名を `cx.build_action` で解決し、`KeyBinding` を生成する。
 

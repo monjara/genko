@@ -2,19 +2,13 @@
   {
     "bindings": {
       "cmd-q": "menu::Quit",
-      "ctrl-,": "menu::OpenSettings",
+      "cmd-,": "menu::OpenSettings",
       "cmd-o": "menu::OpenFile",
-      "ctrl-o": "menu::OpenFile",
       "cmd-s": "menu::SaveFile",
-      "ctrl-s": "menu::SaveFile",
       "cmd-shift-e": "workspace::ToggleWorkspacePane",
-      "ctrl-shift-e": "workspace::ToggleWorkspacePane",
       "cmd-b": "menu::RichTextBold",
-      "ctrl-b": "menu::RichTextBold",
       "cmd-alt-e": "menu::RichTextEmphasis",
-      "ctrl-alt-e": "menu::RichTextEmphasis",
-      "cmd-alt-h": "menu::RichTextHeading",
-      "ctrl-alt-h": "menu::RichTextHeading"
+      "cmd-alt-h": "menu::RichTextHeading"
     }
   },
   {
@@ -37,17 +31,11 @@
       "shift-left": "soukou::SelectLeft",
       "shift-right": "soukou::SelectRight",
       "cmd-a": "soukou::SelectAll",
-      "ctrl-a": "soukou::SelectAll",
       "cmd-v": "soukou::Paste",
-      "ctrl-v": "soukou::Paste",
       "cmd-c": "soukou::Copy",
-      "ctrl-c": "soukou::Copy",
       "cmd-x": "soukou::Cut",
-      "ctrl-x": "soukou::Cut",
       "cmd-z": "soukou::Undo",
-      "ctrl-z": "soukou::Undo",
       "cmd-shift-z": "soukou::Redo",
-      "ctrl-u": "soukou::Redo",
       "enter": "soukou::Enter",
       "escape": "soukou::ClearSelection",
       "home": "soukou::Home",

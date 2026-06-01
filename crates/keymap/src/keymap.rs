@@ -4,7 +4,15 @@ use gpui::{App, KeyBinding, KeyBindingContextPredicate};
 use serde::Deserialize;
 
 const KEYMAP_FILE: &str = "keymap.json";
-const DEFAULT_KEYMAP_JSON: &str = include_str!("../resources/default_keymap.json");
+
+#[cfg(target_os = "macos")]
+const DEFAULT_KEYMAP_JSON: &str = include_str!("../resources/default-macos.json");
+#[cfg(target_os = "linux")]
+const DEFAULT_KEYMAP_JSON: &str = include_str!("../resources/default-linux.json");
+#[cfg(target_os = "windows")]
+const DEFAULT_KEYMAP_JSON: &str = include_str!("../resources/default-windows.json");
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+const DEFAULT_KEYMAP_JSON: &str = include_str!("../resources/default-linux.json");
 
 #[derive(Debug, Deserialize)]
 #[serde(transparent)]
@@ -156,19 +164,25 @@ fn keymap_file_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_KEYMAP_JSON, KeymapFile};
+    use super::KeymapFile;
+
+    const DEFAULT_MACOS_KEYMAP_JSON: &str = include_str!("../resources/default-macos.json");
+    const DEFAULT_LINUX_KEYMAP_JSON: &str = include_str!("../resources/default-linux.json");
+    const DEFAULT_WINDOWS_KEYMAP_JSON: &str = include_str!("../resources/default-windows.json");
 
     #[test]
-    fn parses_default_action_keymap_file() {
-        let keymap_file = serde_json::from_str::<KeymapFile>(DEFAULT_KEYMAP_JSON).unwrap();
+    fn parses_default_action_keymap_files() {
+        assert_platform_keymap(DEFAULT_MACOS_KEYMAP_JSON, "cmd-b");
+        assert_platform_keymap(DEFAULT_LINUX_KEYMAP_JSON, "ctrl-b");
+        assert_platform_keymap(DEFAULT_WINDOWS_KEYMAP_JSON, "ctrl-b");
+    }
 
-        assert!(
-            keymap_file
-                .0
-                .iter()
-                .any(|section| section.bindings.get("cmd-b").map(String::as_str)
-                    == Some("menu::RichTextBold"))
-        );
+    fn assert_platform_keymap(keymap_json: &str, bold_keystroke: &str) {
+        let keymap_file = serde_json::from_str::<KeymapFile>(keymap_json).unwrap();
+
+        assert!(keymap_file.0.iter().any(|section| {
+            section.bindings.get(bold_keystroke).map(String::as_str) == Some("menu::RichTextBold")
+        }));
         assert!(
             keymap_file
                 .0
