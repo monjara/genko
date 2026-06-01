@@ -864,9 +864,11 @@ impl VimController {
         let is_visual = VimState::global(cx).mode == VimMode::Visual;
         let is_visual_block = VimState::global(cx).mode == VimMode::VisualBlock;
         self.editor.update(cx, |editor, cx| {
-            editor.move_cursor_by_cells_command(delta, is_visual, cx);
+            editor.move_cursor_by_cells_command(delta, false, cx);
         });
-        if is_visual_block {
+        if is_visual {
+            self.sync_visual_selection_for_current_cursor(window, cx);
+        } else if is_visual_block {
             self.sync_block_selection_for_current_cursor(window, cx);
         }
     }

@@ -28,6 +28,7 @@ struct PaintState {
     visible_text: std::sync::Arc<[CellText]>,
     rich_text_meta: RichTextDocumentMeta,
     selected_range: Range<usize>,
+    selected_cell_range: Option<Range<usize>>,
     marked_range: Option<Range<usize>>,
     block_selection: Option<crate::editor::BlockSelection>,
     cursor_index: usize,
@@ -155,6 +156,7 @@ impl Element for EditorCanvas {
         let paint_state = self.editor.update(cx, |editor, _cx| PaintState {
             visible_text: editor.visible_text(),
             rich_text_meta: editor.rich_text_meta().clone(),
+            selected_cell_range: selected_cell_range(editor, &editor.selected_range),
             selected_range: editor.selected_range.clone(),
             marked_range: editor.marked_range.clone(),
             block_selection: editor.block_selection,
@@ -171,6 +173,7 @@ impl Element for EditorCanvas {
             visible_text,
             rich_text_meta,
             selected_range,
+            selected_cell_range,
             marked_range,
             block_selection,
             cursor_index,
@@ -211,6 +214,7 @@ impl Element for EditorCanvas {
         paint_selection(
             &visible_text,
             &selected_range,
+            selected_cell_range.as_ref(),
             marked_range.as_ref(),
             block_selection,
             content_bounds,
@@ -493,6 +497,7 @@ fn build_grid_path_cache(
 fn paint_selection(
     visible_text: &[CellText],
     selected_range: &Range<usize>,
+    selected_cell_range: Option<&Range<usize>>,
     marked_range: Option<&Range<usize>>,
     block_selection: Option<crate::editor::BlockSelection>,
     bounds: Bounds<Pixels>,
@@ -506,6 +511,32 @@ fn paint_selection(
     window: &mut Window,
     cx: &mut App,
 ) {
+    if let Some(selected_cell_range) = selected_cell_range {
+        for logical_index in visible_selected_indices(
+            selected_cell_range,
+            scroll_column,
+            first_visible_row,
+            rows_per_column,
+            visible_columns,
+            visible_rows,
+        ) {
+            let Some(cell_bounds) = cell_bounds_for_logical_index(
+                bounds,
+                logical_index,
+                scroll_column,
+                first_visible_row,
+                rows_per_column,
+                visible_columns,
+                visible_rows,
+                cell_size,
+                ruby_gutter_size,
+            ) else {
+                continue;
+            };
+            window.paint_quad(fill(cell_bounds, Theme::global(cx).selection_range()));
+        }
+    }
+
     if let Some(block_selection) = block_selection {
         for logical_index in block_selection_indices(
             block_selection.anchor_cell,
@@ -531,20 +562,7 @@ fn paint_selection(
 
     for cell_text in visible_text {
         if ranges_overlap(&cell_text.range, selected_range) {
-            let Some(cell_bounds) = cell_bounds_for_logical_index(
-                bounds,
-                cell_text.logical_index,
-                scroll_column,
-                first_visible_row,
-                rows_per_column,
-                visible_columns,
-                visible_rows,
-                cell_size,
-                ruby_gutter_size,
-            ) else {
-                continue;
-            };
-            window.paint_quad(fill(cell_bounds, Theme::global(cx).selection_range()));
+            continue;
         } else if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
             let Some(cell_bounds) = cell_bounds_for_logical_index(
                 bounds,
@@ -572,6 +590,73 @@ fn paint_selection(
             ));
         }
     }
+}
+
+fn selected_cell_range(editor: &Editor, selected_range: &Range<usize>) -> Option<Range<usize>> {
+    if selected_range.is_empty() {
+        return None;
+    }
+
+    let (start, end) = if editor.selection_reversed {
+        let cursor_cell = editor.cursor_cell;
+        let anchor_offset = editor.previous_boundary(selected_range.end);
+        let anchor_cell = editor.display_cell_for_byte(anchor_offset);
+        (
+            cursor_cell.min(anchor_cell),
+            cursor_cell.max(anchor_cell) + 1,
+        )
+    } else {
+        let anchor_cell = editor.display_cell_for_byte(selected_range.start);
+        let cursor_cell = editor.cursor_cell;
+        let cursor_offset = editor.byte_offset_for_display_cell(cursor_cell);
+        let includes_cursor_cell = editor.previous_boundary(selected_range.end) == cursor_offset;
+        let end = if includes_cursor_cell {
+            cursor_cell.saturating_add(1)
+        } else {
+            cursor_cell
+        };
+        (anchor_cell.min(end), anchor_cell.max(end))
+    };
+
+    (start < end).then_some(start..end)
+}
+
+fn visible_selected_indices(
+    selected_cell_range: &Range<usize>,
+    scroll_column: usize,
+    first_visible_row: usize,
+    rows_per_column: usize,
+    visible_columns: usize,
+    visible_rows: usize,
+) -> impl Iterator<Item = usize> {
+    let rows_per_column = rows_per_column.max(1);
+    let selected_start_column = selected_cell_range.start / rows_per_column;
+    let selected_start_row = selected_cell_range.start % rows_per_column;
+    let selected_end_cell = selected_cell_range.end.saturating_sub(1);
+    let selected_end_column = selected_end_cell / rows_per_column;
+    let selected_end_row = selected_end_cell % rows_per_column;
+    let first_column = scroll_column.max(selected_start_column);
+    let last_column_exclusive = scroll_column
+        .saturating_add(visible_columns)
+        .min(selected_end_column.saturating_add(1));
+    let visible_end_row = first_visible_row.saturating_add(visible_rows);
+
+    (first_column..last_column_exclusive).flat_map(move |column| {
+        let first_row = if column == selected_start_column {
+            selected_start_row
+        } else {
+            0
+        }
+        .max(first_visible_row);
+        let last_row_exclusive = if column == selected_end_column {
+            selected_end_row.saturating_add(1)
+        } else {
+            rows_per_column
+        }
+        .min(visible_end_row);
+
+        (first_row..last_row_exclusive).map(move |row| column * rows_per_column + row)
+    })
 }
 
 fn paint_text(
