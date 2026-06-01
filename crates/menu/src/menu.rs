@@ -1,5 +1,9 @@
 use std::path::PathBuf;
 
+use document::document_io::{
+    FILE_PICKER_ERROR_TITLE, OPEN_DOCUMENT_PROMPT_LABEL, SAVE_DOCUMENT_MENU_LABEL,
+    SAVE_PATH_PICKER_ERROR_TITLE,
+};
 use gpui::{
     AnyWindowHandle, App, AppContext, Context, Menu, MenuItem, PathPromptOptions, Window, actions,
 };
@@ -21,15 +25,11 @@ actions!(
 );
 
 pub const APP_NAME: &str = "草稿";
-pub const OPEN_PROMPT_LABEL: &str = "開く";
 const SETTINGS_MENU_LABEL: &str = "設定";
 const CHECK_FOR_UPDATES_MENU_LABEL: &str = "更新を確認";
 const QUIT_MENU_LABEL: &str = "終了";
 const FILE_MENU_LABEL: &str = "ファイル";
-const SAVE_MENU_LABEL: &str = "保存";
 const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
-const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
-const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
@@ -63,8 +63,8 @@ pub fn init(cx: &mut App) {
             disabled: false,
             name: FILE_MENU_LABEL.into(),
             items: vec![
-                MenuItem::action(OPEN_PROMPT_LABEL, OpenFile),
-                MenuItem::action(SAVE_MENU_LABEL, SaveFile),
+                MenuItem::action(OPEN_DOCUMENT_PROMPT_LABEL, OpenFile),
+                MenuItem::action(SAVE_DOCUMENT_MENU_LABEL, SaveFile),
                 MenuItem::separator(),
                 MenuItem::action(EXPORT_TXT_MENU_LABEL, ExportTxt),
             ],
@@ -91,10 +91,10 @@ pub fn title_bar_menus() -> Vec<TitleBarMenu> {
         MenuBarMenu::new(
             FILE_MENU_LABEL,
             vec![
-                MenuBarItem::new(OPEN_PROMPT_LABEL, |window, cx| {
+                MenuBarItem::new(OPEN_DOCUMENT_PROMPT_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(OpenFile), cx);
                 }),
-                MenuBarItem::new(SAVE_MENU_LABEL, |window, cx| {
+                MenuBarItem::new(SAVE_DOCUMENT_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(SaveFile), cx);
                 }),
                 MenuBarItem::new(EXPORT_TXT_MENU_LABEL, |window, cx| {
@@ -165,9 +165,8 @@ pub trait MenuActionHandler: Sized + 'static {
         self.check_for_updates(window, cx);
     }
 
-    fn check_for_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn check_for_updates(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let app_version = self.app_version().to_string();
-        let _ = window;
         cx.spawn(async move |this, cx| {
             let app_version_for_request = app_version.clone();
             let update_result = cx
@@ -176,7 +175,7 @@ pub trait MenuActionHandler: Sized + 'static {
                 })
                 .await;
 
-            let _ = this.update(cx, |this, cx| match update_result {
+            if let Err(error) = this.update(cx, |this, cx| match update_result {
                 Ok(Some(available_update)) => {
                     this.show_update_available(
                         format!("v{}", available_update.current_version),
@@ -195,7 +194,9 @@ pub trait MenuActionHandler: Sized + 'static {
                 Err(detail) => {
                     this.show_menu_error(UPDATE_CHECK_ERROR_TITLE, detail, cx);
                 }
-            });
+            }) {
+                eprintln!("failed to show update check result: {error}");
+            }
         })
         .detach();
     }
@@ -205,7 +206,7 @@ pub trait MenuActionHandler: Sized + 'static {
             files: true,
             directories: true,
             multiple: false,
-            prompt: Some(OPEN_PROMPT_LABEL.into()),
+            prompt: Some(OPEN_DOCUMENT_PROMPT_LABEL.into()),
         });
 
         cx.spawn(async move |this, cx| {
@@ -217,18 +218,22 @@ pub trait MenuActionHandler: Sized + 'static {
                 Ok(Some(mut paths)) => paths.pop(),
                 Ok(None) => None,
                 Err(error) => {
-                    let _ = this.update(cx, |this, cx| {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
                         this.show_menu_error(FILE_PICKER_ERROR_TITLE, error.to_string(), cx);
-                    });
+                    }) {
+                        eprintln!("failed to show file picker error: {update_error}");
+                    }
                     None
                 }
             }) else {
                 return;
             };
 
-            let _ = this.update(cx, |this, cx| {
+            if let Err(error) = this.update(cx, |this, cx| {
                 this.open_path_from_menu(path, cx);
-            });
+            }) {
+                eprintln!("failed to open selected path: {error}");
+            }
         })
         .detach();
     }
@@ -259,18 +264,22 @@ pub trait MenuActionHandler: Sized + 'static {
             let Some(path) = (match result {
                 Ok(path) => path,
                 Err(error) => {
-                    let _ = this.update(cx, |this, cx| {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
                         this.show_menu_error(SAVE_PATH_PICKER_ERROR_TITLE, error.to_string(), cx);
-                    });
+                    }) {
+                        eprintln!("failed to show save path picker error: {update_error}");
+                    }
                     None
                 }
             }) else {
                 return;
             };
 
-            let _ = this.update(cx, |this, cx| {
+            if let Err(error) = this.update(cx, |this, cx| {
                 this.save_path_from_menu(path, contents, window_handle, cx);
-            });
+            }) {
+                eprintln!("failed to save selected path: {error}");
+            }
         })
         .detach();
     }
@@ -289,9 +298,11 @@ pub trait MenuActionHandler: Sized + 'static {
             let Some(path) = (match result {
                 Ok(path) => path,
                 Err(error) => {
-                    let _ = this.update(cx, |this, cx| {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
                         this.show_menu_error(SAVE_PATH_PICKER_ERROR_TITLE, error.to_string(), cx);
-                    });
+                    }) {
+                        eprintln!("failed to show export path picker error: {update_error}");
+                    }
                     None
                 }
             }) else {
@@ -303,9 +314,11 @@ pub trait MenuActionHandler: Sized + 'static {
                 .await;
 
             if let Err(error) = write_result {
-                let _ = this.update(cx, |this, cx| {
+                if let Err(update_error) = this.update(cx, |this, cx| {
                     this.show_menu_error(EXPORT_ERROR_TITLE, error.to_string(), cx);
-                });
+                }) {
+                    eprintln!("failed to show export error: {update_error}");
+                }
             }
         })
         .detach();

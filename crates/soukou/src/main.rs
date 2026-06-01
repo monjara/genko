@@ -1,5 +1,4 @@
 mod app;
-mod document;
 mod font;
 
 use app::{APP_ID, MAIN_WINDOW_HEIGHT, MAIN_WINDOW_WIDTH, SoukouApp};

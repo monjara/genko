@@ -1,0 +1,11 @@
+[package]
+name = "document"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "document"
+path = "src/document.rs"
+
+[dependencies]

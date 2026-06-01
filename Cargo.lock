@@ -1506,6 +1506,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "document"
+version = "0.1.0"
+
+[[package]]
 name = "document-features"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3780,6 +3784,7 @@ dependencies = [
 name = "menu"
 version = "0.1.0"
 dependencies = [
+ "document",
  "gpui",
  "reqwest 0.12.28",
  "semver",
@@ -5868,9 +5873,10 @@ dependencies = [
 
 [[package]]
 name = "soukou"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "bottom_bar",
+ "document",
  "dotenvy",
  "editor",
  "embed-resource",
