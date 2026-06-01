@@ -1532,7 +1532,7 @@ fn build_balanced(
     build_balanced_nodes(
         leaves
             .into_iter()
-            .map(|leaf| RopeNode::leaf(leaf, rows_per_column, hanging_punctuation))
+            .map(|leaf| *RopeNode::leaf(leaf, rows_per_column, hanging_punctuation))
             .collect(),
         rows_per_column,
         hanging_punctuation,
@@ -1540,7 +1540,7 @@ fn build_balanced(
 }
 
 fn build_balanced_nodes(
-    mut nodes: Vec<Box<RopeNode>>,
+    mut nodes: Vec<RopeNode>,
     rows_per_column: usize,
     hanging_punctuation: bool,
 ) -> Option<Box<RopeNode>> {
@@ -1550,9 +1550,9 @@ fn build_balanced_nodes(
 
         while let Some(left) = iter.next() {
             if let Some(right) = iter.next() {
-                next_nodes.push(concat_non_empty(
-                    left,
-                    right,
+                next_nodes.push(*concat_non_empty(
+                    Box::new(left),
+                    Box::new(right),
                     rows_per_column,
                     hanging_punctuation,
                 ));
@@ -1564,7 +1564,7 @@ fn build_balanced_nodes(
         nodes = next_nodes;
     }
 
-    nodes.pop()
+    nodes.pop().map(Box::new)
 }
 
 fn chunk_string(text: &str) -> Vec<String> {
@@ -1589,7 +1589,7 @@ fn chunk_shared_string(
     source: Arc<String>,
     rows_per_column: usize,
     hanging_punctuation: bool,
-) -> Vec<Box<RopeNode>> {
+) -> Vec<RopeNode> {
     let mut chunks = Vec::new();
     let mut chunk_start = 0;
     let mut chunk_bytes = 0;
@@ -1602,7 +1602,7 @@ fn chunk_shared_string(
                 rows_per_column,
                 hanging_punctuation,
             ) {
-                chunks.push(chunk);
+                chunks.push(*chunk);
             }
             chunk_start = byte_offset;
             chunk_bytes = 0;
@@ -1619,7 +1619,7 @@ fn chunk_shared_string(
             hanging_punctuation,
         )
     {
-        chunks.push(chunk);
+        chunks.push(*chunk);
     }
 
     chunks
