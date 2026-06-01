@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -56,14 +56,14 @@ jobs:
         run: ./scripts/bundle-mac.sh ${{ matrix.target }}
 
       - name: Upload app bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: soukou-macos-${{ matrix.target }}.app
           path: target/${{ matrix.target }}/release/bundle/osx/草稿.app
           if-no-files-found: error
 
       - name: Upload disk image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: soukou-macos-${{ matrix.target }}.dmg
           path: target/${{ matrix.target }}/release/soukou-*.dmg

@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -72,7 +72,7 @@ jobs:
         run: ./scripts/bundle-linux.sh ${{ matrix.target }}
 
       - name: Upload Linux archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: soukou-${{ matrix.target }}.tar.gz
           path: target/${{ matrix.target }}/release/草稿-linux-*.tar.gz

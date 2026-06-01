@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Verify Rust toolchain commands
         shell: cmd
@@ -46,9 +46,9 @@ jobs:
         run: powershell -ExecutionPolicy Bypass -File .\scripts\bundle-windows.ps1 -Architecture ${{ matrix.target }}
 
       - name: Upload Windows archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: 草稿-${{ matrix.target }}-pc-windows-msvc.zip
+          name: soukou-${{ matrix.target }}-pc-windows-msvc.zip
           path: target/${{ matrix.target }}-pc-windows-msvc/release/soukou-windows-${{ matrix.target }}.zip
           if-no-files-found: error
 
