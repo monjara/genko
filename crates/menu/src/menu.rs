@@ -1,9 +1,5 @@
 use std::path::PathBuf;
 
-use document::document_io::{
-    FILE_PICKER_ERROR_TITLE, OPEN_DOCUMENT_PROMPT_LABEL, SAVE_DOCUMENT_MENU_LABEL,
-    SAVE_PATH_PICKER_ERROR_TITLE,
-};
 use gpui::{
     AnyWindowHandle, App, AppContext, Context, Menu, MenuItem, PathPromptOptions, Window, actions,
 };
@@ -29,7 +25,11 @@ const SETTINGS_MENU_LABEL: &str = "設定";
 const CHECK_FOR_UPDATES_MENU_LABEL: &str = "更新を確認";
 const QUIT_MENU_LABEL: &str = "終了";
 const FILE_MENU_LABEL: &str = "ファイル";
+const OPEN_DOCUMENT_PROMPT_LABEL: &str = "開く";
+const SAVE_DOCUMENT_MENU_LABEL: &str = "保存";
 const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
+const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
+const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";

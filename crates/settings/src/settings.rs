@@ -740,21 +740,12 @@ impl ColumnNumberMode {
             Self::All => "全列",
         }
     }
-
-    pub fn should_show(self, column_number: usize) -> bool {
-        match self {
-            Self::Hidden => false,
-            Self::EveryFive => column_number.is_multiple_of(5),
-            Self::EveryTen => column_number.is_multiple_of(10),
-            Self::All => true,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub struct KeymapEntry {
-    pub id: String,
-    pub keystroke: String,
+struct KeymapEntry {
+    id: String,
+    keystroke: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -769,7 +760,7 @@ pub struct AppSettings {
     pub vim_mode: bool,
     #[serde(rename = "indentOnEnter")]
     pub indent_on_enter: bool,
-    pub keymap: Vec<KeymapEntry>,
+    keymap: Vec<KeymapEntry>,
 }
 
 impl Global for AppSettings {}
@@ -804,14 +795,6 @@ impl AppSettings {
     }
 
     pub fn default_rows_per_column() -> usize {
-        DEFAULT_ROWS_PER_COLUMN
-    }
-
-    pub fn min_rows_per_column() -> usize {
-        DEFAULT_ROWS_PER_COLUMN
-    }
-
-    pub fn max_rows_per_column() -> usize {
         DEFAULT_ROWS_PER_COLUMN
     }
 

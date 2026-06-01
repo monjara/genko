@@ -1,7 +1,7 @@
 mod app;
 mod font;
 
-use app::{APP_ID, MAIN_WINDOW_HEIGHT, MAIN_WINDOW_WIDTH, SoukouApp};
+use app::SoukouApp;
 use gpui::{
     App, AppContext, Bounds, Focusable, WindowBounds, WindowDecorations, WindowOptions, actions,
     px, size,
@@ -9,10 +9,14 @@ use gpui::{
 use menu::{OpenSettings, Quit};
 use settings::open_settings_window;
 
+const APP_ID: &str = "dev.monj.soukou";
+const MAIN_WINDOW_WIDTH: f32 = 1200.0;
+const MAIN_WINDOW_HEIGHT: f32 = 800.0;
+
 actions!(soukou, [DismissActiveModal, OpenModalPrimary]);
 
 fn main() {
-    if env::development_mode() {
+    if std::env::var("SOUKOU_DEVELOPMENT_MODE").is_ok() {
         let _ = dotenvy::dotenv();
     }
 

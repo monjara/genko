@@ -317,7 +317,7 @@ fn paint_column_numbers(
     for column in 0..visible_columns {
         let logical_column = scroll_column + (visible_columns - 1 - column);
         let column_number = logical_column + 1;
-        if !mode.should_show(column_number) {
+        if !should_show_column_number(mode, column_number) {
             continue;
         }
 
@@ -349,6 +349,15 @@ fn paint_column_numbers(
             cx,
         )
         .ok();
+    }
+}
+
+fn should_show_column_number(mode: ColumnNumberMode, column_number: usize) -> bool {
+    match mode {
+        ColumnNumberMode::Hidden => false,
+        ColumnNumberMode::EveryFive => column_number.is_multiple_of(5),
+        ColumnNumberMode::EveryTen => column_number.is_multiple_of(10),
+        ColumnNumberMode::All => true,
     }
 }
 

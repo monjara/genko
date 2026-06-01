@@ -6,10 +6,8 @@ use bottom_bar::BottomBar;
 use document::{
     ActiveDocument, DocumentKind,
     document_io::{
-        DocumentOpenTarget, FILE_OPEN_ERROR_TITLE, FILE_SAVE_ERROR_TITLE, SavedDocumentTarget,
-        UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL, classify_open_path, classify_saved_document_path,
-        current_directory_or_fallback, read_document_to_string, suggested_file_name,
-        suggested_save_directory, write_document_string,
+        DocumentOpenTarget, SavedDocumentTarget, classify_open_path, classify_saved_document_path,
+        current_directory_or_fallback, suggested_file_name, suggested_save_directory,
     },
 };
 use editor::{EditorController, VimCommandQuit, VimCommandWrite};
@@ -30,15 +28,16 @@ use workspace::{
 
 use crate::{DismissActiveModal, OpenModalPrimary};
 
-pub(crate) const APP_ID: &str = "dev.monj.soukou";
-pub(crate) const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub(crate) const MAIN_WINDOW_WIDTH: f32 = 1200.0;
-pub(crate) const MAIN_WINDOW_HEIGHT: f32 = 800.0;
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
 const WINDOW_TITLE_SEPARATOR: &str = " - ";
+const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
+const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
+const SUPPORTED_OPEN_ERROR_DETAIL: &str = "現在は .txt ファイルに対応しています";
+const UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL: &str = "サポートしていないファイルは保存できません";
 
-pub(crate) struct SoukouApp {
+pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
     workspace: Entity<Workspace>,
     active_document: ActiveDocument,
@@ -66,12 +65,7 @@ enum AppModal {
 }
 
 impl SoukouApp {
-    pub(super) fn open_external_url(
-        &mut self,
-        url: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn open_external_url(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]
         {
             let launch_result = ["xdg-open", "gio"]
@@ -102,7 +96,7 @@ impl SoukouApp {
         window.activate_window();
     }
 
-    pub(super) fn show_error_modal(&mut self, title: &str, detail: String, cx: &mut Context<Self>) {
+    fn show_error_modal(&mut self, title: &str, detail: String, cx: &mut Context<Self>) {
         self.active_modal = Some(AppModal::Error {
             title: title.to_string(),
             detail,
@@ -110,7 +104,7 @@ impl SoukouApp {
         cx.notify();
     }
 
-    pub(super) fn show_info_modal(&mut self, title: &str, detail: String, cx: &mut Context<Self>) {
+    fn show_info_modal(&mut self, title: &str, detail: String, cx: &mut Context<Self>) {
         self.active_modal = Some(AppModal::Info {
             title: title.to_string(),
             detail,
@@ -118,7 +112,7 @@ impl SoukouApp {
         cx.notify();
     }
 
-    pub(crate) fn new(cx: &mut Context<Self>) -> Self {
+    pub(super) fn new(cx: &mut Context<Self>) -> Self {
         let quit_mac = AppSettings::global(cx).keymap_keystroke("app.quit.mac");
         let open_file_mac = AppSettings::global(cx).keymap_keystroke("app.open_file.mac");
         let save_file_mac = AppSettings::global(cx).keymap_keystroke("app.save_file.mac");
@@ -175,11 +169,11 @@ impl SoukouApp {
         }
     }
 
-    pub(super) fn sync_window_title(&self, window: &mut Window, cx: &App) {
+    fn sync_window_title(&self, window: &mut Window, cx: &App) {
         window.set_window_title(&self.window_title(cx));
     }
 
-    pub(super) fn dismiss_active_modal_action(
+    fn dismiss_active_modal_action(
         &mut self,
         _: &DismissActiveModal,
         _window: &mut Window,
@@ -189,7 +183,7 @@ impl SoukouApp {
         cx.notify();
     }
 
-    pub(super) fn open_modal_primary_action(
+    fn open_modal_primary_action(
         &mut self,
         _: &OpenModalPrimary,
         window: &mut Window,
@@ -199,15 +193,15 @@ impl SoukouApp {
         self.active_modal = None;
         cx.notify();
 
-        match modal {
-            Some(AppModal::UpdateAvailable {
-                release_page_url, ..
-            }) => self.open_external_url(release_page_url.as_str(), window, cx),
-            _ => {}
+        if let Some(AppModal::UpdateAvailable {
+            release_page_url, ..
+        }) = modal
+        {
+            self.open_external_url(release_page_url.as_str(), window, cx)
         }
     }
 
-    pub(super) fn open_workspace_action(
+    fn open_workspace_action(
         &mut self,
         _: &OpenWorkspace,
         window: &mut Window,
@@ -216,7 +210,7 @@ impl SoukouApp {
         MenuActionHandler::open_file(self, window, cx);
     }
 
-    pub(super) fn toggle_workspace_pane_action(
+    fn toggle_workspace_pane_action(
         &mut self,
         _: &ToggleWorkspacePane,
         _window: &mut Window,
@@ -227,7 +221,7 @@ impl SoukouApp {
         cx.notify();
     }
 
-    pub(super) fn vim_command_write_action(
+    fn vim_command_write_action(
         &mut self,
         _: &VimCommandWrite,
         window: &mut Window,
@@ -236,7 +230,7 @@ impl SoukouApp {
         MenuActionHandler::save_file(self, window, cx);
     }
 
-    pub(super) fn vim_command_quit_action(
+    fn vim_command_quit_action(
         &mut self,
         _: &VimCommandQuit,
         _window: &mut Window,
@@ -245,7 +239,7 @@ impl SoukouApp {
         cx.quit();
     }
 
-    pub(super) fn drop_external_paths(
+    fn drop_external_paths(
         &mut self,
         paths: &ExternalPaths,
         window: &mut Window,
@@ -254,11 +248,11 @@ impl SoukouApp {
         self.open_dropped_paths(paths, window, cx);
     }
 
-    pub(super) fn current_document_kind(&self, _cx: &App) -> DocumentKind {
+    fn current_document_kind(&self, _cx: &App) -> DocumentKind {
         DocumentKind::PlainText
     }
 
-    pub(super) fn workspace_pane_visible(&self, cx: &App) -> bool {
+    fn workspace_pane_visible(&self, cx: &App) -> bool {
         WorkspaceState::global(cx).is_pane_visible()
     }
 
@@ -305,7 +299,7 @@ impl SoukouApp {
         cx.notify();
     }
 
-    pub(super) fn save_document_to_path(
+    fn save_document_to_path(
         &mut self,
         path: PathBuf,
         contents: String,
@@ -438,15 +432,15 @@ impl SoukouApp {
         }
     }
 
-    pub(super) fn open_workspace_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+    fn open_workspace_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         self.open_path_target(classify_open_path(path), true, cx);
     }
 
-    pub(super) fn open_menu_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+    fn open_menu_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         self.open_path_target(classify_open_path(path), false, cx);
     }
 
-    pub(super) fn open_dropped_paths(
+    fn open_dropped_paths(
         &mut self,
         paths: &ExternalPaths,
         _window: &mut Window,
@@ -455,7 +449,7 @@ impl SoukouApp {
         let Some(path) = paths.paths().first().cloned() else {
             self.show_error_modal(
                 FILE_OPEN_ERROR_TITLE,
-                DocumentKind::supported_open_error_detail().into(),
+                SUPPORTED_OPEN_ERROR_DETAIL.into(),
                 cx,
             );
             return;
@@ -886,4 +880,12 @@ fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {
         b: left.b * inv + right.b * ratio,
         a: left.a * inv + right.a * ratio,
     }
+}
+
+fn read_document_to_string(path: PathBuf) -> std::io::Result<(PathBuf, String)> {
+    std::fs::read_to_string(&path).map(|text| (path, text))
+}
+
+fn write_document_string(path: PathBuf, contents: String) -> std::io::Result<PathBuf> {
+    std::fs::write(&path, contents.as_bytes()).map(|_| path)
 }

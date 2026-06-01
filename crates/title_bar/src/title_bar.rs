@@ -8,12 +8,12 @@ use theme::Theme;
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use ui::MenuBar;
 
-pub use ui::{MenuBarItem as TitleBarMenuItem, MenuBarMenu as TitleBarMenu};
+pub use ui::MenuBarMenu as TitleBarMenu;
 
 const MAC_TRAFFIC_LIGHT_PADDING: f32 = 71.0;
 const SIDE_SLOT_WIDTH: f32 = 160.0;
 pub const CLIENT_SIDE_DECORATION_ROUNDING: Pixels = px(10.0);
-pub const CLIENT_SIDE_SHADOW_SIZE: Pixels = px(10.0);
+const CLIENT_SIDE_SHADOW_SIZE: Pixels = px(10.0);
 
 pub fn configure_window_options(mut options: gpui::WindowOptions) -> gpui::WindowOptions {
     options.titlebar = Some(TitlebarOptions {
@@ -83,8 +83,7 @@ pub fn apply_client_side_window_frame(container: Div, window: &Window) -> Div {
     }
 }
 
-// TODO crates fix visibility of this function
-pub fn client_window_shadow() -> Vec<BoxShadow> {
+fn client_window_shadow() -> Vec<BoxShadow> {
     vec![BoxShadow {
         color: Hsla {
             h: 0.0,
@@ -98,7 +97,6 @@ pub fn client_window_shadow() -> Vec<BoxShadow> {
     }]
 }
 
-// TODO crates fix visibility of this function
 pub fn platform_title_bar_height(window: &Window) -> Pixels {
     #[cfg(target_os = "windows")]
     {

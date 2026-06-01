@@ -1,7 +1,7 @@
 use gpui::{Bounds, Pixels, point, px, size};
 use settings::{AppSettings, ColumnNumberMode};
 
-use super::AUTOMATIC_ROWS_RESERVED_CELLS;
+const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
 
 pub(crate) fn column_number_header_height(mode: ColumnNumberMode, cell_size: f32) -> Pixels {
     if mode == ColumnNumberMode::Hidden {
@@ -86,7 +86,7 @@ pub(crate) fn visible_columns_for_window_width(
 pub(crate) fn rows_per_column_for_window_height(height: Pixels, cell_size: f32) -> usize {
     ((height / px(cell_size)).floor() as usize)
         .saturating_sub(AUTOMATIC_ROWS_RESERVED_CELLS)
-        .clamp(1, AppSettings::max_rows_per_column())
+        .clamp(1, AppSettings::default_rows_per_column())
 }
 
 pub(crate) fn content_height_for_window_height(

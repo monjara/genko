@@ -20,7 +20,6 @@ bottom_bar = { workspace = true }
 document = { workspace = true }
 dotenvy = { workspace = true }
 editor = { workspace = true, features = ["embedded-ipadic"] }
-env = { workspace = true }
 gpui = { workspace = true }
 gpui_platform = { workspace = true }
 icons = { workspace = true }

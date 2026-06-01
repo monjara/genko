@@ -15,10 +15,7 @@ use workspace_entry_row::WorkspaceEntryRow;
 
 actions!(workspace, [ToggleWorkspacePane, OpenWorkspace]);
 
-pub const DEFAULT_WORKSPACE_PANE_WIDTH: f32 = 280.0;
-pub const MIN_WORKSPACE_PANE_WIDTH: f32 = 180.0;
-pub const MAX_WORKSPACE_PANE_WIDTH: f32 = 520.0;
-pub const COLLAPSED_WORKSPACE_RAIL_WIDTH: f32 = 36.0;
+const DEFAULT_WORKSPACE_PANE_WIDTH: f32 = 280.0;
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -52,7 +49,8 @@ impl WorkspaceState {
         cx.global_mut::<Self>()
     }
 
-    pub fn new() -> Self {
+    #[cfg(test)]
+    fn new() -> Self {
         Self::default()
     }
 
@@ -153,11 +151,11 @@ pub struct WorkspaceEntry {
 }
 
 impl WorkspaceEntry {
-    pub fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 }
@@ -188,7 +186,7 @@ impl Workspace {
         Self {}
     }
 
-    pub fn toggle_pane(&mut self, cx: &mut Context<Self>) {
+    fn toggle_pane(&mut self, cx: &mut Context<Self>) {
         WorkspaceState::global_mut(cx).toggle_pane();
         cx.notify();
     }

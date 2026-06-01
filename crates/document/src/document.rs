@@ -9,17 +9,7 @@ pub enum DocumentKind {
 }
 
 impl DocumentKind {
-    pub fn default_file_name(self) -> &'static str {
-        match self {
-            Self::PlainText => "untitled.txt",
-        }
-    }
-
-    pub fn supported_open_error_detail() -> &'static str {
-        "現在は .txt ファイルに対応しています"
-    }
-
-    pub fn from_path(path: &Path) -> Option<Self> {
+    pub(crate) fn from_path(path: &Path) -> Option<Self> {
         let extension = path.extension()?.to_str()?;
         if extension.eq_ignore_ascii_case("txt") {
             return Some(Self::PlainText);

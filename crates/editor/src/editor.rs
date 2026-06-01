@@ -26,7 +26,6 @@ use crate::editor_canvas::GridPathCache;
 use crate::perf::{log_paste_perf, paste_perf_enabled};
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
-pub(crate) const AUTOMATIC_ROWS_RESERVED_CELLS: usize = 4;
 pub(crate) const DEFAULT_CELL_SIZE: f32 = 28.0;
 pub(crate) const DEFAULT_RUBY_GUTTER_SIZE: f32 = 10.0;
 pub(crate) const RUBY_GUTTER_RATIO: f32 = DEFAULT_RUBY_GUTTER_SIZE / DEFAULT_CELL_SIZE;

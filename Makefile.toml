@@ -20,6 +20,13 @@ args = ["watch", "-x", "run"]
 SOUKOU_DEVELOPMENT_MODE = "1"
 SOUKOU_DEVELOPMENT_WATCH_MODE = "1"
 
+[tasks.format]
+command = "cargo"
+args = ["fmt", "--all"]
+
+[tasks.fmt]
+alias = "format"
+
 [tasks.test]
 command = "cargo"
 args = ["test", "--offline", "--all"]

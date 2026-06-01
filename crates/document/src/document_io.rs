@@ -1,18 +1,7 @@
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use crate::DocumentKind;
 
-pub const OPEN_DOCUMENT_PROMPT_LABEL: &str = "開く";
-pub const SAVE_DOCUMENT_MENU_LABEL: &str = "保存";
-pub const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
-pub const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
-pub const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
-pub const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
-pub const UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL: &str =
-    "サポートしていないファイルは保存できません";
 const CURRENT_DIRECTORY_FALLBACK: &str = ".";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,17 +53,13 @@ pub fn suggested_file_name(
     workspace_suggested_file_name: Option<&str>,
     document_kind: DocumentKind,
 ) -> String {
+    let default_file_name = match document_kind {
+        DocumentKind::PlainText => "untitled.txt",
+    };
+
     workspace_suggested_file_name
-        .unwrap_or(document_kind.default_file_name())
+        .unwrap_or(default_file_name)
         .to_string()
-}
-
-pub fn read_document_to_string(path: PathBuf) -> io::Result<(PathBuf, String)> {
-    std::fs::read_to_string(&path).map(|text| (path, text))
-}
-
-pub fn write_document_string(path: PathBuf, contents: String) -> io::Result<PathBuf> {
-    std::fs::write(&path, contents.as_bytes()).map(|_| path)
 }
 
 #[cfg(test)]

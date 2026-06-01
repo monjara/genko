@@ -26,6 +26,7 @@ impl Theme {
         cx.global::<Self>()
     }
 
+    #[allow(dead_code)]
     pub fn global_mut(cx: &mut App) -> &mut Self {
         cx.global_mut::<Self>()
     }
