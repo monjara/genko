@@ -1,97 +1,96 @@
 # 草稿
 
-思考の速度で編集する。日本語入力のための軽量で高速な原稿用紙アプリ。
+日本語入力のための原稿用紙アプリです。
 
-## roadmap
+## 開発環境
 
-### Version 0.2
+推奨は Nix flakes を使う方法です。Rust、cargo-make、cargo-watch、rust-analyzer、Linux の実行に必要なライブラリなどは dev shell に含まれます。
 
-- [ ] 日本語IME入力
-- [ ] 変換中表示
-- [ ] 変換確定
-- [ ] 連続入力
-- [ ] 長文入力で破綻しない
-- [ ] かな/英数切り替え
-- [ ] 絵文字でクラッシュしない
-- [ ] サロゲートペア対応
-- [ ] 合成文字対応
-- [ ] キャレット位置が正しい
-- [ ] IME候補位置が正しい
-- [ ] スクロール時に追従
-- [ ] ページ跨ぎで壊れない
-- [ ] 縦書きで違和感ない
-- [ ] Backspace
-- [ ] Delete
-- [ ] Enter
-- [ ] 改行
-- [ ] 範囲選択
-- [ ] コピー
-- [ ] カット
-- [ ] ペースト
-- [ ] Undo
-- [ ] Redo
-- [ ] マス目がズレない
-- [ ] リサイズで壊れない
-- [ ] スクロールでちらつかない
-- [ ] 高DPIで綺麗
-- [ ] 長文でFPS低下しすぎない
-- [ ] マス目がズレない
-- [ ] リサイズで壊れない
-- [ ] スクロールでちらつかない
-- [ ] 高DPIで綺麗
-- [ ] 長文でFPS低下しすぎない
-- [ ] 句読点位置
-- [ ] 括弧回転
-- [ ] 英数字の扱い
-- [ ] 中黒
-- [ ] 三点リーダ
-- [ ] ダッシュ
-- [ ] 禁則処理（最低限）
-- [ ] ページ送り
-- [ ] ページ境界表示
-- [ ] スクロール位置保持
-- [ ] ページ増減で壊れない
-- [ ] 新規作成
-- [ ] 保存
-- [ ] 名前を付けて保存
-- [ ] 再読み込み
-- [ ] 自動保存
-- [ ] クラッシュ後復帰（できれば）
-- [ ] UTF-8
-- [ ] 改行コード混在で壊れな
-- [ ] 数十万文字で固まらない
-- [ ] リサイズ
-- [ ] 最小化
-- [ ] フルスクリーン
-- [ ] 複数ウィンドウ（できれば）
-- [ ] Cmd+S
-- [ ] Cmd+Z
-- [ ] Cmd+Shift+Z
-- [ ] Cmd+C
-- [ ] Cmd+V
-- [ ] Cmd+X
-- [ ] Cmd+A
-- [ ] About
-- [ ] Quit
-- [ ] Save
-- [ ] Edit
-- [ ] 空文字
-- [ ] 超長文
-- [ ] IME変換中削除
-- [ ] ページ境界
-- [ ] ウィンドウ縮小
-- [ ] 高速スクロール
-- [ ] 高速Undo
-- [ ] unwrap() 減らす
-- [ ] panicで落ちない
-- [ ] ログ出力ある
-- [ ] release build確認
-- [ ] アプリ化
-- [ ] .app 化
-- [ ] アイコン
-- [ ] アプリ名
-- [ ] バージョン
-- [ ] 文字数表示
-- [ ] 枚数表示
-- [ ] 行数設定
-- [ ] 1ページ字数設定
+```sh
+nix develop
+```
+
+Nix を使わない場合は、少なくとも以下を用意してください。
+
+- Rust toolchain
+- `cargo-make`
+- `cargo-watch`
+- `pkg-config`
+- C/C++ toolchain
+- Linux では GPUI 実行に必要な Wayland/X11、Vulkan、ALSA、fontconfig などの開発ライブラリ
+
+## 起動
+
+```sh
+cargo make dev
+```
+
+watch しながら起動する場合:
+
+```sh
+cargo make watch
+```
+
+直接 cargo で起動する場合:
+
+```sh
+SOUKOU_DEVELOPMENT_MODE=1 cargo run
+```
+
+## よく使うコマンド
+
+```sh
+cargo make check
+cargo make test
+cargo make fmt
+```
+
+個別に実行する場合:
+
+```sh
+cargo check --workspace
+cargo test -p settings
+cargo test -p keymap
+cargo fmt
+```
+
+## 設定ファイル
+
+設定ファイルは XDG ベースディレクトリ配下の `soukou` 設定ディレクトリに配置されます。
+
+- `settings.json`: 表示や編集挙動の設定
+- `keymap.json`: キーバインド上書き
+
+設定ファイルを開く:
+
+```sh
+cargo make configure
+```
+
+## 新しい crate の作成
+
+```sh
+cargo make new <crate-name>
+```
+
+新しい crate を手で追加する場合は、`lib.rs` ではなく `Cargo.toml` の `[lib] path = "...rs"` でライブラリファイル名を明示してください。
+
+## Nix
+
+通常の開発:
+
+```sh
+nix develop
+```
+
+ビルド確認:
+
+```sh
+nix build
+```
+
+実行:
+
+```sh
+nix run
+```
