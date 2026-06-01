@@ -6,7 +6,7 @@ use gpui::{
     InteractiveElement, IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement, Pixels, Point, Render, ShapedLine,
     SharedString, Style, Styled, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
-    fill, hsla, point, px, relative, rgba, size, white,
+    fill, hsla, point, prelude::FluentBuilder, px, relative, rgba, size, white,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -72,8 +72,10 @@ pub struct TextInput {
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
     last_layout: Option<ShapedLine>,
+    last_vertical_advance: Option<Pixels>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    vertical: bool,
 }
 
 impl TextInput {
@@ -86,8 +88,10 @@ impl TextInput {
             selection_reversed: false,
             marked_range: None,
             last_layout: None,
+            last_vertical_advance: None,
             last_bounds: None,
             is_selecting: false,
+            vertical: false,
         }
     }
 
@@ -106,6 +110,13 @@ impl TextInput {
 
     pub fn set_placeholder(&mut self, placeholder: &str, cx: &mut Context<Self>) {
         self.placeholder = placeholder.into();
+        cx.notify();
+    }
+
+    pub fn set_vertical(&mut self, vertical: bool, cx: &mut Context<Self>) {
+        self.vertical = vertical;
+        self.last_layout = None;
+        self.last_vertical_advance = None;
         cx.notify();
     }
 
@@ -323,6 +334,21 @@ impl TextInput {
             .find_map(|(index, _)| (index > offset).then_some(index))
             .unwrap_or(self.content.len())
     }
+
+    fn vertical_index_for_offset(&self, offset: usize) -> usize {
+        self.content
+            .grapheme_indices(true)
+            .take_while(|(index, _)| *index < offset)
+            .count()
+    }
+
+    fn offset_for_vertical_index(&self, target_index: usize) -> usize {
+        self.content
+            .grapheme_indices(true)
+            .nth(target_index)
+            .map(|(index, _)| index)
+            .unwrap_or(self.content.len())
+    }
 }
 
 impl EntityInputHandler for TextInput {
@@ -423,8 +449,19 @@ impl EntityInputHandler for TextInput {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let line = self.last_layout.as_ref()?;
         let range = self.range_from_utf16(&range_utf16);
+        if self.vertical {
+            let advance = self.last_vertical_advance?;
+            let start_index = self.vertical_index_for_offset(range.start);
+            let end_index = self
+                .vertical_index_for_offset(range.end)
+                .max(start_index + 1);
+            return Some(Bounds::from_corners(
+                point(bounds.left(), bounds.top() + advance * start_index as f32),
+                point(bounds.right(), bounds.top() + advance * end_index as f32),
+            ));
+        }
+        let line = self.last_layout.as_ref()?;
         Some(Bounds::from_corners(
             point(bounds.left() + line.x_for_index(range.start), bounds.top()),
             point(bounds.left() + line.x_for_index(range.end), bounds.bottom()),
@@ -438,6 +475,11 @@ impl EntityInputHandler for TextInput {
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
         let line_point = self.last_bounds?.localize(&point)?;
+        if self.vertical {
+            let advance = self.last_vertical_advance?;
+            let index = ((point.y - line_point.y) / advance).floor().max(0.0) as usize;
+            return Some(self.offset_to_utf16(self.offset_for_vertical_index(index)));
+        }
         let line = self.last_layout.as_ref()?;
         let utf8_index = line.index_for_x(point.x - line_point.x)?;
         Some(self.offset_to_utf16(utf8_index))
@@ -450,8 +492,15 @@ struct TextElement {
 
 struct PrepaintState {
     line: Option<ShapedLine>,
+    vertical_lines: Vec<VerticalLinePaint>,
     cursor: Option<PaintQuad>,
     selection: Option<PaintQuad>,
+}
+
+struct VerticalLinePaint {
+    line: ShapedLine,
+    origin: Point<Pixels>,
+    line_height: Pixels,
 }
 
 impl IntoElement for TextElement {
@@ -481,9 +530,14 @@ impl Element for TextElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
+        let input = self.input.read(cx);
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        style.size.height = window.line_height().into();
+        style.size.height = if input.vertical {
+            relative(1.).into()
+        } else {
+            window.line_height().into()
+        };
         (window.request_layout(style, [], cx), ())
     }
 
@@ -545,6 +599,73 @@ impl Element for TextElement {
         };
 
         let font_size = style.font_size.to_pixels(window.rem_size());
+        if input.vertical {
+            let line_height = px((font_size.as_f32() * 1.18).round());
+            let advance = px((font_size.as_f32() * 1.28).round());
+            let mut vertical_lines = Vec::new();
+            let mut selection = None;
+
+            for (index, (_, grapheme)) in display_text.grapheme_indices(true).enumerate() {
+                let run = TextRun {
+                    len: grapheme.len(),
+                    font: style.font(),
+                    color: text_color,
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
+                let line = window.text_system().shape_line(
+                    grapheme.to_string().into(),
+                    font_size,
+                    &[run],
+                    None,
+                );
+                let origin = point(
+                    bounds.left() + (bounds.size.width - line.width) / 2.0,
+                    bounds.top() + advance * index as f32,
+                );
+                vertical_lines.push(VerticalLinePaint {
+                    line,
+                    origin,
+                    line_height,
+                });
+            }
+
+            if !selected_range.is_empty() {
+                let start_index = input.vertical_index_for_offset(selected_range.start);
+                let end_index = input
+                    .vertical_index_for_offset(selected_range.end)
+                    .max(start_index + 1);
+                selection = Some(fill(
+                    Bounds::from_corners(
+                        point(bounds.left(), bounds.top() + advance * start_index as f32),
+                        point(bounds.right(), bounds.top() + advance * end_index as f32),
+                    ),
+                    rgba(0x3355aa33),
+                ));
+            }
+
+            let cursor = if selected_range.is_empty() {
+                let cursor_index = input.vertical_index_for_offset(cursor);
+                Some(fill(
+                    Bounds::new(
+                        point(bounds.left(), bounds.top() + advance * cursor_index as f32),
+                        size(bounds.size.width, px(2.0)),
+                    ),
+                    gpui::blue(),
+                ))
+            } else {
+                None
+            };
+
+            return PrepaintState {
+                line: None,
+                vertical_lines,
+                cursor,
+                selection,
+            };
+        }
+
         let line = window
             .text_system()
             .shape_line(display_text, font_size, &runs, None);
@@ -582,6 +703,7 @@ impl Element for TextElement {
 
         PrepaintState {
             line: Some(line),
+            vertical_lines: Vec::new(),
             cursor,
             selection,
         }
@@ -608,16 +730,32 @@ impl Element for TextElement {
             window.paint_quad(selection);
         }
 
-        let line = prepaint.line.take().unwrap();
-        line.paint(
-            bounds.origin,
-            window.line_height(),
-            gpui::TextAlign::Left,
-            None,
-            window,
-            cx,
-        )
-        .unwrap();
+        let line = prepaint.line.take();
+        if let Some(line) = line.as_ref() {
+            line.paint(
+                bounds.origin,
+                window.line_height(),
+                gpui::TextAlign::Left,
+                None,
+                window,
+                cx,
+            )
+            .unwrap();
+        } else {
+            for vertical_line in prepaint.vertical_lines.drain(..) {
+                vertical_line
+                    .line
+                    .paint(
+                        vertical_line.origin,
+                        vertical_line.line_height,
+                        gpui::TextAlign::Center,
+                        None,
+                        window,
+                        cx,
+                    )
+                    .unwrap();
+            }
+        }
 
         if focus_handle.is_focused(window)
             && let Some(cursor) = prepaint.cursor.take()
@@ -626,7 +764,14 @@ impl Element for TextElement {
         }
 
         self.input.update(cx, |input, _cx| {
-            input.last_layout = Some(line);
+            input.last_layout = line;
+            input.last_vertical_advance = input.vertical.then_some(px((window
+                .text_style()
+                .font_size
+                .to_pixels(window.rem_size())
+                .as_f32()
+                * 1.28)
+                .round()));
             input.last_bounds = Some(bounds);
         });
     }
@@ -659,10 +804,12 @@ impl Render for TextInput {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .line_height(px(18.0))
             .text_size(px(14.0))
+            .when(self.vertical, |this| this.h_full())
             .child(
                 div()
                     .w_full()
-                    .h(px(18.0 + 10.0))
+                    .when(self.vertical, |this| this.h_full())
+                    .when(!self.vertical, |this| this.h(px(18.0 + 10.0)))
                     .px_2()
                     .py_1()
                     .bg(white())

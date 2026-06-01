@@ -20,7 +20,6 @@ actions!(
         ExportEpub,
         RichTextBold,
         RichTextEmphasis,
-        RichTextRuby,
         RichTextHeading,
         RichTextPageBreak,
         Quit
@@ -39,7 +38,6 @@ const EXPORT_EPUB_MENU_LABEL: &str = "epubエクスポート";
 const RICH_TEXT_MENU_LABEL: &str = "リッチテキスト";
 const RICH_TEXT_BOLD_MENU_LABEL: &str = "太字";
 const RICH_TEXT_EMPHASIS_MENU_LABEL: &str = "傍点";
-const RICH_TEXT_RUBY_MENU_LABEL: &str = "ルビ";
 const RICH_TEXT_HEADING_MENU_LABEL: &str = "見出し";
 const RICH_TEXT_PAGE_BREAK_MENU_LABEL: &str = "改ページ";
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
@@ -91,7 +89,6 @@ pub fn init(cx: &mut App) {
             items: vec![
                 MenuItem::action(RICH_TEXT_BOLD_MENU_LABEL, RichTextBold),
                 MenuItem::action(RICH_TEXT_EMPHASIS_MENU_LABEL, RichTextEmphasis),
-                MenuItem::action(RICH_TEXT_RUBY_MENU_LABEL, RichTextRuby),
                 MenuItem::action(RICH_TEXT_HEADING_MENU_LABEL, RichTextHeading),
                 MenuItem::separator(),
                 MenuItem::action(RICH_TEXT_PAGE_BREAK_MENU_LABEL, RichTextPageBreak),
@@ -141,9 +138,6 @@ pub fn title_bar_menus() -> Vec<TitleBarMenu> {
                 }),
                 MenuBarItem::new(RICH_TEXT_EMPHASIS_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(RichTextEmphasis), cx);
-                }),
-                MenuBarItem::new(RICH_TEXT_RUBY_MENU_LABEL, |window, cx| {
-                    window.dispatch_action(Box::new(RichTextRuby), cx);
                 }),
                 MenuBarItem::new(RICH_TEXT_HEADING_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(RichTextHeading), cx);
@@ -240,16 +234,6 @@ pub trait MenuActionHandler: Sized + 'static {
         cx: &mut Context<Self>,
     ) {
         self.apply_rich_text_to_selection(RichTextKind::Emphasis, cx);
-    }
-
-    fn rich_text_ruby_action(
-        &mut self,
-        _: &RichTextRuby,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let ruby_text = self.selected_text(cx);
-        self.apply_rich_text_to_selection(RichTextKind::Ruby { text: ruby_text }, cx);
     }
 
     fn rich_text_heading_action(

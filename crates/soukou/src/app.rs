@@ -21,7 +21,7 @@ use gpui::{
 };
 use menu::{
     MenuActionHandler, OpenFile, OpenSettings, Quit, RichTextBold, RichTextEmphasis,
-    RichTextHeading, RichTextPageBreak, RichTextRuby, SaveFile,
+    RichTextHeading, RichTextPageBreak, SaveFile,
 };
 use rich_text::{RichTextDocumentMeta, RichTextEdit, RichTextKind};
 use settings::AppSettings;
@@ -33,7 +33,7 @@ use workspace::{
     scan_workspace_entries,
 };
 
-use crate::{DismissActiveModal, OpenModalPrimary};
+use crate::{CancelRubyEditor, DismissActiveModal, OpenModalPrimary};
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -151,6 +151,7 @@ impl SoukouApp {
             KeyBinding::new(save_file_ctrl.as_ref(), SaveFile, None),
             KeyBinding::new(toggle_workspace_mac.as_ref(), ToggleWorkspacePane, None),
             KeyBinding::new(toggle_workspace_ctrl.as_ref(), ToggleWorkspacePane, None),
+            KeyBinding::new("escape", CancelRubyEditor, Some("SoukouTextInput")),
         ]);
 
         let editor_controller = cx.new(EditorController::new);
@@ -574,55 +575,7 @@ impl MenuActionHandler for SoukouApp {
         } else {
             range
         };
-        self.rich_text_meta.add_mark(range, kind);
-        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
-        self.rich_text_synced_text = self.snapshot_text(cx);
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
-        });
-
-        self.save_rich_text_meta(cx);
-
-        cx.notify();
-    }
-
-    fn rich_text_ruby_action(
-        &mut self,
-        _: &RichTextRuby,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let selected_range = self.selected_byte_range(cx);
-        if selected_range.is_empty() {
-            self.show_error_modal(
-                "ルビを適用できません",
-                "｜本文《ルビ》の形式で入力した範囲を選択してください。".to_string(),
-                cx,
-            );
-            return;
-        }
-
-        let selected_text = self.selected_text(cx);
-        let Some(parsed_ruby) = rich_text::parse_ruby_markup(selected_text.as_str()) else {
-            self.show_error_modal(
-                "ルビを適用できません",
-                "｜本文《ルビ》の形式で入力した範囲を選択してください。".to_string(),
-                cx,
-            );
-            return;
-        };
-
-        let base_start = selected_range.start;
-        let base_end = base_start + parsed_ruby.base.len();
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.replace_byte_range(selected_range, parsed_ruby.base.as_str(), cx);
-        });
-        self.rich_text_meta.add_mark(
-            base_start..base_end,
-            RichTextKind::Ruby {
-                text: parsed_ruby.ruby,
-            },
-        );
+        self.rich_text_meta.toggle_mark(range, kind);
         self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
         self.rich_text_synced_text = self.snapshot_text(cx);
         self.editor_controller.update(cx, |editor_controller, cx| {
@@ -786,9 +739,9 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::export_epub_action))
                     .on_action(cx.listener(Self::rich_text_bold_action))
                     .on_action(cx.listener(Self::rich_text_emphasis_action))
-                    .on_action(cx.listener(Self::rich_text_ruby_action))
                     .on_action(cx.listener(Self::rich_text_heading_action))
                     .on_action(cx.listener(Self::rich_text_page_break_action))
+                    .on_action(cx.listener(Self::cancel_ruby_editor_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
@@ -864,6 +817,7 @@ impl SoukouApp {
         input.update(cx, |input, cx| {
             input.set_placeholder("ルビ", cx);
             input.set_text(request.text.as_str(), cx);
+            input.set_vertical(true, cx);
         });
         self.ruby_editor = Some(RubyEditorState { request, input });
         cx.notify();
@@ -888,6 +842,15 @@ impl SoukouApp {
     fn cancel_ruby_editor(&mut self, cx: &mut Context<Self>) {
         self.ruby_editor = None;
         cx.notify();
+    }
+
+    fn cancel_ruby_editor_action(
+        &mut self,
+        _: &CancelRubyEditor,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.cancel_ruby_editor(cx);
     }
 
     fn save_rich_text_meta(&self, cx: &mut Context<Self>) {
@@ -974,17 +937,18 @@ impl RenderOnce for RubyEditorPopover {
 
         let app_for_apply = self.app.clone();
         let app_for_cancel = self.app;
-        let left = (self.bounds.right() + px(6.0)).max(px(8.0));
+        let left = (self.bounds.right() + px(4.0)).max(px(8.0));
         let top = (self.bounds.top() - px(4.0)).max(px(8.0));
 
         div()
             .absolute()
             .left(left)
             .top(top)
-            .w(px(190.0))
+            .w(px(78.0))
+            .h(px(190.0))
             .p_2()
             .flex()
-            .flex_col()
+            .flex_row()
             .gap_2()
             .bg(Theme::global(cx).white())
             .border_1()
@@ -1007,30 +971,33 @@ impl RenderOnce for RubyEditorPopover {
             .child(input)
             .child(
                 div()
+                    .flex_none()
                     .flex()
-                    .justify_end()
+                    .flex_col()
                     .gap_2()
-                    .child(ruby_editor_button("取消", cx, move |cx| {
-                        app_for_cancel.update(cx, |app, cx| app.cancel_ruby_editor(cx));
-                    }))
-                    .child(ruby_editor_button("適用", cx, move |cx| {
+                    .child(ruby_editor_button(icons::CHECK, cx, move |cx| {
                         app_for_apply.update(cx, |app, cx| app.apply_ruby_editor(cx));
+                    }))
+                    .child(ruby_editor_button(icons::X, cx, move |cx| {
+                        app_for_cancel.update(cx, |app, cx| app.cancel_ruby_editor(cx));
                     })),
             )
     }
 }
 
 fn ruby_editor_button(
-    label: &'static str,
+    icon_path: &'static str,
     cx: &mut App,
     on_click: impl Fn(&mut App) + Clone + 'static,
 ) -> impl IntoElement {
     let on_click = on_click.clone();
     div()
-        .px_2()
-        .py_1()
+        .w(px(24.0))
+        .h(px(24.0))
+        .flex()
+        .items_center()
+        .justify_center()
         .rounded_sm()
-        .text_size(px(12.0))
         .text_color(Theme::global(cx).text_primary())
         .bg(Theme::global(cx).bg_senodary())
         .cursor_pointer()
@@ -1038,7 +1005,12 @@ fn ruby_editor_button(
         .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
             on_click(cx);
         })
-        .child(label)
+        .child(
+            svg()
+                .external_path(icon_path)
+                .size_4()
+                .text_color(Theme::global(cx).text_primary()),
+        )
 }
 
 #[derive(IntoElement)]
@@ -1085,7 +1057,6 @@ impl RenderOnce for RichTextToolbar {
             })
             .child(toolbar_button("B", RichTextBold, cx))
             .child(toolbar_button("•", RichTextEmphasis, cx))
-            .child(toolbar_button("ル", RichTextRuby, cx))
             .child(toolbar_button("見", RichTextHeading, cx))
             .child(toolbar_button("改", RichTextPageBreak, cx))
     }

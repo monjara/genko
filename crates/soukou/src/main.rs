@@ -13,7 +13,10 @@ const APP_ID: &str = "dev.monj.soukou";
 const MAIN_WINDOW_WIDTH: f32 = 1200.0;
 const MAIN_WINDOW_HEIGHT: f32 = 800.0;
 
-actions!(soukou, [DismissActiveModal, OpenModalPrimary]);
+actions!(
+    soukou,
+    [DismissActiveModal, OpenModalPrimary, CancelRubyEditor]
+);
 
 fn main() {
     if std::env::var("SOUKOU_DEVELOPMENT_MODE").is_ok() {

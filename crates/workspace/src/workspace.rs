@@ -138,7 +138,7 @@ impl Default for WorkspaceState {
             active_file: None,
             unsupported_file: None,
             entries: Vec::new(),
-            pane_visible: true,
+            pane_visible: false,
             pane_width: DEFAULT_WORKSPACE_PANE_WIDTH,
         }
     }

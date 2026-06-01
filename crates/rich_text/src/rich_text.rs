@@ -32,6 +32,28 @@ impl RichTextDocumentMeta {
             .sort_by_key(|mark| (mark.range.start, mark.range.end));
     }
 
+    pub fn toggle_mark(&mut self, range: Range<usize>, kind: RichTextKind) {
+        if range.start > range.end {
+            return;
+        }
+
+        if matches!(kind, RichTextKind::PageBreak) {
+            self.toggle_page_break(range.start);
+            return;
+        }
+
+        if range.is_empty() {
+            return;
+        }
+
+        if self.range_is_fully_marked(&range, &kind) {
+            self.remove_mark_kind_from_range(&range, &kind);
+        } else {
+            self.remove_mark_kind_from_range(&range, &kind);
+            self.add_mark(range, kind);
+        }
+    }
+
     pub fn set_ruby(&mut self, range: Range<usize>, text: String) {
         if range.is_empty() {
             return;
@@ -63,6 +85,66 @@ impl RichTextDocumentMeta {
                 Some(mark)
             })
             .collect();
+        self.marks
+            .sort_by_key(|mark| (mark.range.start, mark.range.end));
+    }
+
+    fn toggle_page_break(&mut self, offset: usize) {
+        let original_len = self.marks.len();
+        self.marks.retain(|mark| {
+            !matches!(mark.kind, RichTextKind::PageBreak) || mark.range.start != offset
+        });
+        if self.marks.len() == original_len {
+            self.add_mark(offset..offset, RichTextKind::PageBreak);
+        }
+    }
+
+    fn range_is_fully_marked(&self, range: &Range<usize>, kind: &RichTextKind) -> bool {
+        let mut covered_until = range.start;
+        let mut marks = self
+            .marks
+            .iter()
+            .filter(|mark| {
+                mark_kind_matches(&mark.kind, kind) && ranges_overlap(&mark.range, range)
+            })
+            .collect::<Vec<_>>();
+        marks.sort_by_key(|mark| mark.range.start);
+
+        for mark in marks {
+            if mark.range.start > covered_until {
+                return false;
+            }
+            covered_until = covered_until.max(mark.range.end.min(range.end));
+            if covered_until >= range.end {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn remove_mark_kind_from_range(&mut self, range: &Range<usize>, kind: &RichTextKind) {
+        let mut replacement = Vec::with_capacity(self.marks.len());
+        for mark in self.marks.drain(..) {
+            if !mark_kind_matches(&mark.kind, kind) || !ranges_overlap(&mark.range, range) {
+                replacement.push(mark);
+                continue;
+            }
+
+            if mark.range.start < range.start {
+                replacement.push(RichTextMark {
+                    range: mark.range.start..range.start,
+                    kind: mark.kind.clone(),
+                });
+            }
+            if range.end < mark.range.end {
+                replacement.push(RichTextMark {
+                    range: range.end..mark.range.end,
+                    kind: mark.kind,
+                });
+            }
+        }
+        self.marks = replacement;
         self.marks
             .sort_by_key(|mark| (mark.range.start, mark.range.end));
     }
@@ -208,6 +290,19 @@ fn transform_range(
 
 fn ranges_overlap(first: &Range<usize>, second: &Range<usize>) -> bool {
     first.start < second.end && second.start < first.end
+}
+
+fn mark_kind_matches(left: &RichTextKind, right: &RichTextKind) -> bool {
+    match (left, right) {
+        (RichTextKind::Bold, RichTextKind::Bold) => true,
+        (RichTextKind::Emphasis, RichTextKind::Emphasis) => true,
+        (RichTextKind::Ruby { .. }, RichTextKind::Ruby { .. }) => true,
+        (RichTextKind::Heading { level: left }, RichTextKind::Heading { level: right }) => {
+            left == right
+        }
+        (RichTextKind::PageBreak, RichTextKind::PageBreak) => true,
+        _ => false,
+    }
 }
 
 fn shift_after_edit(offset: usize, removed_range: &Range<usize>, inserted_len: usize) -> usize {
@@ -634,6 +729,51 @@ mod tests {
         meta.add_mark(10..20, RichTextKind::Bold);
 
         meta.apply_text_edit(8, 20, 0);
+
+        assert!(meta.marks().is_empty());
+    }
+
+    #[test]
+    fn toggle_removes_style_when_selection_is_fully_marked() {
+        let mut meta = RichTextDocumentMeta::default();
+        meta.add_mark(10..20, RichTextKind::Bold);
+
+        meta.toggle_mark(12..18, RichTextKind::Bold);
+
+        assert_eq!(meta.marks().len(), 2);
+        assert_eq!(meta.marks()[0].range(), &(10..12));
+        assert_eq!(meta.marks()[1].range(), &(18..20));
+    }
+
+    #[test]
+    fn toggle_applies_style_when_selection_has_unmarked_text() {
+        let mut meta = RichTextDocumentMeta::default();
+        meta.add_mark(10..14, RichTextKind::Bold);
+
+        meta.toggle_mark(10..20, RichTextKind::Bold);
+
+        assert_eq!(meta.marks().len(), 1);
+        assert_eq!(meta.marks()[0].range(), &(10..20));
+    }
+
+    #[test]
+    fn toggle_removes_style_covered_by_multiple_marks() {
+        let mut meta = RichTextDocumentMeta::default();
+        meta.add_mark(10..14, RichTextKind::Bold);
+        meta.add_mark(14..20, RichTextKind::Bold);
+
+        meta.toggle_mark(10..20, RichTextKind::Bold);
+
+        assert!(meta.marks().is_empty());
+    }
+
+    #[test]
+    fn toggle_page_break_removes_existing_break_at_offset() {
+        let mut meta = RichTextDocumentMeta::default();
+        meta.toggle_mark(10..10, RichTextKind::PageBreak);
+        assert_eq!(meta.marks().len(), 1);
+
+        meta.toggle_mark(10..10, RichTextKind::PageBreak);
 
         assert!(meta.marks().is_empty());
     }
