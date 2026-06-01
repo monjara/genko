@@ -13,6 +13,7 @@ use gpui::{
     App, Bounds, Context, EntityInputHandler, FocusHandle, Focusable, IntoElement, Pixels, Render,
     Size, UTF16Selection, Window, actions, px,
 };
+use rich_text::RichTextDocumentMeta;
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
@@ -83,6 +84,7 @@ pub struct EditOperation {
     pub(crate) start: usize,
     pub(crate) removed_text: String,
     pub(crate) inserted_text: String,
+    pub(crate) affects_rich_text: bool,
 }
 
 impl EditOperation {
@@ -96,6 +98,10 @@ impl EditOperation {
 
     pub fn inserted_text(&self) -> &str {
         self.inserted_text.as_str()
+    }
+
+    pub fn affects_rich_text(&self) -> bool {
+        self.affects_rich_text
     }
 }
 
@@ -164,6 +170,7 @@ pub(crate) struct Editor {
     pub(crate) history: EditorHistory,
     visible_text_cache: Option<VisibleTextCache>,
     last_applied_edit_batch: Option<AppliedEditBatch>,
+    rich_text_meta: RichTextDocumentMeta,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) grid_path_cache: Option<GridPathCache>,
@@ -196,6 +203,7 @@ impl Editor {
             history: EditorHistory::default(),
             visible_text_cache: None,
             last_applied_edit_batch: None,
+            rich_text_meta: RichTextDocumentMeta::default(),
             focus_handle: cx.focus_handle(),
             grid_path_cache: None,
             last_board_bounds: None,
@@ -252,6 +260,19 @@ impl Editor {
             cells: cells.clone(),
         });
         cells
+    }
+
+    pub(crate) fn rich_text_meta(&self) -> &RichTextDocumentMeta {
+        &self.rich_text_meta
+    }
+
+    pub fn set_rich_text_meta(
+        &mut self,
+        rich_text_meta: RichTextDocumentMeta,
+        cx: &mut Context<Self>,
+    ) {
+        self.rich_text_meta = rich_text_meta;
+        cx.notify();
     }
 
     pub(crate) fn visible_columns(&self) -> usize {
@@ -353,11 +374,31 @@ impl Editor {
         editor_selection::next_boundary(self, offset)
     }
 
-    pub(crate) fn materialize_cursor_cell_for_insert(
-        &mut self,
-        range: Range<usize>,
-    ) -> Range<usize> {
-        editor_selection::materialize_cursor_cell_for_insert(self, range)
+    fn materialize_cursor_cell_for_insert(&mut self, range: Range<usize>) -> Range<usize> {
+        if !range.is_empty() {
+            return range;
+        }
+
+        let previous_len = self.draft.len_bytes();
+        let offset = self.draft.materialize_display_cell(self.cursor_cell);
+        let current_len = self.draft.len_bytes();
+        self.bump_draft_revision();
+
+        if current_len > previous_len {
+            let inserted_len = current_len - previous_len;
+            let inserted_start = offset - inserted_len;
+            let inserted_text = self.draft.slice(inserted_start..offset);
+            if let Some(transaction) = self.history.active_transaction.as_mut() {
+                transaction.edits.push(EditOperation {
+                    start: inserted_start,
+                    removed_text: String::new(),
+                    inserted_text,
+                    affects_rich_text: true,
+                });
+            }
+        }
+
+        offset..offset
     }
 
     pub(crate) fn editing_range(&self, range_utf16: Option<Range<usize>>) -> Range<usize> {
@@ -631,6 +672,7 @@ impl Editor {
                 start: range.start,
                 removed_text,
                 inserted_text: new_text.to_string(),
+                affects_rich_text: true,
             });
         }
         self.draft.replace_range(range.clone(), new_text);
@@ -667,6 +709,7 @@ impl Editor {
                 start: range.start,
                 removed_text,
                 inserted_text: new_text.to_string(),
+                affects_rich_text: true,
             });
         }
         let cursor = range.start + new_text.len();
@@ -812,6 +855,7 @@ impl EntityInputHandler for Editor {
                 start: range.start,
                 removed_text,
                 inserted_text: new_text.to_string(),
+                affects_rich_text: true,
             });
         }
         self.draft.replace_range(range.clone(), new_text);

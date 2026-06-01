@@ -14,10 +14,14 @@ use editor::{EditorController, VimCommandQuit, VimCommandWrite};
 use gpui::{
     AnyWindowHandle, App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle,
     Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    Render, RenderOnce, Styled, Subscription, Window, div, point, prelude::FluentBuilder, px, svg,
-    transparent_black,
+    Pixels, Render, RenderOnce, Styled, Subscription, Window, div, point, prelude::FluentBuilder,
+    px, svg, transparent_black, white,
 };
-use menu::{MenuActionHandler, OpenFile, OpenSettings, Quit, SaveFile};
+use menu::{
+    MenuActionHandler, OpenFile, OpenSettings, Quit, RichTextBold, RichTextEmphasis,
+    RichTextHeading, RichTextPageBreak, RichTextRuby, SaveFile,
+};
+use rich_text::{RichTextDocumentMeta, RichTextEdit, RichTextKind};
 use settings::AppSettings;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
@@ -41,6 +45,9 @@ pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
     workspace: Entity<Workspace>,
     active_document: ActiveDocument,
+    rich_text_meta: RichTextDocumentMeta,
+    rich_text_synced_revision: u64,
+    rich_text_synced_text: String,
     active_modal: Option<AppModal>,
     _workspace_subscription: Subscription,
     title_bar: Entity<TitleBar>,
@@ -148,6 +155,9 @@ impl SoukouApp {
             editor_controller,
             workspace,
             active_document: ActiveDocument::default(),
+            rich_text_meta: RichTextDocumentMeta::default(),
+            rich_text_synced_revision: 0,
+            rich_text_synced_text: String::new(),
             active_modal: None,
             _workspace_subscription: workspace_subscription,
             title_bar,
@@ -256,20 +266,36 @@ impl SoukouApp {
         WorkspaceState::global(cx).is_pane_visible()
     }
 
-    fn load_plain_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
+    fn load_plain_document(
+        &mut self,
+        path: PathBuf,
+        text: &str,
+        rich_text_meta: RichTextDocumentMeta,
+        cx: &mut Context<Self>,
+    ) {
         self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.load_plain_text(text, cx)
+            editor_controller.load_plain_text(text, cx);
+            editor_controller.set_rich_text_meta(rich_text_meta.clone(), cx);
         });
         self.active_document.set_path(path);
+        self.rich_text_meta = rich_text_meta;
+        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
+        self.rich_text_synced_text = text.to_string();
     }
 
     fn notify_workspace(&self, cx: &mut Context<Self>) {
         self.workspace.update(cx, |_, cx| cx.notify());
     }
 
-    fn open_workspace_plain_document(&mut self, path: PathBuf, text: &str, cx: &mut Context<Self>) {
+    fn open_workspace_plain_document(
+        &mut self,
+        path: PathBuf,
+        text: &str,
+        rich_text_meta: RichTextDocumentMeta,
+        cx: &mut Context<Self>,
+    ) {
         WorkspaceState::global_mut(cx).open_file(path.clone());
-        self.load_plain_document(path, text, cx);
+        self.load_plain_document(path, text, rich_text_meta, cx);
         self.notify_workspace(cx);
     }
 
@@ -277,10 +303,11 @@ impl SoukouApp {
         &mut self,
         path: PathBuf,
         text: &str,
+        rich_text_meta: RichTextDocumentMeta,
         cx: &mut Context<Self>,
     ) {
         WorkspaceState::global_mut(cx).open_file_without_root(path.clone());
-        self.load_plain_document(path, text, cx);
+        self.load_plain_document(path, text, rich_text_meta, cx);
         self.notify_workspace(cx);
     }
 
@@ -306,9 +333,12 @@ impl SoukouApp {
         _window_handle: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
+        let rich_text_meta = self.rich_text_meta.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move { write_document_string(path, contents) })
+                .background_spawn(async move {
+                    write_plain_document_assets(path, contents, rich_text_meta)
+                })
                 .await;
 
             match result {
@@ -354,17 +384,22 @@ impl SoukouApp {
         cx.spawn(async move |this, cx| {
             let path_for_read = path.clone();
             let result = cx
-                .background_spawn(async move { read_document_to_string(path_for_read) })
+                .background_spawn(async move { read_plain_document_assets(path_for_read) })
                 .await;
 
             match result {
-                Ok((path, text)) => {
+                Ok((path, text, rich_text_meta)) => {
                     if let Err(error) = this.update(cx, |this, cx| match document_kind {
                         DocumentKind::PlainText => {
                             if preserve_workspace {
-                                this.open_workspace_plain_document(path, &text, cx);
+                                this.open_workspace_plain_document(path, &text, rich_text_meta, cx);
                             } else {
-                                this.open_standalone_plain_document(path, &text, cx);
+                                this.open_standalone_plain_document(
+                                    path,
+                                    &text,
+                                    rich_text_meta,
+                                    cx,
+                                );
                             }
                         }
                     }) {
@@ -497,6 +532,137 @@ impl MenuActionHandler for SoukouApp {
         }
     }
 
+    fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize> {
+        self.editor_controller.read(cx).selected_byte_range(cx)
+    }
+
+    fn selected_text(&self, cx: &App) -> String {
+        let text = self.snapshot_text(cx);
+        let range = self.selected_byte_range(cx);
+        if range.end <= text.len()
+            && text.is_char_boundary(range.start)
+            && text.is_char_boundary(range.end)
+        {
+            text[range].to_string()
+        } else {
+            String::new()
+        }
+    }
+
+    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
+        let range = self.editor_controller.read(cx).selected_byte_range(cx);
+        let range = if matches!(kind, RichTextKind::PageBreak) {
+            range.start..range.start
+        } else {
+            range
+        };
+        self.rich_text_meta.add_mark(range, kind);
+        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
+        self.rich_text_synced_text = self.snapshot_text(cx);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
+        });
+
+        if let Some(path) = self.active_document.path().map(Path::to_path_buf) {
+            let rich_text_meta = self.rich_text_meta.clone();
+            cx.background_spawn(async move {
+                if let Err(error) = rich_text::save_meta_for_text_path(&path, &rich_text_meta) {
+                    eprintln!("failed to save rich text metadata: {error}");
+                }
+            })
+            .detach();
+        }
+
+        cx.notify();
+    }
+
+    fn rich_text_ruby_action(
+        &mut self,
+        _: &RichTextRuby,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let selected_range = self.selected_byte_range(cx);
+        if selected_range.is_empty() {
+            self.show_error_modal(
+                "ルビを適用できません",
+                "｜本文《ルビ》の形式で入力した範囲を選択してください。".to_string(),
+                cx,
+            );
+            return;
+        }
+
+        let selected_text = self.selected_text(cx);
+        let Some(parsed_ruby) = rich_text::parse_ruby_markup(selected_text.as_str()) else {
+            self.show_error_modal(
+                "ルビを適用できません",
+                "｜本文《ルビ》の形式で入力した範囲を選択してください。".to_string(),
+                cx,
+            );
+            return;
+        };
+
+        let base_start = selected_range.start;
+        let base_end = base_start + parsed_ruby.base.len();
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.replace_byte_range(selected_range, parsed_ruby.base.as_str(), cx);
+        });
+        self.rich_text_meta.add_mark(
+            base_start..base_end,
+            RichTextKind::Ruby {
+                text: parsed_ruby.ruby,
+            },
+        );
+        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
+        self.rich_text_synced_text = self.snapshot_text(cx);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
+        });
+
+        if let Some(path) = self.active_document.path().map(Path::to_path_buf) {
+            let rich_text_meta = self.rich_text_meta.clone();
+            cx.background_spawn(async move {
+                if let Err(error) = rich_text::save_meta_for_text_path(&path, &rich_text_meta) {
+                    eprintln!("failed to save rich text metadata: {error}");
+                }
+            })
+            .detach();
+        }
+
+        cx.notify();
+    }
+
+    fn export_epub_path_from_menu(
+        &mut self,
+        path: PathBuf,
+        contents: String,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self.export_base_name(cx);
+        let rich_text_meta = self.rich_text_meta.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    rich_text::export_epub(
+                        &path,
+                        title.as_str(),
+                        contents.as_str(),
+                        &rich_text_meta,
+                    )
+                })
+                .await;
+
+            if let Err(error) = result
+                && let Err(update_error) = this.update(cx, |this, cx| {
+                    this.show_error_modal("epubを書き出せませんでした", error.to_string(), cx);
+                })
+            {
+                eprintln!("failed to show epub export error: {update_error}");
+            }
+        })
+        .detach();
+    }
+
     fn save_blocking_error(&self, cx: &App) -> Option<(&'static str, String)> {
         WorkspaceState::global(cx)
             .unsupported_file()
@@ -560,6 +726,7 @@ impl MenuActionHandler for SoukouApp {
 
 impl Render for SoukouApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_rich_text_meta_after_editor_edits(cx);
         title_bar::sync_client_window_inset(window);
         self.sync_window_title(window, cx);
         let title_bar_height = title_bar::platform_title_bar_height(window);
@@ -606,6 +773,12 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::open_modal_primary_action))
                     .on_action(cx.listener(Self::save_file_action))
                     .on_action(cx.listener(Self::export_txt_action))
+                    .on_action(cx.listener(Self::export_epub_action))
+                    .on_action(cx.listener(Self::rich_text_bold_action))
+                    .on_action(cx.listener(Self::rich_text_emphasis_action))
+                    .on_action(cx.listener(Self::rich_text_ruby_action))
+                    .on_action(cx.listener(Self::rich_text_heading_action))
+                    .on_action(cx.listener(Self::rich_text_page_break_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
@@ -632,9 +805,146 @@ impl Render for SoukouApp {
                     .when_some(self.active_modal.clone(), |this, modal| {
                         this.child(ActiveModal::from_modal(modal))
                     })
+                    .when_some(self.rich_text_toolbar_bounds(cx), |this, bounds| {
+                        this.child(RichTextToolbar::new(bounds))
+                    })
                     .child(self.bottom_bar.clone().into_element()),
             )
     }
+}
+
+impl SoukouApp {
+    fn rich_text_toolbar_bounds(&self, cx: &App) -> Option<gpui::Bounds<Pixels>> {
+        if self.selected_byte_range(cx).is_empty()
+            || WorkspaceState::global(cx).unsupported_file().is_some()
+        {
+            return None;
+        }
+
+        self.editor_controller.read(cx).selection_bounds(cx)
+    }
+
+    fn sync_rich_text_meta_after_editor_edits(&mut self, cx: &mut Context<Self>) {
+        let (current_revision, current_text, edit_batch) = {
+            let editor_controller = self.editor_controller.read(cx);
+            (
+                editor_controller.draft_revision(cx),
+                editor_controller.snapshot_text(cx),
+                editor_controller.last_applied_edit_batch(cx),
+            )
+        };
+        if current_revision <= self.rich_text_synced_revision {
+            return;
+        }
+
+        if current_text == self.rich_text_synced_text {
+            self.rich_text_synced_revision = current_revision;
+            return;
+        }
+
+        let rich_text_edits = edit_batch
+            .filter(|edit_batch| edit_batch.revision() == current_revision)
+            .map(|edit_batch| {
+                edit_batch
+                    .edits()
+                    .iter()
+                    .map(|edit| {
+                        RichTextEdit::new(
+                            edit.start(),
+                            edit.removed_text().to_string(),
+                            edit.inserted_text().to_string(),
+                            edit.affects_rich_text(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        rich_text::sync_meta_after_text_change(
+            &mut self.rich_text_meta,
+            self.rich_text_synced_text.as_str(),
+            current_text.as_str(),
+            rich_text_edits.as_slice(),
+        );
+        self.rich_text_synced_revision = current_revision;
+        self.rich_text_synced_text = current_text;
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
+        });
+    }
+}
+
+#[derive(IntoElement)]
+struct RichTextToolbar {
+    selection_bounds: gpui::Bounds<Pixels>,
+}
+
+impl RichTextToolbar {
+    fn new(selection_bounds: gpui::Bounds<Pixels>) -> Self {
+        Self { selection_bounds }
+    }
+}
+
+impl RenderOnce for RichTextToolbar {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let x = (self.selection_bounds.right() + px(1.0)).max(px(1.0));
+        let y = (self.selection_bounds.top() - px(10.0)).max(px(8.0));
+        let border = toolbar_border_color(cx);
+
+        div()
+            .absolute()
+            .left(x)
+            .top(y)
+            .flex()
+            .flex_col()
+            .items_center()
+            .bg(Theme::global(cx).white())
+            .border_1()
+            .border_color(border)
+            .rounded_md()
+            .shadow(vec![BoxShadow {
+                color: Hsla {
+                    h: 0.0,
+                    s: 0.0,
+                    l: 0.0,
+                    a: 0.2,
+                },
+                offset: point(px(0.0), px(8.0)),
+                blur_radius: px(22.0),
+                spread_radius: px(0.0),
+            }])
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .child(toolbar_button("B", RichTextBold, cx))
+            .child(toolbar_button("•", RichTextEmphasis, cx))
+            .child(toolbar_button("ル", RichTextRuby, cx))
+            .child(toolbar_button("見", RichTextHeading, cx))
+            .child(toolbar_button("改", RichTextPageBreak, cx))
+    }
+}
+
+fn toolbar_button<Action>(label: &'static str, action: Action, cx: &mut App) -> impl IntoElement
+where
+    Action: gpui::Action + Clone + 'static,
+{
+    div()
+        .w(px(38.0))
+        .h(px(34.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(14.0))
+        .font_weight(FontWeight::BOLD)
+        .text_color(Theme::global(cx).black())
+        .border_b_1()
+        .border_color(toolbar_border_color(cx))
+        .cursor_pointer()
+        .hover(|style| style.bg(white()))
+        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(Box::new(action.clone()), cx);
+        })
+        .child(label)
 }
 
 #[derive(IntoElement)]
@@ -887,6 +1197,22 @@ fn read_document_to_string(path: PathBuf) -> std::io::Result<(PathBuf, String)> 
     std::fs::read_to_string(&path).map(|text| (path, text))
 }
 
-fn write_document_string(path: PathBuf, contents: String) -> std::io::Result<PathBuf> {
-    std::fs::write(&path, contents.as_bytes()).map(|_| path)
+fn read_plain_document_assets(
+    path: PathBuf,
+) -> std::io::Result<(PathBuf, String, RichTextDocumentMeta)> {
+    let (path, text) = read_document_to_string(path)?;
+    let rich_text_meta = rich_text::load_meta_for_text_path(path.as_path())?;
+    Ok((path, text, rich_text_meta))
+}
+
+fn write_plain_document_assets(
+    path: PathBuf,
+    contents: String,
+    rich_text_meta: RichTextDocumentMeta,
+) -> std::io::Result<PathBuf> {
+    std::fs::write(&path, contents.as_bytes())?;
+    if !rich_text_meta.is_empty() {
+        rich_text::save_meta_for_text_path(path.as_path(), &rich_text_meta)?;
+    }
+    Ok(path)
 }

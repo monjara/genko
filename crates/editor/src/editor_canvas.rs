@@ -6,6 +6,7 @@ use gpui::{
     GlobalElementId, IntoElement, LayoutId, Path, PathBuilder, Pixels, Style, TextAlign, TextRun,
     Window, fill, point, px, size,
 };
+use rich_text::{RichTextDocumentMeta, RichTextKind};
 use rope::CellText;
 use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, Theme};
@@ -25,6 +26,7 @@ enum CellPaintKind {
 
 struct PaintState {
     visible_text: std::sync::Arc<[CellText]>,
+    rich_text_meta: RichTextDocumentMeta,
     selected_range: Range<usize>,
     marked_range: Option<Range<usize>>,
     block_selection: Option<crate::editor::BlockSelection>,
@@ -152,6 +154,7 @@ impl Element for EditorCanvas {
         let show_grid = AppSettings::global(cx).show_grid_lines;
         let paint_state = self.editor.update(cx, |editor, _cx| PaintState {
             visible_text: editor.visible_text(),
+            rich_text_meta: editor.rich_text_meta().clone(),
             selected_range: editor.selected_range.clone(),
             marked_range: editor.marked_range.clone(),
             block_selection: editor.block_selection,
@@ -166,6 +169,7 @@ impl Element for EditorCanvas {
         });
         let PaintState {
             visible_text,
+            rich_text_meta,
             selected_range,
             marked_range,
             block_selection,
@@ -189,6 +193,8 @@ impl Element for EditorCanvas {
             visible_rows,
             cell_size,
             ruby_gutter_size,
+            &rich_text_meta,
+            marked_range.as_ref(),
         );
 
         paint_paper(bounds, window, cx);
@@ -250,7 +256,17 @@ impl Element for EditorCanvas {
                 cx,
             );
         }
+        paint_page_breaks(&visible_text, &prepared_cells, &rich_text_meta, window, cx);
         paint_text(&visible_text, &prepared_cells, window, cx);
+        paint_rich_text_overlays(
+            &visible_text,
+            &prepared_cells,
+            &rich_text_meta,
+            marked_range.as_ref(),
+            ruby_gutter_size,
+            window,
+            cx,
+        );
         paint_strikethrough_overlay(
             &visible_text,
             scroll_column,
@@ -604,6 +620,7 @@ fn paint_cell_text(
             text_style,
             cx,
         ),
+        text_style.layout_hash(),
     );
     let paint_offset = vertical_text_paint_offset(&line);
     let text_origin = point(
@@ -688,6 +705,8 @@ fn prepare_cell_paint_data(
     visible_rows: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
+    rich_text_meta: &RichTextDocumentMeta,
+    marked_range: Option<&Range<usize>>,
 ) -> Vec<PreparedCellPaint> {
     let prepared: Vec<PreparedCellPaint> = visible_text
         .iter()
@@ -703,10 +722,39 @@ fn prepare_cell_paint_data(
                 cell_size,
                 ruby_gutter_size,
             ),
-            text_style: CellTextStyle::default(),
+            text_style: style_for_cell(cell_text, rich_text_meta, marked_range),
         })
         .collect();
     prepared
+}
+
+fn style_for_cell(
+    cell_text: &CellText,
+    rich_text_meta: &RichTextDocumentMeta,
+    marked_range: Option<&Range<usize>>,
+) -> CellTextStyle {
+    if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
+        return CellTextStyle::default();
+    }
+
+    let mut style = CellTextStyle::default();
+    for mark in rich_text_meta.marks() {
+        if !ranges_overlap(&cell_text.range, mark.range()) {
+            continue;
+        }
+
+        match mark.kind() {
+            RichTextKind::Bold => style.bold = true,
+            RichTextKind::Emphasis => style.emphasis = true,
+            RichTextKind::Ruby { .. } => {}
+            RichTextKind::Heading { level } => {
+                style.bold = true;
+                style.heading_level = Some(*level);
+            }
+            RichTextKind::PageBreak => {}
+        }
+    }
+    style
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -736,6 +784,126 @@ fn flush_strike_segment(segment: &mut Option<StrikeSegment>, window: &mut Window
     ));
 }
 
+fn paint_rich_text_overlays(
+    visible_text: &[CellText],
+    prepared_cells: &[PreparedCellPaint],
+    rich_text_meta: &RichTextDocumentMeta,
+    marked_range: Option<&Range<usize>>,
+    ruby_gutter_size: f32,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    for (cell_text, prepared) in visible_text.iter().zip(prepared_cells.iter()) {
+        let Some(cell_bounds) = prepared.bounds else {
+            continue;
+        };
+
+        if prepared.text_style.emphasis {
+            paint_emphasis_mark(cell_bounds, window, cx);
+        }
+
+        if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
+            continue;
+        }
+
+        for mark in rich_text_meta.marks() {
+            let RichTextKind::Ruby { text } = mark.kind() else {
+                continue;
+            };
+            if cell_text.range.start != mark.range().start {
+                continue;
+            }
+            paint_ruby_text(text.as_str(), cell_bounds, ruby_gutter_size, window, cx);
+        }
+    }
+}
+
+fn paint_emphasis_mark(cell_bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+    let mark_size = px((cell_bounds.size.width.as_f32() * 0.14).round().max(3.0));
+    let x = cell_bounds.right() - mark_size - px(2.0);
+    let y = cell_bounds.top() + cell_bounds.size.height / 2.0 - mark_size / 2.0;
+    window.paint_quad(fill(
+        Bounds::new(point(x, y), size(mark_size, mark_size)),
+        Theme::global(cx).text_primary(),
+    ));
+}
+
+fn paint_ruby_text(
+    text: &str,
+    cell_bounds: Bounds<Pixels>,
+    ruby_gutter_size: f32,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if text.is_empty() {
+        return;
+    }
+
+    let style = window.text_style();
+    let cell_size = cell_bounds.size.width.as_f32();
+    let font_size = px((cell_size * 0.32).round().max(8.0));
+    let line_height = px((cell_size * 0.4).round().max(10.0));
+    let line = shape_text(
+        window,
+        text,
+        font_size,
+        text_run(
+            text,
+            vertical_text_font(style.font()),
+            Theme::global(cx).text_senodary(),
+            CellTextStyle::default(),
+            cx,
+        ),
+        0,
+    );
+    let paint_offset = vertical_text_paint_offset(&line);
+    let gutter_width = px(ruby_gutter_size.max(8.0));
+    let text_origin = point(
+        cell_bounds.right() + (gutter_width - line.width) / 2.0 + paint_offset.x,
+        cell_bounds.top() + paint_offset.y,
+    );
+    line.paint(
+        text_origin,
+        line_height,
+        TextAlign::Center,
+        None,
+        window,
+        cx,
+    )
+    .ok();
+}
+
+fn paint_page_breaks(
+    visible_text: &[CellText],
+    prepared_cells: &[PreparedCellPaint],
+    rich_text_meta: &RichTextDocumentMeta,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    for mark in rich_text_meta.marks() {
+        if !matches!(mark.kind(), RichTextKind::PageBreak) {
+            continue;
+        }
+        let Some((_, prepared)) = visible_text
+            .iter()
+            .zip(prepared_cells.iter())
+            .find(|(cell_text, _)| cell_text.range.start >= mark.range().start)
+        else {
+            continue;
+        };
+        let Some(cell_bounds) = prepared.bounds else {
+            continue;
+        };
+        window.paint_quad(fill(
+            Bounds::new(
+                point(cell_bounds.left(), cell_bounds.top()),
+                size(cell_bounds.size.width, px(2.0)),
+            ),
+            Theme::global(cx).primary(),
+        ));
+    }
+}
+
 fn paint_attached_punctuation(
     cell_text: &CellText,
     cell_bounds: Bounds<Pixels>,
@@ -757,6 +925,7 @@ fn paint_attached_punctuation(
             CellTextStyle::default(),
             cx,
         ),
+        0,
     );
     let paint_offset = vertical_text_paint_offset(&line);
     let text_origin = point(
@@ -800,6 +969,7 @@ fn paint_corner_punctuation(
             CellTextStyle::default(),
             cx,
         ),
+        0,
     );
     let paint_offset = vertical_text_paint_offset(&line);
     let text_origin = point(
@@ -862,12 +1032,18 @@ fn text_run(
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct CellTextStyle {
     bold: bool,
+    emphasis: bool,
     strikethrough: bool,
+    heading_level: Option<u8>,
 }
 
 impl CellTextStyle {
     fn font_scale(self) -> f32 {
-        0.75
+        if self.heading_level.is_some() {
+            0.9
+        } else {
+            0.75
+        }
     }
 
     fn color(self, cx: &App) -> gpui::Rgba {
@@ -881,6 +1057,14 @@ impl CellTextStyle {
             Theme::global(cx).text_primary()
         }
     }
+
+    fn layout_hash(self) -> u64 {
+        let heading = self.heading_level.unwrap_or(0) as u64;
+        u64::from(self.bold)
+            | (u64::from(self.emphasis) << 1)
+            | (u64::from(self.strikethrough) << 2)
+            | (heading << 8)
+    }
 }
 
 fn shape_text(
@@ -888,8 +1072,9 @@ fn shape_text(
     text: &str,
     font_size: Pixels,
     run: TextRun,
+    layout_hash: u64,
 ) -> gpui::ShapedLine {
-    let text_hash = text_layout_hash(text);
+    let text_hash = text_layout_hash(text) ^ layout_hash;
     window
         .text_system()
         .shape_line_by_hash(text_hash, text.len(), font_size, &[run], None, || {

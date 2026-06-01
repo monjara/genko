@@ -151,6 +151,7 @@ fn inverse_edit_operations(edits: &[EditOperation]) -> Vec<EditOperation> {
             start: edit.start,
             removed_text: edit.inserted_text.clone(),
             inserted_text: edit.removed_text.clone(),
+            affects_rich_text: edit.affects_rich_text,
         })
         .collect()
 }

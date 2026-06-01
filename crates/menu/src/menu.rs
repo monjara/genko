@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use gpui::{
     AnyWindowHandle, App, AppContext, Context, Menu, MenuItem, PathPromptOptions, Window, actions,
 };
+use rich_text::RichTextKind;
 use semver::Version;
 use serde::Deserialize;
 use title_bar::TitleBarMenu;
@@ -16,6 +17,12 @@ actions!(
         OpenFile,
         SaveFile,
         ExportTxt,
+        ExportEpub,
+        RichTextBold,
+        RichTextEmphasis,
+        RichTextRuby,
+        RichTextHeading,
+        RichTextPageBreak,
         Quit
     ]
 );
@@ -28,9 +35,17 @@ const FILE_MENU_LABEL: &str = "ファイル";
 const OPEN_DOCUMENT_PROMPT_LABEL: &str = "開く";
 const SAVE_DOCUMENT_MENU_LABEL: &str = "保存";
 const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
+const EXPORT_EPUB_MENU_LABEL: &str = "epubエクスポート";
+const RICH_TEXT_MENU_LABEL: &str = "リッチテキスト";
+const RICH_TEXT_BOLD_MENU_LABEL: &str = "太字";
+const RICH_TEXT_EMPHASIS_MENU_LABEL: &str = "傍点";
+const RICH_TEXT_RUBY_MENU_LABEL: &str = "ルビ";
+const RICH_TEXT_HEADING_MENU_LABEL: &str = "見出し";
+const RICH_TEXT_PAGE_BREAK_MENU_LABEL: &str = "改ページ";
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
+const RICH_TEXT_SELECTION_ERROR_TITLE: &str = "リッチテキストを適用できません";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
 const RELEASES_LATEST_API_URL: &str = "https://api.github.com/repos/monjara/genko/releases/latest";
@@ -67,6 +82,19 @@ pub fn init(cx: &mut App) {
                 MenuItem::action(SAVE_DOCUMENT_MENU_LABEL, SaveFile),
                 MenuItem::separator(),
                 MenuItem::action(EXPORT_TXT_MENU_LABEL, ExportTxt),
+                MenuItem::action(EXPORT_EPUB_MENU_LABEL, ExportEpub),
+            ],
+        },
+        Menu {
+            disabled: false,
+            name: RICH_TEXT_MENU_LABEL.into(),
+            items: vec![
+                MenuItem::action(RICH_TEXT_BOLD_MENU_LABEL, RichTextBold),
+                MenuItem::action(RICH_TEXT_EMPHASIS_MENU_LABEL, RichTextEmphasis),
+                MenuItem::action(RICH_TEXT_RUBY_MENU_LABEL, RichTextRuby),
+                MenuItem::action(RICH_TEXT_HEADING_MENU_LABEL, RichTextHeading),
+                MenuItem::separator(),
+                MenuItem::action(RICH_TEXT_PAGE_BREAK_MENU_LABEL, RichTextPageBreak),
             ],
         },
     ])
@@ -100,6 +128,29 @@ pub fn title_bar_menus() -> Vec<TitleBarMenu> {
                 MenuBarItem::new(EXPORT_TXT_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(ExportTxt), cx);
                 }),
+                MenuBarItem::new(EXPORT_EPUB_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(ExportEpub), cx);
+                }),
+            ],
+        ),
+        MenuBarMenu::new(
+            RICH_TEXT_MENU_LABEL,
+            vec![
+                MenuBarItem::new(RICH_TEXT_BOLD_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(RichTextBold), cx);
+                }),
+                MenuBarItem::new(RICH_TEXT_EMPHASIS_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(RichTextEmphasis), cx);
+                }),
+                MenuBarItem::new(RICH_TEXT_RUBY_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(RichTextRuby), cx);
+                }),
+                MenuBarItem::new(RICH_TEXT_HEADING_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(RichTextHeading), cx);
+                }),
+                MenuBarItem::new(RICH_TEXT_PAGE_BREAK_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(RichTextPageBreak), cx);
+                }),
             ],
         ),
     ]
@@ -132,6 +183,19 @@ pub trait MenuActionHandler: Sized + 'static {
 
     fn snapshot_text(&self, cx: &App) -> String;
 
+    fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize>;
+
+    fn selected_text(&self, cx: &App) -> String;
+
+    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>);
+
+    fn export_epub_path_from_menu(
+        &mut self,
+        path: PathBuf,
+        contents: String,
+        cx: &mut Context<Self>,
+    );
+
     fn show_menu_error(&mut self, title: &str, detail: String, cx: &mut Context<Self>);
 
     fn show_menu_info(&mut self, title: &str, detail: String, cx: &mut Context<Self>);
@@ -154,6 +218,56 @@ pub trait MenuActionHandler: Sized + 'static {
 
     fn export_txt_action(&mut self, _: &ExportTxt, window: &mut Window, cx: &mut Context<Self>) {
         self.export_txt(window, cx);
+    }
+
+    fn export_epub_action(&mut self, _: &ExportEpub, window: &mut Window, cx: &mut Context<Self>) {
+        self.export_epub(window, cx);
+    }
+
+    fn rich_text_bold_action(
+        &mut self,
+        _: &RichTextBold,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_to_selection(RichTextKind::Bold, cx);
+    }
+
+    fn rich_text_emphasis_action(
+        &mut self,
+        _: &RichTextEmphasis,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_to_selection(RichTextKind::Emphasis, cx);
+    }
+
+    fn rich_text_ruby_action(
+        &mut self,
+        _: &RichTextRuby,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ruby_text = self.selected_text(cx);
+        self.apply_rich_text_to_selection(RichTextKind::Ruby { text: ruby_text }, cx);
+    }
+
+    fn rich_text_heading_action(
+        &mut self,
+        _: &RichTextHeading,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_to_selection(RichTextKind::Heading { level: 1 }, cx);
+    }
+
+    fn rich_text_page_break_action(
+        &mut self,
+        _: &RichTextPageBreak,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::PageBreak, cx);
     }
 
     fn check_for_updates_action(
@@ -284,6 +398,19 @@ pub trait MenuActionHandler: Sized + 'static {
         .detach();
     }
 
+    fn apply_rich_text_to_selection(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
+        if self.selected_byte_range(cx).is_empty() {
+            self.show_menu_error(
+                RICH_TEXT_SELECTION_ERROR_TITLE,
+                "範囲を選択してから実行してください。".to_string(),
+                cx,
+            );
+            return;
+        }
+
+        self.apply_rich_text_kind(kind, cx);
+    }
+
     fn export_txt(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let suggested_name = format!("{}.txt", self.export_base_name(cx));
         let initial_directory = self.export_initial_directory(cx);
@@ -319,6 +446,40 @@ pub trait MenuActionHandler: Sized + 'static {
                 }) {
                     eprintln!("failed to show export error: {update_error}");
                 }
+            }
+        })
+        .detach();
+    }
+
+    fn export_epub(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let suggested_name = format!("{}.epub", self.export_base_name(cx));
+        let initial_directory = self.export_initial_directory(cx);
+        let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
+        let contents = self.snapshot_text(cx);
+
+        cx.spawn(async move |this, cx| {
+            let Ok(result) = receiver.await else {
+                return;
+            };
+
+            let Some(path) = (match result {
+                Ok(path) => path,
+                Err(error) => {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
+                        this.show_menu_error(SAVE_PATH_PICKER_ERROR_TITLE, error.to_string(), cx);
+                    }) {
+                        eprintln!("failed to show epub export path picker error: {update_error}");
+                    }
+                    None
+                }
+            }) else {
+                return;
+            };
+
+            if let Err(error) = this.update(cx, |this, cx| {
+                this.export_epub_path_from_menu(path, contents, cx);
+            }) {
+                eprintln!("failed to export epub: {error}");
             }
         })
         .detach();

@@ -7,6 +7,7 @@ use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Window, actions, div,
 };
+use rich_text::RichTextDocumentMeta;
 use rope::BLANK_CELL;
 use settings::AppSettings;
 
@@ -137,6 +138,27 @@ impl VimController {
 
     pub fn selected_byte_range(&self, cx: &App) -> Range<usize> {
         self.editor.read(cx).selected_byte_range()
+    }
+
+    pub fn replace_byte_range(
+        &mut self,
+        range: Range<usize>,
+        new_text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.editor.update(cx, |editor, cx| {
+            editor.replace_byte_range(range, new_text, cx)
+        });
+    }
+
+    pub fn set_rich_text_meta(
+        &mut self,
+        rich_text_meta: RichTextDocumentMeta,
+        cx: &mut Context<Self>,
+    ) {
+        self.editor.update(cx, |editor, cx| {
+            editor.set_rich_text_meta(rich_text_meta, cx);
+        });
     }
 
     pub fn selection_bounds(&self, cx: &App) -> Option<Bounds<Pixels>> {

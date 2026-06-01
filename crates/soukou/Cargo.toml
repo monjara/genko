@@ -24,6 +24,7 @@ gpui = { workspace = true }
 gpui_platform = { workspace = true }
 icons = { workspace = true }
 menu = { workspace = true }
+rich_text = { workspace = true }
 rope = { workspace = true }
 settings = { workspace = true }
 theme = { workspace = true }

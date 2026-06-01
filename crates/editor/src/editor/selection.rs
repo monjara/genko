@@ -22,19 +22,6 @@ pub(super) fn next_boundary(editor: &Editor, offset: usize) -> usize {
         .byte_offset_for_grapheme_index(editor.draft.grapheme_index_for_byte(offset) + 1)
 }
 
-pub(super) fn materialize_cursor_cell_for_insert(
-    editor: &mut Editor,
-    range: Range<usize>,
-) -> Range<usize> {
-    if !range.is_empty() {
-        return range;
-    }
-
-    let offset = editor.draft.materialize_display_cell(editor.cursor_cell);
-    editor.bump_draft_revision();
-    offset..offset
-}
-
 pub(super) fn editing_range(editor: &Editor, range_utf16: Option<Range<usize>>) -> Range<usize> {
     range_utf16
         .as_ref()
