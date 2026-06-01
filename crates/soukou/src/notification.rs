@@ -1,15 +1,21 @@
 use document::DocumentError;
 use gpui::{
-    App, BoxShadow, Entity, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Pixels, RenderOnce, Styled, Window, div, point, px, svg,
+    App, BoxShadow, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels,
+    RenderOnce, Styled, Window, div, point, px, svg,
 };
 use theme::Theme;
 
-use crate::{SoukouApp, app::toolbar_border_color};
+use crate::app::toolbar_border_color;
 
 const KEYMAP_LOAD_ERROR_TITLE: &str = "キーマップを読み込めませんでした";
 const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
 const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
+
+#[derive(Clone, Debug, PartialEq, Eq, gpui::Action)]
+#[action(namespace = soukou, no_json, no_register)]
+pub(super) struct DismissErrorNotification {
+    pub(super) id: u64,
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct ErrorNotification {
@@ -53,19 +59,13 @@ impl From<DocumentError> for ErrorPresentation {
 #[derive(IntoElement)]
 pub(super) struct ErrorNotificationStack {
     notifications: Vec<ErrorNotification>,
-    app: Entity<SoukouApp>,
     bottom_bar_height: Pixels,
 }
 
 impl ErrorNotificationStack {
-    pub(super) fn new(
-        notifications: Vec<ErrorNotification>,
-        app: Entity<SoukouApp>,
-        bottom_bar_height: Pixels,
-    ) -> Self {
+    pub(super) fn new(notifications: Vec<ErrorNotification>, bottom_bar_height: Pixels) -> Self {
         Self {
             notifications,
-            app,
             bottom_bar_height,
         }
     }
@@ -82,9 +82,7 @@ impl RenderOnce for ErrorNotificationStack {
                 .flex()
                 .flex_col()
                 .gap_2(),
-            |stack, notification| {
-                stack.child(ErrorNotificationView::new(notification, self.app.clone()))
-            },
+            |stack, notification| stack.child(ErrorNotificationView::new(notification)),
         )
     }
 }
@@ -92,19 +90,17 @@ impl RenderOnce for ErrorNotificationStack {
 #[derive(IntoElement)]
 struct ErrorNotificationView {
     notification: ErrorNotification,
-    app: Entity<SoukouApp>,
 }
 
 impl ErrorNotificationView {
-    fn new(notification: ErrorNotification, app: Entity<SoukouApp>) -> Self {
-        Self { notification, app }
+    fn new(notification: ErrorNotification) -> Self {
+        Self { notification }
     }
 }
 
 impl RenderOnce for ErrorNotificationView {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let notification_id = self.notification.id;
-        let app = self.app;
 
         div()
             .w_full()
@@ -151,11 +147,13 @@ impl RenderOnce for ErrorNotificationView {
                             .rounded_sm()
                             .cursor_pointer()
                             .hover(|style| style.bg(gpui::rgb(0xf4f5f6)))
-                            // TODO app不要かも？
-                            .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
-                                app.update(cx, |app, cx| {
-                                    app.dismiss_error_notification(notification_id, cx);
-                                });
+                            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                                window.dispatch_action(
+                                    Box::new(DismissErrorNotification {
+                                        id: notification_id,
+                                    }),
+                                    cx,
+                                );
                                 cx.stop_propagation();
                             })
                             .child(

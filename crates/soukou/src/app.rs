@@ -4,7 +4,9 @@ use std::process::Command;
 
 use crate::{
     CancelRubyEditor, DismissActiveModal, OpenModalPrimary,
-    notification::{ErrorNotification, ErrorNotificationStack, ErrorPresentation},
+    notification::{
+        DismissErrorNotification, ErrorNotification, ErrorNotificationStack, ErrorPresentation,
+    },
 };
 use bottom_bar::BottomBar;
 use document::{
@@ -193,10 +195,19 @@ impl SoukouApp {
         }
     }
 
-    pub(crate) fn dismiss_error_notification(&mut self, id: u64, cx: &mut Context<Self>) {
+    fn dismiss_error_notification(&mut self, id: u64, cx: &mut Context<Self>) {
         self.error_notifications
             .retain(|notification| notification.id != id);
         cx.notify();
+    }
+
+    fn dismiss_error_notification_action(
+        &mut self,
+        action: &DismissErrorNotification,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dismiss_error_notification(action.id, cx);
     }
 
     fn window_title(&self, cx: &App) -> String {
@@ -732,6 +743,7 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::open_workspace_action))
                     .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .on_action(cx.listener(Self::dismiss_active_modal_action))
+                    .on_action(cx.listener(Self::dismiss_error_notification_action))
                     .on_action(cx.listener(Self::open_modal_primary_action))
                     .on_action(cx.listener(Self::save_file_action))
                     .on_action(cx.listener(Self::export_txt_action))
@@ -771,7 +783,6 @@ impl Render for SoukouApp {
                     .when(!self.error_notifications.is_empty(), |this| {
                         this.child(ErrorNotificationStack::new(
                             self.error_notifications.clone(),
-                            cx.entity(),
                             bottom_bar_height,
                         ))
                     })
