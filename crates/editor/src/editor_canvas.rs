@@ -841,9 +841,9 @@ fn paint_ruby_text(
 
     let style = window.text_style();
     let cell_size = cell_bounds.size.width.as_f32();
-    let font_size = px((cell_size * 0.3).round().max(8.0));
-    let line_height = px((cell_size * 0.34).round().max(9.0));
-    let advance = px((cell_size * 0.36).round().max(10.0));
+    let font_size = px((cell_size * 0.34).round().max(9.0));
+    let line_height = px((cell_size * 0.38).round().max(10.0));
+    let advance = px((cell_size * 0.4).round().max(11.0));
     let gutter_width = px(ruby_gutter_size.max(8.0));
     let font = vertical_text_font(style.font());
     let color = Theme::global(cx).text_senodary();
@@ -1047,9 +1047,9 @@ struct CellTextStyle {
 impl CellTextStyle {
     fn font_scale(self) -> f32 {
         if self.heading_level.is_some() {
-            0.9
+            0.95
         } else {
-            0.75
+            0.82
         }
     }
 

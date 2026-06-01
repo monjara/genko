@@ -61,6 +61,25 @@ pub fn apply_client_side_shadow_padding(container: Div, window: &Window) -> Div 
     }
 }
 
+pub fn client_side_shadow_padding_size(window: &Window) -> gpui::Size<Pixels> {
+    match window.window_decorations() {
+        Decorations::Server => gpui::size(Pixels::ZERO, Pixels::ZERO),
+        Decorations::Client { tiling } => {
+            let width = if tiling.left || tiling.right {
+                CLIENT_SIDE_SHADOW_SIZE
+            } else {
+                CLIENT_SIDE_SHADOW_SIZE * 2.0
+            };
+            let height = if tiling.top || tiling.bottom {
+                CLIENT_SIDE_SHADOW_SIZE
+            } else {
+                CLIENT_SIDE_SHADOW_SIZE * 2.0
+            };
+            gpui::size(width, height)
+        }
+    }
+}
+
 pub fn apply_client_side_window_frame(container: Div, window: &Window) -> Div {
     match window.window_decorations() {
         Decorations::Server => container,

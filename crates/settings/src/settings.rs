@@ -715,8 +715,8 @@ impl SettingsSection {
 }
 
 const DEFAULT_ROWS_PER_COLUMN: usize = 20;
-const DEFAULT_CELL_SIZE: usize = 28;
-const MIN_CELL_SIZE: usize = 20;
+const DEFAULT_CELL_SIZE: usize = 32;
+const MIN_CELL_SIZE: usize = 19;
 const MAX_CELL_SIZE: usize = 60;
 const SETTINGS_FILE: &str = "settings.json";
 const KEYMAP_FILE: &str = "keymap.json";

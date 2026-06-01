@@ -43,6 +43,7 @@ const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
 const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
 const SUPPORTED_OPEN_ERROR_DETAIL: &str = "現在は .txt ファイルに対応しています";
 const UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL: &str = "サポートしていないファイルは保存できません";
+const BOTTOM_BAR_TOP_GAP: f32 = 4.0;
 
 pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
@@ -732,15 +733,23 @@ impl Render for SoukouApp {
         self.sync_window_title(window, cx);
         let title_bar_height = title_bar::platform_title_bar_height(window);
         let bottom_bar_height = bottom_bar::height(window);
+        let client_shadow_padding = title_bar::client_side_shadow_padding_size(window);
         let occupied_workspace_width = if self.workspace_pane_visible(cx) {
             WorkspaceState::global(cx).pane_width()
         } else {
             0.0
         };
         let mut editor_viewport_size = window.viewport_size();
-        editor_viewport_size.width =
-            px((editor_viewport_size.width.as_f32() - occupied_workspace_width).max(0.0));
-        editor_viewport_size.height -= title_bar_height + bottom_bar_height;
+        editor_viewport_size.width = (editor_viewport_size.width
+            - client_shadow_padding.width
+            - px(occupied_workspace_width))
+        .max(Pixels::ZERO);
+        editor_viewport_size.height = (editor_viewport_size.height
+            - client_shadow_padding.height
+            - title_bar_height
+            - bottom_bar_height
+            - px(BOTTOM_BAR_TOP_GAP))
+        .max(Pixels::ZERO);
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.update_viewport_size(editor_viewport_size, cx);
         });
@@ -787,7 +796,9 @@ impl Render for SoukouApp {
                     .child(
                         div()
                             .flex_1()
+                            .h(px(0.0))
                             .w_full()
+                            .mb(px(BOTTOM_BAR_TOP_GAP))
                             .flex()
                             .when(self.workspace_pane_visible(cx), |this| {
                                 this.child(self.workspace.clone().into_element())
@@ -816,7 +827,13 @@ impl Render for SoukouApp {
                             cx.entity(),
                         ))
                     })
-                    .child(self.bottom_bar.clone().into_element()),
+                    .child(
+                        div()
+                            .flex_none()
+                            .w_full()
+                            .h(bottom_bar_height)
+                            .child(self.bottom_bar.clone().into_element()),
+                    ),
             )
     }
 }

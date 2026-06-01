@@ -19,14 +19,14 @@ use settings::AppSettings;
 
 use self::{history as editor_history, selection as editor_selection};
 use crate::editor::layout::{
-    content_height_for_window_height, rows_per_column_for_window_height,
-    visible_columns_for_window_width,
+    cell_size_for_window_height, content_height_for_window_height,
+    rows_per_column_for_window_height, visible_columns_for_window_width,
 };
 use crate::editor_canvas::GridPathCache;
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
-pub(crate) const DEFAULT_CELL_SIZE: f32 = 28.0;
-pub(crate) const DEFAULT_RUBY_GUTTER_SIZE: f32 = 10.0;
+pub(crate) const DEFAULT_CELL_SIZE: f32 = 32.0;
+pub(crate) const DEFAULT_RUBY_GUTTER_SIZE: f32 = 14.0;
 pub(crate) const RUBY_GUTTER_RATIO: f32 = DEFAULT_RUBY_GUTTER_SIZE / DEFAULT_CELL_SIZE;
 const IME_ANCHOR_WIDTH: f32 = 2.0;
 const IME_ANCHOR_INSET: f32 = 3.0;
@@ -477,7 +477,11 @@ impl Editor {
         if needs_viewport_sync {
             self.update_hanging_punctuation(AppSettings::global(cx).hanging_punctuation);
 
-            self.update_cell_size(AppSettings::global(cx).cell_size as f32);
+            let fitted_cell_size = cell_size_for_window_height(
+                size.height,
+                AppSettings::global(cx).column_number_mode,
+            );
+            self.update_cell_size(fitted_cell_size);
 
             self.update_visible_columns(visible_columns_for_window_width(
                 size.width,
