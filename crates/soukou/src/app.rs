@@ -562,7 +562,8 @@ impl Render for SoukouApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         title_bar::sync_client_window_inset(window);
         self.sync_window_title(window, cx);
-        let bar_height = title_bar::platform_title_bar_height(window);
+        let title_bar_height = title_bar::platform_title_bar_height(window);
+        let bottom_bar_height = bottom_bar::height(window);
         let occupied_workspace_width = if self.workspace_pane_visible(cx) {
             WorkspaceState::global(cx).pane_width()
         } else {
@@ -571,7 +572,7 @@ impl Render for SoukouApp {
         let mut editor_viewport_size = window.viewport_size();
         editor_viewport_size.width =
             px((editor_viewport_size.width.as_f32() - occupied_workspace_width).max(0.0));
-        editor_viewport_size.height -= bar_height * 2.0;
+        editor_viewport_size.height -= title_bar_height + bottom_bar_height;
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.update_viewport_size(editor_viewport_size, cx);
         });

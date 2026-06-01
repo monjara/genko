@@ -7,7 +7,12 @@ use settings::AppSettings;
 use theme::Theme;
 use workspace::{ToggleWorkspacePane, WorkspaceState};
 
-const SIDE_SLOT_WIDTH: f32 = 160.0;
+const BOTTOM_BAR_HEIGHT: f32 = 26.0;
+const SIDE_SLOT_WIDTH: f32 = 128.0;
+
+pub fn height(_window: &Window) -> gpui::Pixels {
+    px(BOTTOM_BAR_HEIGHT)
+}
 
 pub struct BottomBar {
     vim_mode_status: Entity<VimModeLabel>,
@@ -22,7 +27,6 @@ impl BottomBar {
 
 impl Render for BottomBar {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let height = title_bar::platform_title_bar_height(window);
         let background = background_color(window, cx);
         let workspace_visible = WorkspaceState::global(cx).is_pane_visible();
         let workspace_icon_color = if workspace_visible {
@@ -34,7 +38,7 @@ impl Render for BottomBar {
         let bar = div()
             .id("soukou-bottom-bar")
             .w_full()
-            .h(height)
+            .h(height(window))
             .bg(background)
             .border_t_1()
             .border_color(border_color(cx))
@@ -45,7 +49,7 @@ impl Render for BottomBar {
                     .flex_row()
                     .items_center()
                     .justify_between()
-                    .px_3()
+                    .px_2()
                     .child(
                         div()
                             .w(px(SIDE_SLOT_WIDTH))
@@ -55,8 +59,8 @@ impl Render for BottomBar {
                             .child(
                                 div()
                                     .id("workspace-bottom-bar-toggle")
-                                    .w(px(28.0))
-                                    .h(px(28.0))
+                                    .w(px(22.0))
+                                    .h(px(22.0))
                                     .flex()
                                     .items_center()
                                     .justify_center()
@@ -67,7 +71,7 @@ impl Render for BottomBar {
                                     .child(
                                         svg()
                                             .external_path(icons::PANEL_LEFT_OPEN)
-                                            .size_5()
+                                            .size_4()
                                             .text_color(workspace_icon_color),
                                     )
                                     .on_click(|_, window, cx| {
