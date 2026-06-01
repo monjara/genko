@@ -1,4 +1,3 @@
-mod capabilities;
 mod editor;
 mod editor_canvas;
 mod editor_controller;
@@ -11,7 +10,6 @@ pub use vim::{VimCommandQuit, VimCommandWrite, VimController, VimMode, VimModeLa
 use gpui::App;
 
 pub fn init(cx: &mut App) {
-    capabilities::AppCapabilities::init(cx);
     vim::init(cx);
     editor::init(cx);
 }
