@@ -2,9 +2,13 @@ use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::process::Command;
 
+use crate::{
+    CancelRubyEditor, DismissActiveModal, OpenModalPrimary,
+    notification::{ErrorNotification, ErrorNotificationStack, ErrorPresentation},
+};
 use bottom_bar::BottomBar;
 use document::{
-    ActiveDocument, DocumentKind,
+    ActiveDocument, DocumentError, DocumentKind,
     document_io::{
         DocumentOpenTarget, SavedDocumentTarget, classify_open_path, classify_saved_document_path,
         current_directory_or_fallback, suggested_file_name, suggested_save_directory,
@@ -30,15 +34,12 @@ use workspace::{
     scan_workspace_entries,
 };
 
-use crate::{CancelRubyEditor, DismissActiveModal, OpenModalPrimary};
-
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
 const WINDOW_TITLE_SEPARATOR: &str = " - ";
 const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
 const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
-const KEYMAP_LOAD_ERROR_TITLE: &str = "キーマップを読み込めませんでした";
 const SUPPORTED_OPEN_ERROR_DETAIL: &str = "現在は .txt ファイルに対応しています";
 const UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL: &str = "サポートしていないファイルは保存できません";
 const BOTTOM_BAR_TOP_GAP: f32 = 4.0;
@@ -53,6 +54,8 @@ pub(super) struct SoukouApp {
     ruby_editor: Option<RubyEditorState>,
     page_break_menu: Option<PageBreakMenuState>,
     active_modal: Option<AppModal>,
+    error_notifications: Vec<ErrorNotification>,
+    next_error_notification_id: u64,
     _workspace_subscription: Subscription,
     _editor_subscription: Subscription,
     title_bar: Entity<TitleBar>,
@@ -61,10 +64,6 @@ pub(super) struct SoukouApp {
 
 #[derive(Clone, Debug)]
 enum AppModal {
-    Error {
-        title: String,
-        detail: String,
-    },
     Info {
         title: String,
         detail: String,
@@ -119,11 +118,20 @@ impl SoukouApp {
     }
 
     fn show_error_modal(&mut self, title: &str, detail: String, cx: &mut Context<Self>) {
-        self.active_modal = Some(AppModal::Error {
-            title: title.to_string(),
-            detail,
-        });
+        self.push_error_notification(title.to_string(), detail, cx);
+    }
+
+    fn push_error_notification(&mut self, title: String, detail: String, cx: &mut Context<Self>) {
+        let id = self.next_error_notification_id;
+        self.next_error_notification_id = self.next_error_notification_id.saturating_add(1);
+        self.error_notifications
+            .push(ErrorNotification { id, title, detail });
         cx.notify();
+    }
+
+    fn show_error_from(&mut self, error: impl Into<ErrorPresentation>, cx: &mut Context<Self>) {
+        let presentation = error.into();
+        self.push_error_notification(presentation.title, presentation.detail, cx);
     }
 
     fn show_info_modal(&mut self, title: &str, detail: String, cx: &mut Context<Self>) {
@@ -137,10 +145,21 @@ impl SoukouApp {
     pub(super) fn new(cx: &mut Context<Self>) -> Self {
         let loaded_key_bindings = keymap::load_key_bindings(cx);
         cx.bind_keys(loaded_key_bindings.key_bindings);
-        let active_modal = loaded_key_bindings.error.map(|detail| AppModal::Error {
-            title: KEYMAP_LOAD_ERROR_TITLE.to_string(),
-            detail,
-        });
+        let error_notifications = loaded_key_bindings
+            .error
+            .map(|error| {
+                let presentation = ErrorPresentation::from(error);
+                vec![ErrorNotification {
+                    id: 0,
+                    title: presentation.title,
+                    detail: presentation.detail,
+                }]
+            })
+            .unwrap_or_default();
+        let next_error_notification_id = error_notifications
+            .last()
+            .map(|notification| notification.id.saturating_add(1))
+            .unwrap_or(0);
 
         let editor_controller = cx.new(EditorController::new);
         let editor_subscription =
@@ -164,12 +183,20 @@ impl SoukouApp {
             rich_text_synced_text: String::new(),
             ruby_editor: None,
             page_break_menu: None,
-            active_modal,
+            active_modal: None,
+            error_notifications,
+            next_error_notification_id,
             _workspace_subscription: workspace_subscription,
             _editor_subscription: editor_subscription,
             title_bar,
             bottom_bar,
         }
+    }
+
+    pub(crate) fn dismiss_error_notification(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.error_notifications
+            .retain(|notification| notification.id != id);
+        cx.notify();
     }
 
     fn window_title(&self, cx: &App) -> String {
@@ -373,7 +400,7 @@ impl SoukouApp {
                 }
                 Err(error) => {
                     if let Err(update_error) = this.update(cx, |this, cx| {
-                        this.show_error_modal(FILE_SAVE_ERROR_TITLE, error.to_string(), cx);
+                        this.show_error_from(error, cx);
                     }) {
                         eprintln!("failed to show save error modal: {update_error}");
                     }
@@ -417,7 +444,7 @@ impl SoukouApp {
                 }
                 Err(error) => {
                     if let Err(update_error) = this.update(cx, |this, cx| {
-                        this.show_error_modal(FILE_OPEN_ERROR_TITLE, error.to_string(), cx);
+                        this.show_error_from(error, cx);
                     }) {
                         eprintln!("failed to show open error modal: {update_error}");
                     }
@@ -740,6 +767,13 @@ impl Render for SoukouApp {
                     )
                     .when_some(self.active_modal.clone(), |this, modal| {
                         this.child(ActiveModal::from_modal(modal))
+                    })
+                    .when(!self.error_notifications.is_empty(), |this| {
+                        this.child(ErrorNotificationStack::new(
+                            self.error_notifications.clone(),
+                            cx.entity(),
+                            bottom_bar_height,
+                        ))
                     })
                     .when_some(self.rich_text_toolbar_bounds(cx), |this, bounds| {
                         this.child(RichTextToolbar::new(bounds))
@@ -1273,14 +1307,6 @@ struct ActiveModal {
 impl ActiveModal {
     fn from_modal(modal: AppModal) -> Self {
         let (icon_path, title, subtitle, detail, secondary_label, primary_label) = match modal {
-            AppModal::Error { title, detail } => (
-                icons::MODAL_ERROR,
-                title,
-                "操作を完了できませんでした。".to_string(),
-                detail,
-                None,
-                Some("閉じる".to_string()),
-            ),
             AppModal::Info { title, detail } => (
                 icons::MODAL_INFO,
                 title,
@@ -1491,7 +1517,7 @@ impl RenderOnce for UnsupportedDocument {
     }
 }
 
-fn toolbar_border_color(cx: &App) -> gpui::Hsla {
+pub(crate) fn toolbar_border_color(cx: &App) -> gpui::Hsla {
     mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.72).into()
 }
 
@@ -1506,15 +1532,23 @@ fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {
     }
 }
 
-fn read_document_to_string(path: PathBuf) -> std::io::Result<(PathBuf, String)> {
-    std::fs::read_to_string(&path).map(|text| (path, text))
+fn read_document_to_string(path: PathBuf) -> Result<(PathBuf, String), DocumentError> {
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Ok((path, text)),
+        Err(source) => Err(DocumentError::OpenFailed { path, source }),
+    }
 }
 
 fn read_plain_document_assets(
     path: PathBuf,
-) -> std::io::Result<(PathBuf, String, RichTextDocumentMeta)> {
+) -> Result<(PathBuf, String, RichTextDocumentMeta), DocumentError> {
     let (path, text) = read_document_to_string(path)?;
-    let rich_text_meta = rich_text::load_meta_for_text_path(path.as_path())?;
+    let rich_text_meta = rich_text::load_meta_for_text_path(path.as_path()).map_err(|source| {
+        DocumentError::MetadataOpenFailed {
+            path: path.clone(),
+            source,
+        }
+    })?;
     Ok((path, text, rich_text_meta))
 }
 
@@ -1522,10 +1556,18 @@ fn write_plain_document_assets(
     path: PathBuf,
     contents: String,
     rich_text_meta: RichTextDocumentMeta,
-) -> std::io::Result<PathBuf> {
-    std::fs::write(&path, contents.as_bytes())?;
+) -> Result<PathBuf, DocumentError> {
+    std::fs::write(&path, contents.as_bytes()).map_err(|source| DocumentError::SaveFailed {
+        path: path.clone(),
+        source,
+    })?;
     if !rich_text_meta.is_empty() {
-        rich_text::save_meta_for_text_path(path.as_path(), &rich_text_meta)?;
+        rich_text::save_meta_for_text_path(path.as_path(), &rich_text_meta).map_err(|source| {
+            DocumentError::MetadataSaveFailed {
+                path: path.clone(),
+                source,
+            }
+        })?;
     }
     Ok(path)
 }

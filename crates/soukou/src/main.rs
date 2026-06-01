@@ -1,5 +1,6 @@
 mod app;
 mod font;
+mod notification;
 
 use app::SoukouApp;
 use gpui::{
