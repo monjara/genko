@@ -210,6 +210,11 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(request) = self.ruby_edit_request_for_point(position) {
+            cx.emit(crate::editor::Event::RubyEditRequested(request));
+            return;
+        }
+
         window.focus(&self.focus_handle, cx);
         let Some(bounds) = self.last_board_bounds else {
             return;

@@ -1,21 +1,31 @@
 use std::ops::Range;
 
 use gpui::{
-    App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement, Pixels, Render,
-    Window,
+    App, AppContext, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
+    Pixels, Render, Subscription, Window,
 };
 use rich_text::RichTextDocumentMeta;
 
-use crate::{editor::AppliedEditBatch, vim::VimController};
+use crate::{
+    editor::{AppliedEditBatch, Event},
+    vim::VimController,
+};
 
 pub struct EditorController {
     vim_controller: Entity<VimController>,
+    _vim_subscription: Subscription,
 }
 
 impl EditorController {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        let vim_controller = cx.new(VimController::new);
+        let _vim_subscription = cx
+            .subscribe(&vim_controller, |_, _vim_controller, event: &Event, cx| {
+                cx.emit(event.clone())
+            });
         Self {
-            vim_controller: cx.new(VimController::new),
+            vim_controller,
+            _vim_subscription,
         }
     }
 
@@ -71,6 +81,8 @@ impl EditorController {
         });
     }
 }
+
+impl EventEmitter<Event> for EditorController {}
 
 impl Render for EditorController {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {

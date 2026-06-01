@@ -2,10 +2,11 @@ use std::ops::Range;
 
 use crate::editor::command_types::{MotionKind, PastePosition, TextObjectTarget};
 use crate::editor::motions::MotionRangeBehavior;
-use crate::editor::{AppliedEditBatch, Editor};
+use crate::editor::{AppliedEditBatch, Editor, Event};
 use gpui::{
-    App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
-    InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Window, actions, div,
+    App, AppContext, Bounds, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable,
+    InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Subscription, Window, actions,
+    div,
 };
 use rich_text::RichTextDocumentMeta;
 use rope::BLANK_CELL;
@@ -87,6 +88,7 @@ pub fn init(cx: &mut App) {
 
 pub struct VimController {
     editor: Entity<Editor>,
+    _editor_subscription: Subscription,
     yank_register: YankRegister,
     last_change: Option<RepeatableCommand>,
     pending_operator: Option<VimOperator>,
@@ -107,8 +109,12 @@ enum CommandAction {
 impl VimController {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let editor = cx.new(Editor::new);
+        let _editor_subscription = cx.subscribe(&editor, |_, _editor, event: &Event, cx| {
+            cx.emit(event.clone())
+        });
         Self {
             editor,
+            _editor_subscription,
             yank_register: YankRegister::Empty,
             last_change: None,
             pending_operator: None,
@@ -1841,6 +1847,8 @@ impl VimController {
         }
     }
 }
+
+impl EventEmitter<Event> for VimController {}
 
 fn parse_command_action(command_line: &str) -> Option<CommandAction> {
     let command_line = command_line.trim();

@@ -120,7 +120,7 @@ pub(crate) fn row_column_for_logical_index(
     Some((row, column))
 }
 
-fn board_x_for_visible_column(
+pub(crate) fn board_x_for_visible_column(
     board_left: Pixels,
     column: usize,
     cell_size: f32,

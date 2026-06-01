@@ -32,6 +32,19 @@ impl RichTextDocumentMeta {
             .sort_by_key(|mark| (mark.range.start, mark.range.end));
     }
 
+    pub fn set_ruby(&mut self, range: Range<usize>, text: String) {
+        if range.is_empty() {
+            return;
+        }
+
+        self.marks.retain(|mark| {
+            !matches!(mark.kind, RichTextKind::Ruby { .. }) || !ranges_overlap(&mark.range, &range)
+        });
+        if !text.is_empty() {
+            self.add_mark(range, RichTextKind::Ruby { text });
+        }
+    }
+
     pub fn marks(&self) -> &[RichTextMark] {
         self.marks.as_slice()
     }
@@ -191,6 +204,10 @@ fn transform_range(
     };
 
     if start >= end { None } else { Some(start..end) }
+}
+
+fn ranges_overlap(first: &Range<usize>, second: &Range<usize>) -> bool {
+    first.start < second.end && second.start < first.end
 }
 
 fn shift_after_edit(offset: usize, removed_range: &Range<usize>, inserted_len: usize) -> usize {

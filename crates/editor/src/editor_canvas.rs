@@ -841,36 +841,43 @@ fn paint_ruby_text(
 
     let style = window.text_style();
     let cell_size = cell_bounds.size.width.as_f32();
-    let font_size = px((cell_size * 0.32).round().max(8.0));
-    let line_height = px((cell_size * 0.4).round().max(10.0));
-    let line = shape_text(
-        window,
-        text,
-        font_size,
-        text_run(
-            text,
-            vertical_text_font(style.font()),
-            Theme::global(cx).text_senodary(),
-            CellTextStyle::default(),
-            cx,
-        ),
-        0,
-    );
-    let paint_offset = vertical_text_paint_offset(&line);
+    let font_size = px((cell_size * 0.3).round().max(8.0));
+    let line_height = px((cell_size * 0.34).round().max(9.0));
+    let advance = px((cell_size * 0.36).round().max(10.0));
     let gutter_width = px(ruby_gutter_size.max(8.0));
-    let text_origin = point(
-        cell_bounds.right() + (gutter_width - line.width) / 2.0 + paint_offset.x,
-        cell_bounds.top() + paint_offset.y,
-    );
-    line.paint(
-        text_origin,
-        line_height,
-        TextAlign::Center,
-        None,
-        window,
-        cx,
-    )
-    .ok();
+    let font = vertical_text_font(style.font());
+    let color = Theme::global(cx).text_senodary();
+
+    for (index, character) in text.chars().enumerate() {
+        let character_text = character.to_string();
+        let line = shape_text(
+            window,
+            character_text.as_str(),
+            font_size,
+            text_run(
+                character_text.as_str(),
+                font.clone(),
+                color,
+                CellTextStyle::default(),
+                cx,
+            ),
+            index as u64,
+        );
+        let paint_offset = vertical_text_paint_offset(&line);
+        let text_origin = point(
+            cell_bounds.right() + (gutter_width - line.width) / 2.0 + paint_offset.x,
+            cell_bounds.top() + advance * index as f32 + paint_offset.y,
+        );
+        line.paint(
+            text_origin,
+            line_height,
+            TextAlign::Center,
+            None,
+            window,
+            cx,
+        )
+        .ok();
+    }
 }
 
 fn paint_page_breaks(

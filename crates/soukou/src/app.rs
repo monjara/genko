@@ -10,7 +10,9 @@ use document::{
         current_directory_or_fallback, suggested_file_name, suggested_save_directory,
     },
 };
-use editor::{EditorController, VimCommandQuit, VimCommandWrite};
+use editor::{
+    EditorController, Event as EditorEvent, RubyEditRequest, VimCommandQuit, VimCommandWrite,
+};
 use gpui::{
     AnyWindowHandle, App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle,
     Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement,
@@ -25,6 +27,7 @@ use rich_text::{RichTextDocumentMeta, RichTextEdit, RichTextKind};
 use settings::AppSettings;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
+use ui::TextInput;
 use workspace::{
     Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceState,
     scan_workspace_entries,
@@ -48,8 +51,10 @@ pub(super) struct SoukouApp {
     rich_text_meta: RichTextDocumentMeta,
     rich_text_synced_revision: u64,
     rich_text_synced_text: String,
+    ruby_editor: Option<RubyEditorState>,
     active_modal: Option<AppModal>,
     _workspace_subscription: Subscription,
+    _editor_subscription: Subscription,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
 }
@@ -69,6 +74,11 @@ enum AppModal {
         latest_version: String,
         release_page_url: String,
     },
+}
+
+struct RubyEditorState {
+    request: RubyEditRequest,
+    input: Entity<TextInput>,
 }
 
 impl SoukouApp {
@@ -143,6 +153,10 @@ impl SoukouApp {
         ]);
 
         let editor_controller = cx.new(EditorController::new);
+        let editor_subscription =
+            cx.subscribe(&editor_controller, |this, _editor_controller, event, cx| {
+                this.handle_editor_event(event.clone(), cx);
+            });
         let workspace = cx.new(Workspace::new);
         let workspace_subscription =
             cx.subscribe(&workspace, |this, _workspace, event, cx| match event {
@@ -158,8 +172,10 @@ impl SoukouApp {
             rich_text_meta: RichTextDocumentMeta::default(),
             rich_text_synced_revision: 0,
             rich_text_synced_text: String::new(),
+            ruby_editor: None,
             active_modal: None,
             _workspace_subscription: workspace_subscription,
+            _editor_subscription: editor_subscription,
             title_bar,
             bottom_bar,
         }
@@ -281,6 +297,7 @@ impl SoukouApp {
         self.rich_text_meta = rich_text_meta;
         self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
         self.rich_text_synced_text = text.to_string();
+        self.ruby_editor = None;
     }
 
     fn notify_workspace(&self, cx: &mut Context<Self>) {
@@ -563,15 +580,7 @@ impl MenuActionHandler for SoukouApp {
             editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
         });
 
-        if let Some(path) = self.active_document.path().map(Path::to_path_buf) {
-            let rich_text_meta = self.rich_text_meta.clone();
-            cx.background_spawn(async move {
-                if let Err(error) = rich_text::save_meta_for_text_path(&path, &rich_text_meta) {
-                    eprintln!("failed to save rich text metadata: {error}");
-                }
-            })
-            .detach();
-        }
+        self.save_rich_text_meta(cx);
 
         cx.notify();
     }
@@ -619,15 +628,7 @@ impl MenuActionHandler for SoukouApp {
             editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
         });
 
-        if let Some(path) = self.active_document.path().map(Path::to_path_buf) {
-            let rich_text_meta = self.rich_text_meta.clone();
-            cx.background_spawn(async move {
-                if let Err(error) = rich_text::save_meta_for_text_path(&path, &rich_text_meta) {
-                    eprintln!("failed to save rich text metadata: {error}");
-                }
-            })
-            .detach();
-        }
+        self.save_rich_text_meta(cx);
 
         cx.notify();
     }
@@ -808,6 +809,13 @@ impl Render for SoukouApp {
                     .when_some(self.rich_text_toolbar_bounds(cx), |this, bounds| {
                         this.child(RichTextToolbar::new(bounds))
                     })
+                    .when_some(self.ruby_editor.as_ref(), |this, ruby_editor| {
+                        this.child(RubyEditorPopover::new(
+                            ruby_editor.request.bounds,
+                            ruby_editor.input.clone(),
+                            cx.entity(),
+                        ))
+                    })
                     .child(self.bottom_bar.clone().into_element()),
             )
     }
@@ -822,6 +830,60 @@ impl SoukouApp {
         }
 
         self.editor_controller.read(cx).selection_bounds(cx)
+    }
+
+    fn handle_editor_event(&mut self, event: EditorEvent, cx: &mut Context<Self>) {
+        match event {
+            EditorEvent::RubyEditRequested(request) => self.open_ruby_editor(request, cx),
+        }
+    }
+
+    fn open_ruby_editor(&mut self, request: RubyEditRequest, cx: &mut Context<Self>) {
+        if WorkspaceState::global(cx).unsupported_file().is_some() {
+            return;
+        }
+
+        let input = cx.new(TextInput::new);
+        input.update(cx, |input, cx| {
+            input.set_placeholder("ルビ", cx);
+            input.set_text(request.text.as_str(), cx);
+        });
+        self.ruby_editor = Some(RubyEditorState { request, input });
+        cx.notify();
+    }
+
+    fn apply_ruby_editor(&mut self, cx: &mut Context<Self>) {
+        let Some(ruby_editor) = self.ruby_editor.take() else {
+            return;
+        };
+        let ruby_text = ruby_editor.input.read(cx).text();
+        self.rich_text_meta
+            .set_ruby(ruby_editor.request.range, ruby_text);
+        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
+        self.rich_text_synced_text = self.snapshot_text(cx);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
+        });
+        self.save_rich_text_meta(cx);
+        cx.notify();
+    }
+
+    fn cancel_ruby_editor(&mut self, cx: &mut Context<Self>) {
+        self.ruby_editor = None;
+        cx.notify();
+    }
+
+    fn save_rich_text_meta(&self, cx: &mut Context<Self>) {
+        let Some(path) = self.active_document.path().map(Path::to_path_buf) else {
+            return;
+        };
+        let rich_text_meta = self.rich_text_meta.clone();
+        cx.background_spawn(async move {
+            if let Err(error) = rich_text::save_meta_for_text_path(&path, &rich_text_meta) {
+                eprintln!("failed to save rich text metadata: {error}");
+            }
+        })
+        .detach();
     }
 
     fn sync_rich_text_meta_after_editor_edits(&mut self, cx: &mut Context<Self>) {
@@ -872,6 +934,94 @@ impl SoukouApp {
             editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
         });
     }
+}
+
+#[derive(IntoElement)]
+struct RubyEditorPopover {
+    bounds: gpui::Bounds<Pixels>,
+    input: Entity<TextInput>,
+    app: Entity<SoukouApp>,
+}
+
+impl RubyEditorPopover {
+    fn new(bounds: gpui::Bounds<Pixels>, input: Entity<TextInput>, app: Entity<SoukouApp>) -> Self {
+        Self { bounds, input, app }
+    }
+}
+
+impl RenderOnce for RubyEditorPopover {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let input = self.input;
+        let focus_handle = input.focus_handle(cx);
+        window.focus(&focus_handle, cx);
+
+        let app_for_apply = self.app.clone();
+        let app_for_cancel = self.app;
+        let left = (self.bounds.right() + px(6.0)).max(px(8.0));
+        let top = (self.bounds.top() - px(4.0)).max(px(8.0));
+
+        div()
+            .absolute()
+            .left(left)
+            .top(top)
+            .w(px(190.0))
+            .p_2()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .bg(Theme::global(cx).white())
+            .border_1()
+            .border_color(toolbar_border_color(cx))
+            .rounded_md()
+            .shadow(vec![BoxShadow {
+                color: Hsla {
+                    h: 0.0,
+                    s: 0.0,
+                    l: 0.0,
+                    a: 0.18,
+                },
+                offset: point(px(0.0), px(8.0)),
+                blur_radius: px(20.0),
+                spread_radius: px(0.0),
+            }])
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .child(input)
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .child(ruby_editor_button("取消", cx, move |cx| {
+                        app_for_cancel.update(cx, |app, cx| app.cancel_ruby_editor(cx));
+                    }))
+                    .child(ruby_editor_button("適用", cx, move |cx| {
+                        app_for_apply.update(cx, |app, cx| app.apply_ruby_editor(cx));
+                    })),
+            )
+    }
+}
+
+fn ruby_editor_button(
+    label: &'static str,
+    cx: &mut App,
+    on_click: impl Fn(&mut App) + Clone + 'static,
+) -> impl IntoElement {
+    let on_click = on_click.clone();
+    div()
+        .px_2()
+        .py_1()
+        .rounded_sm()
+        .text_size(px(12.0))
+        .text_color(Theme::global(cx).text_primary())
+        .bg(Theme::global(cx).bg_senodary())
+        .cursor_pointer()
+        .hover(|style| style.bg(white()))
+        .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
+            on_click(cx);
+        })
+        .child(label)
 }
 
 #[derive(IntoElement)]

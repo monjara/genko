@@ -2,8 +2,10 @@ use std::ops::Range;
 
 use gpui::{Bounds, Context, Pixels, UTF16Selection, px};
 
-use super::{BlockSelection, Editor};
-use crate::editor::layout::{cell_bounds_for_logical_index, logical_index_for_point};
+use super::{BlockSelection, Editor, RubyEditRequest};
+use crate::editor::layout::{
+    board_x_for_visible_column, cell_bounds_for_logical_index, logical_index_for_point,
+};
 
 pub(super) fn previous_boundary(editor: &Editor, offset: usize) -> usize {
     let grapheme_index = editor.draft.grapheme_index_for_byte(offset);
@@ -299,6 +301,78 @@ pub(super) fn byte_offset_for_point(
         editor.ruby_gutter_size(),
     )?;
     Some(editor.draft.byte_offset_for_display_cell(index))
+}
+
+pub(super) fn ruby_edit_request_for_point(
+    editor: &Editor,
+    position: gpui::Point<Pixels>,
+) -> Option<RubyEditRequest> {
+    let bounds = editor.last_board_bounds?;
+    if !bounds.contains(&position) {
+        return None;
+    }
+
+    let visible_columns = editor.visible_columns().max(1);
+    let visible_rows = editor.visible_rows().max(1);
+    let cell_size = editor.cell_size();
+    let ruby_gutter_size = editor.ruby_gutter_size();
+    let local_x = position.x - bounds.left();
+    let stride_value = cell_size + ruby_gutter_size;
+    let slot = (local_x / px(stride_value))
+        .floor()
+        .clamp(0.0, (visible_columns - 1) as f32) as usize;
+    let slot_offset = local_x - px(slot as f32 * stride_value);
+    if slot_offset <= px(cell_size) || slot_offset > px(stride_value) {
+        return None;
+    }
+
+    let row = ((position.y - bounds.top()) / px(cell_size))
+        .floor()
+        .clamp(0.0, (visible_rows.saturating_sub(1)) as f32) as usize;
+    let column_from_right = visible_columns - 1 - slot;
+    let logical_index = (editor.scroll_column + column_from_right) * editor.rows_per_column()
+        + editor.scroll_row
+        + row;
+    let start = editor.draft.byte_offset_for_display_cell(logical_index);
+    let range = if !editor.selected_range.is_empty()
+        && editor.selected_range.start <= start
+        && start < editor.selected_range.end
+    {
+        editor.selected_range.clone()
+    } else {
+        start..next_boundary(editor, start)
+    };
+    if range.is_empty() {
+        return None;
+    }
+
+    let column_left = board_x_for_visible_column(bounds.left(), slot, cell_size, ruby_gutter_size);
+    let request_bounds = Bounds::new(
+        gpui::point(
+            column_left + px(cell_size),
+            bounds.top() + px(row as f32 * cell_size),
+        ),
+        gpui::size(px(ruby_gutter_size), px(cell_size)),
+    );
+    let text = editor
+        .rich_text_meta
+        .marks()
+        .iter()
+        .find_map(|mark| {
+            if mark.range().start == range.start {
+                if let rich_text::RichTextKind::Ruby { text } = mark.kind() {
+                    return Some(text.clone());
+                }
+            }
+            None
+        })
+        .unwrap_or_default();
+
+    Some(RubyEditRequest {
+        range,
+        bounds: request_bounds,
+        text,
+    })
 }
 
 pub(super) fn bounds_for_byte_range(

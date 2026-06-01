@@ -10,8 +10,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use gpui::{
-    App, Bounds, Context, EntityInputHandler, FocusHandle, Focusable, IntoElement, Pixels, Render,
-    Size, UTF16Selection, Window, actions, px,
+    App, Bounds, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable, IntoElement,
+    Pixels, Render, Size, UTF16Selection, Window, actions, px,
 };
 use rich_text::RichTextDocumentMeta;
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
@@ -62,6 +62,18 @@ actions!(
         ShowCharacterPalette,
     ]
 );
+
+#[derive(Clone, Debug)]
+pub struct RubyEditRequest {
+    pub range: Range<usize>,
+    pub bounds: Bounds<Pixels>,
+    pub text: String,
+}
+
+#[derive(Clone, Debug)]
+pub enum Event {
+    RubyEditRequested(RubyEditRequest),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EditorViewState {
@@ -411,6 +423,13 @@ impl Editor {
 
     pub(crate) fn materialize_display_cell(&mut self, display_cell_index: usize) -> usize {
         editor_selection::materialize_display_cell(self, display_cell_index)
+    }
+
+    pub(crate) fn ruby_edit_request_for_point(
+        &self,
+        position: gpui::Point<Pixels>,
+    ) -> Option<RubyEditRequest> {
+        editor_selection::ruby_edit_request_for_point(self, position)
     }
 
     pub(crate) fn set_cursor_from_offset(&mut self, cursor_offset: usize) {
@@ -914,3 +933,5 @@ impl Focusable for Editor {
         self.focus_handle.clone()
     }
 }
+
+impl EventEmitter<Event> for Editor {}
