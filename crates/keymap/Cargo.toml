@@ -1,0 +1,15 @@
+[package]
+name = "keymap"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "keymap"
+path = "src/keymap.rs"
+
+[dependencies]
+gpui = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+xdg = { workspace = true }

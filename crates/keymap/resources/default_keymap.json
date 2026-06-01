@@ -1,0 +1,159 @@
+[
+  {
+    "bindings": {
+      "cmd-q": "menu::Quit",
+      "ctrl-,": "menu::OpenSettings",
+      "cmd-o": "menu::OpenFile",
+      "ctrl-o": "menu::OpenFile",
+      "cmd-s": "menu::SaveFile",
+      "ctrl-s": "menu::SaveFile",
+      "cmd-shift-e": "workspace::ToggleWorkspacePane",
+      "ctrl-shift-e": "workspace::ToggleWorkspacePane",
+      "cmd-b": "menu::RichTextBold",
+      "ctrl-b": "menu::RichTextBold",
+      "cmd-alt-e": "menu::RichTextEmphasis",
+      "ctrl-alt-e": "menu::RichTextEmphasis",
+      "cmd-alt-h": "menu::RichTextHeading",
+      "ctrl-alt-h": "menu::RichTextHeading"
+    }
+  },
+  {
+    "context": "SoukouTextInput",
+    "bindings": {
+      "escape": "soukou::CancelRubyEditor"
+    }
+  },
+  {
+    "context": "vim_mode == insert || vim_mode == disabled",
+    "bindings": {
+      "backspace": "soukou::Backspace",
+      "delete": "soukou::Delete",
+      "up": "soukou::Up",
+      "down": "soukou::Down",
+      "left": "soukou::Left",
+      "right": "soukou::Right",
+      "shift-up": "soukou::SelectUp",
+      "shift-down": "soukou::SelectDown",
+      "shift-left": "soukou::SelectLeft",
+      "shift-right": "soukou::SelectRight",
+      "cmd-a": "soukou::SelectAll",
+      "ctrl-a": "soukou::SelectAll",
+      "cmd-v": "soukou::Paste",
+      "ctrl-v": "soukou::Paste",
+      "cmd-c": "soukou::Copy",
+      "ctrl-c": "soukou::Copy",
+      "cmd-x": "soukou::Cut",
+      "ctrl-x": "soukou::Cut",
+      "cmd-z": "soukou::Undo",
+      "ctrl-z": "soukou::Undo",
+      "cmd-shift-z": "soukou::Redo",
+      "ctrl-u": "soukou::Redo",
+      "enter": "soukou::Enter",
+      "escape": "soukou::ClearSelection",
+      "home": "soukou::Home",
+      "end": "soukou::End",
+      "ctrl-cmd-space": "soukou::ShowCharacterPalette"
+    }
+  },
+  {
+    "context": "vim_mode == normal",
+    "bindings": {
+      "i": "vim::VimEnterInsertMode",
+      "a": "vim::VimAppend",
+      "v": "vim::VimVisualMode",
+      "ctrl-v": "vim::VimVisualBlockMode",
+      "p": "vim::VimPasteAfter",
+      "P": "vim::VimPasteBefore",
+      "u": "vim::VimUndo",
+      "ctrl-r": "vim::VimRedo",
+      ".": "vim::VimRepeatLastChange",
+      "b": "vim::VimMoveWordBackward",
+      "B": "vim::VimMoveBigWordBackward",
+      "g g": "vim::VimMoveDocumentStart",
+      "G": "vim::VimMoveDocumentEnd",
+      "o": "vim::VimOpenNextColumn"
+    }
+  },
+  {
+    "context": "vim_mode == normal || vim_mode == visual || vim_mode == visual_block",
+    "bindings": {
+      "d": "vim::VimDeleteOperator",
+      "c": "vim::VimChangeOperator",
+      "y": "vim::VimYankOperator",
+      "w": "vim::VimMoveWordForward",
+      "W": "vim::VimMoveBigWordForward",
+      "e": "vim::VimMoveWordEndForward",
+      "h": "vim::VimMoveLeft",
+      "j": "vim::VimMoveDown",
+      "k": "vim::VimMoveUp",
+      "l": "vim::VimMoveRight",
+      "x": "vim::VimDeleteChar"
+    }
+  },
+  {
+    "context": "vim_mode == visual",
+    "bindings": {
+      "v": "vim::VimNormalMode"
+    }
+  },
+  {
+    "context": "vim_mode == visual_block",
+    "bindings": {
+      "ctrl-v": "vim::VimNormalMode",
+      "I": "vim::VimBlockInsertBefore",
+      "A": "vim::VimBlockAppendAfter"
+    }
+  },
+  {
+    "context": "vim_mode == visual || vim_mode == visual_block",
+    "bindings": {
+      "g g": "vim::VimMoveDocumentStart",
+      "G": "vim::VimMoveDocumentEnd"
+    }
+  },
+  {
+    "context": "vim_mode == insert || vim_mode == visual || vim_mode == visual_block || vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank || vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around",
+    "bindings": {
+      "escape": "vim::VimNormalMode"
+    }
+  },
+  {
+    "context": "vim_mode == operator_delete",
+    "bindings": {
+      "d": "vim::VimDeleteOperator"
+    }
+  },
+  {
+    "context": "vim_mode == operator_change",
+    "bindings": {
+      "c": "vim::VimChangeOperator"
+    }
+  },
+  {
+    "context": "vim_mode == operator_yank",
+    "bindings": {
+      "y": "vim::VimYankOperator"
+    }
+  },
+  {
+    "context": "vim_mode == operator_delete || vim_mode == operator_change || vim_mode == operator_yank",
+    "bindings": {
+      "w": "vim::VimMoveWordForward",
+      "W": "vim::VimMoveBigWordForward",
+      "e": "vim::VimMoveWordEndForward",
+      "i": "vim::VimTextObjectInner",
+      "a": "vim::VimTextObjectAround"
+    }
+  },
+  {
+    "context": "vim_mode == operator_delete_inner || vim_mode == operator_delete_around || vim_mode == operator_change_inner || vim_mode == operator_change_around || vim_mode == operator_yank_inner || vim_mode == operator_yank_around",
+    "bindings": {
+      "w": "vim::VimTextObjectWord",
+      "W": "vim::VimTextObjectBigWord",
+      "\"": "vim::VimTextObjectDoubleQuote",
+      "'": "vim::VimTextObjectSingleQuote",
+      "(": "vim::VimTextObjectParen",
+      "[": "vim::VimTextObjectBracket"
+    }
+  }
+]

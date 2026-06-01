@@ -32,9 +32,7 @@ const IME_ANCHOR_WIDTH: f32 = 2.0;
 const IME_ANCHOR_INSET: f32 = 3.0;
 const IME_CANDIDATE_GAP: f32 = 16.0;
 
-pub(crate) fn init(cx: &mut App) {
-    default_input::init(cx);
-}
+pub(crate) fn init(_cx: &mut App) {}
 
 actions!(
     soukou,

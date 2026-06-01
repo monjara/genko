@@ -23,6 +23,7 @@ editor = { workspace = true, features = ["embedded-ipadic"] }
 gpui = { workspace = true }
 gpui_platform = { workspace = true }
 icons = { workspace = true }
+keymap = { workspace = true }
 menu = { workspace = true }
 rich_text = { workspace = true }
 rope = { workspace = true }
@@ -32,7 +33,6 @@ title_bar = { workspace = true }
 ui = { workspace = true }
 unicode-segmentation = { workspace = true }
 workspace = { workspace = true }
-xdg = { workspace = true }
 
 [build-dependencies]
 embed-resource = "3"

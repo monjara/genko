@@ -1,7 +1,6 @@
 use gpui::{
-    Action, App, Context, CursorStyle, InteractiveElement, IntoElement, KeyBinding, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, ScrollWheelEvent, Styled, Window,
-    div,
+    Context, CursorStyle, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ParentElement, ScrollWheelEvent, Styled, Window, div,
 };
 use settings::AppSettings;
 
@@ -12,49 +11,6 @@ use super::{
 };
 use crate::editor_canvas::EditorCanvas;
 use crate::vim::{VimMode, VimNormalMode, VimState};
-
-pub(super) fn init(cx: &mut App) {
-    const EDITOR_CONTEXT: Option<&str> = Some("vim_mode == insert || vim_mode == disabled");
-    fn binding<A: Action>(cx: &App, id: &str, action: A, context: Option<&str>) -> KeyBinding {
-        let keystroke = AppSettings::global(cx).keymap_keystroke(id);
-        KeyBinding::new(keystroke.as_ref(), action, context)
-    }
-
-    cx.bind_keys([
-        binding(cx, "editor.backspace", Backspace, EDITOR_CONTEXT),
-        binding(cx, "editor.delete", Delete, EDITOR_CONTEXT),
-        binding(cx, "editor.up", Up, EDITOR_CONTEXT),
-        binding(cx, "editor.down", Down, EDITOR_CONTEXT),
-        binding(cx, "editor.left", Left, EDITOR_CONTEXT),
-        binding(cx, "editor.right", Right, EDITOR_CONTEXT),
-        binding(cx, "editor.select_up", SelectUp, EDITOR_CONTEXT),
-        binding(cx, "editor.select_down", SelectDown, EDITOR_CONTEXT),
-        binding(cx, "editor.select_left", SelectLeft, EDITOR_CONTEXT),
-        binding(cx, "editor.select_right", SelectRight, EDITOR_CONTEXT),
-        binding(cx, "editor.select_all.mac", SelectAll, EDITOR_CONTEXT),
-        binding(cx, "editor.select_all.ctrl", SelectAll, EDITOR_CONTEXT),
-        binding(cx, "editor.paste.mac", Paste, EDITOR_CONTEXT),
-        binding(cx, "editor.paste.ctrl", Paste, EDITOR_CONTEXT),
-        binding(cx, "editor.copy.mac", Copy, EDITOR_CONTEXT),
-        binding(cx, "editor.copy.ctrl", Copy, EDITOR_CONTEXT),
-        binding(cx, "editor.cut.mac", Cut, EDITOR_CONTEXT),
-        binding(cx, "editor.cut.ctrl", Cut, EDITOR_CONTEXT),
-        binding(cx, "editor.undo.mac", Undo, EDITOR_CONTEXT),
-        binding(cx, "editor.undo.ctrl", Undo, EDITOR_CONTEXT),
-        binding(cx, "editor.redo.mac", Redo, EDITOR_CONTEXT),
-        binding(cx, "editor.redo.ctrl", Redo, EDITOR_CONTEXT),
-        binding(cx, "editor.enter", Enter, EDITOR_CONTEXT),
-        binding(cx, "editor.clear_selection", ClearSelection, EDITOR_CONTEXT),
-        binding(cx, "editor.home", Home, EDITOR_CONTEXT),
-        binding(cx, "editor.end", End, EDITOR_CONTEXT),
-        binding(
-            cx,
-            "editor.show_character_palette",
-            ShowCharacterPalette,
-            EDITOR_CONTEXT,
-        ),
-    ]);
-}
 
 fn backspace(editor: &mut Editor, _: &Backspace, window: &mut Window, cx: &mut Context<Editor>) {
     editor.delete_backward_command(window, cx);

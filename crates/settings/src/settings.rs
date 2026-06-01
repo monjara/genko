@@ -1,7 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path, path::PathBuf};
 
 use gpui::{
     App, AppContext, Bounds, ClickEvent, Context, Entity, FontWeight, Global, InteractiveElement,
@@ -719,8 +716,6 @@ const DEFAULT_CELL_SIZE: usize = 32;
 const MIN_CELL_SIZE: usize = 19;
 const MAX_CELL_SIZE: usize = 60;
 const SETTINGS_FILE: &str = "settings.json";
-const KEYMAP_FILE: &str = "keymap.json";
-const DEFAULT_KEYMAP_JSON: &str = include_str!("../resources/default_keymap.json");
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -743,12 +738,6 @@ impl ColumnNumberMode {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-struct KeymapEntry {
-    id: String,
-    keystroke: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct AppSettings {
     pub show_grid_lines: bool,
@@ -760,7 +749,6 @@ pub struct AppSettings {
     pub vim_mode: bool,
     #[serde(rename = "indentOnEnter")]
     pub indent_on_enter: bool,
-    keymap: Vec<KeymapEntry>,
 }
 
 impl Global for AppSettings {}
@@ -775,7 +763,6 @@ impl Default for AppSettings {
             rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: false,
             indent_on_enter: false,
-            keymap: Self::default_keymap(),
         }
     }
 }
@@ -806,21 +793,8 @@ impl AppSettings {
         MAX_CELL_SIZE
     }
 
-    pub fn keymap_keystroke(&self, id: &str) -> SharedString {
-        self.keymap
-            .iter()
-            .find(|entry| entry.id == id)
-            .map(|entry| SharedString::from(entry.keystroke.clone()))
-            .unwrap_or_default()
-    }
-
     fn load() -> Self {
-        let mut settings = Self::load_from_config_file(Self::existing_settings_file_path());
-        let legacy_keymap = settings.keymap.clone();
-        settings.keymap =
-            Self::load_keymap(Self::existing_keymap_file_path()).unwrap_or(legacy_keymap);
-        settings.keymap = Self::merged_keymap(&settings.keymap);
-        settings
+        Self::load_from_config_file(Self::existing_settings_file_path())
     }
 
     fn save(&self) -> Result<(), String> {
@@ -843,49 +817,7 @@ impl AppSettings {
             rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: self.vim_mode,
             indent_on_enter: self.indent_on_enter,
-            keymap: Self::merged_keymap(&self.keymap),
         }
-    }
-
-    fn normalize_keymap(entries: &[KeymapEntry]) -> Vec<KeymapEntry> {
-        let mut normalized: Vec<KeymapEntry> = Vec::new();
-
-        for entry in entries {
-            let id = entry.id.trim();
-            let keystroke = entry.keystroke.trim();
-            if id.is_empty() || keystroke.is_empty() {
-                continue;
-            }
-
-            if let Some(existing) = normalized.iter_mut().find(|existing| existing.id == id) {
-                existing.keystroke = keystroke.to_string();
-            } else {
-                normalized.push(KeymapEntry {
-                    id: id.to_string(),
-                    keystroke: keystroke.to_string(),
-                });
-            }
-        }
-
-        normalized
-    }
-
-    fn merged_keymap(entries: &[KeymapEntry]) -> Vec<KeymapEntry> {
-        let mut merged = Self::default_keymap();
-        for entry in Self::normalize_keymap(entries) {
-            if let Some(existing) = merged.iter_mut().find(|existing| existing.id == entry.id) {
-                existing.keystroke = entry.keystroke;
-            } else {
-                merged.push(entry);
-            }
-        }
-        merged
-    }
-
-    fn default_keymap() -> Vec<KeymapEntry> {
-        serde_json::from_str(DEFAULT_KEYMAP_JSON)
-            .map(|entries: Vec<KeymapEntry>| Self::normalize_keymap(&entries))
-            .unwrap_or_default()
     }
 
     fn existing_settings_file_path() -> Option<PathBuf> {
@@ -898,19 +830,6 @@ impl AppSettings {
         {
             let xdg_dirs = xdg::BaseDirectories::with_prefix("soukou");
             xdg_dirs.find_config_file(SETTINGS_FILE)
-        }
-    }
-
-    fn existing_keymap_file_path() -> Option<PathBuf> {
-        #[cfg(target_os = "windows")]
-        {
-            Self::keymap_file_path().filter(|path| path.exists())
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let xdg_dirs = xdg::BaseDirectories::with_prefix("soukou");
-            xdg_dirs.find_config_file(KEYMAP_FILE)
         }
     }
 
@@ -928,12 +847,6 @@ impl AppSettings {
         }
     }
 
-    #[cfg(target_os = "windows")]
-    fn keymap_file_path() -> Option<PathBuf> {
-        std::env::var_os("APPDATA")
-            .map(|appdata| PathBuf::from(appdata).join("soukou").join(KEYMAP_FILE))
-    }
-
     fn load_from_config_file(settings_path: Option<PathBuf>) -> Self {
         let Some(settings_path) = settings_path else {
             return Self::default();
@@ -946,14 +859,6 @@ impl AppSettings {
         serde_json::from_str::<Self>(&settings_json)
             .map(|settings| settings.normalized())
             .unwrap_or_default()
-    }
-
-    fn load_keymap(keymap_path: Option<PathBuf>) -> Option<Vec<KeymapEntry>> {
-        let keymap_path = keymap_path?;
-        let keymap_json = fs::read_to_string(keymap_path).ok()?;
-        serde_json::from_str::<Vec<KeymapEntry>>(&keymap_json)
-            .ok()
-            .map(|entries| Self::normalize_keymap(&entries))
     }
 
     fn save_to_file(&self, settings_path: &Path) -> Result<(), String> {
@@ -995,11 +900,8 @@ impl From<&AppSettings> for PersistedAppSettings {
 mod tests {
     use std::{env, fs, path::PathBuf};
 
-    use gpui::SharedString;
-
     use super::{
-        AppSettings, ColumnNumberMode, DEFAULT_CELL_SIZE, DEFAULT_ROWS_PER_COLUMN, KeymapEntry,
-        MAX_CELL_SIZE,
+        AppSettings, ColumnNumberMode, DEFAULT_CELL_SIZE, DEFAULT_ROWS_PER_COLUMN, MAX_CELL_SIZE,
     };
 
     fn test_settings_dir(name: &str) -> PathBuf {
@@ -1097,10 +999,6 @@ mod tests {
             rows_per_column: Some(24),
             vim_mode: true,
             indent_on_enter: true,
-            keymap: vec![KeymapEntry {
-                id: "app.open_file.ctrl".to_string(),
-                keystroke: "ctrl-shift-o".to_string(),
-            }],
         };
 
         settings.save_to_file(&settings_path).unwrap();
@@ -1116,7 +1014,6 @@ mod tests {
         assert_eq!(reloaded.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(reloaded.vim_mode);
         assert!(reloaded.indent_on_enter);
-        assert_eq!(reloaded.keymap, AppSettings::default().keymap);
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1166,83 +1063,6 @@ mod tests {
         let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
 
         assert_eq!(settings.cell_size, MAX_CELL_SIZE);
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn loads_legacy_keymap_entries_from_settings_file() {
-        let dir = test_settings_dir("legacy_keymap");
-        fs::write(
-            dir.join("settings.json"),
-            r#"{
-                "keymap": [
-                    { "id": " app.open_file.ctrl ", "keystroke": " ctrl-o " },
-                    { "id": "", "keystroke": "cmd-p" },
-                    { "id": "app.open_file.ctrl", "keystroke": "ctrl-shift-o" }
-                ]
-            }"#,
-        )
-        .unwrap();
-
-        let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
-
-        assert_eq!(
-            settings
-                .keymap
-                .iter()
-                .find(|entry| entry.id == "app.open_file.ctrl"),
-            Some(&KeymapEntry {
-                id: "app.open_file.ctrl".to_string(),
-                keystroke: "ctrl-shift-o".to_string(),
-            })
-        );
-        assert_eq!(
-            settings.keymap_keystroke("app.open_file.ctrl"),
-            SharedString::from("ctrl-shift-o".to_string())
-        );
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn loads_custom_keymap_file_and_merges_with_default_keymap() {
-        let dir = test_settings_dir("custom_keymap");
-        fs::write(
-            dir.join("keymap.json"),
-            r#"[
-                { "id": " app.open_file.ctrl ", "keystroke": " ctrl-shift-o " },
-                { "id": "vim.enter_insert_mode", "keystroke": "I" }
-            ]"#,
-        )
-        .unwrap();
-
-        let keymap = AppSettings::load_keymap(Some(dir.join("keymap.json"))).unwrap();
-        let merged = AppSettings::merged_keymap(&keymap);
-
-        assert_eq!(
-            merged.iter().find(|entry| entry.id == "app.open_file.ctrl"),
-            Some(&KeymapEntry {
-                id: "app.open_file.ctrl".to_string(),
-                keystroke: "ctrl-shift-o".to_string(),
-            })
-        );
-        assert_eq!(
-            merged
-                .iter()
-                .find(|entry| entry.id == "vim.enter_insert_mode"),
-            Some(&KeymapEntry {
-                id: "vim.enter_insert_mode".to_string(),
-                keystroke: "I".to_string(),
-            })
-        );
-        assert_eq!(
-            merged.iter().find(|entry| entry.id == "app.save_file.ctrl"),
-            Some(&KeymapEntry {
-                id: "app.save_file.ctrl".to_string(),
-                keystroke: "ctrl-s".to_string(),
-            })
-        );
 
         let _ = fs::remove_dir_all(dir);
     }

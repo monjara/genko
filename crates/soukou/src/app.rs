@@ -16,19 +16,15 @@ use editor::{
 };
 use gpui::{
     AnyWindowHandle, App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle,
-    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    Pixels, Render, RenderOnce, Styled, Subscription, Window, div, point, prelude::FluentBuilder,
-    px, svg, transparent_black, white,
+    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    RenderOnce, StatefulInteractiveElement, Styled, Subscription, Window, div, point,
+    prelude::FluentBuilder, px, svg, transparent_black, white,
 };
-use menu::{
-    MenuActionHandler, OpenFile, OpenSettings, Quit, RichTextBold, RichTextEmphasis,
-    RichTextHeading, SaveFile,
-};
+use menu::{MenuActionHandler, RichTextBold, RichTextEmphasis, RichTextHeading};
 use rich_text::{RichTextDocumentMeta, RichTextEdit, RichTextKind};
-use settings::AppSettings;
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
-use ui::TextInput;
+use ui::{TextInput, Tooltip};
 use workspace::{
     Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceState,
     scan_workspace_entries,
@@ -42,6 +38,7 @@ const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
 const WINDOW_TITLE_SEPARATOR: &str = " - ";
 const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
 const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
+const KEYMAP_LOAD_ERROR_TITLE: &str = "キーマップを読み込めませんでした";
 const SUPPORTED_OPEN_ERROR_DETAIL: &str = "現在は .txt ファイルに対応しています";
 const UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL: &str = "サポートしていないファイルは保存できません";
 const BOTTOM_BAR_TOP_GAP: f32 = 4.0;
@@ -138,28 +135,12 @@ impl SoukouApp {
     }
 
     pub(super) fn new(cx: &mut Context<Self>) -> Self {
-        let quit_mac = AppSettings::global(cx).keymap_keystroke("app.quit.mac");
-        let open_file_mac = AppSettings::global(cx).keymap_keystroke("app.open_file.mac");
-        let save_file_mac = AppSettings::global(cx).keymap_keystroke("app.save_file.mac");
-        let toggle_workspace_mac = AppSettings::global(cx).keymap_keystroke("workspace.toggle.mac");
-
-        let open_settings_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_settings.ctrl");
-        let open_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.open_file.ctrl");
-        let save_file_ctrl = AppSettings::global(cx).keymap_keystroke("app.save_file.ctrl");
-        let toggle_workspace_ctrl =
-            AppSettings::global(cx).keymap_keystroke("workspace.toggle.ctrl");
-
-        cx.bind_keys([
-            KeyBinding::new(quit_mac.as_ref(), Quit, None),
-            KeyBinding::new(open_settings_ctrl.as_ref(), OpenSettings, None),
-            KeyBinding::new(open_file_mac.as_ref(), OpenFile, None),
-            KeyBinding::new(open_file_ctrl.as_ref(), OpenFile, None),
-            KeyBinding::new(save_file_mac.as_ref(), SaveFile, None),
-            KeyBinding::new(save_file_ctrl.as_ref(), SaveFile, None),
-            KeyBinding::new(toggle_workspace_mac.as_ref(), ToggleWorkspacePane, None),
-            KeyBinding::new(toggle_workspace_ctrl.as_ref(), ToggleWorkspacePane, None),
-            KeyBinding::new("escape", CancelRubyEditor, Some("SoukouTextInput")),
-        ]);
+        let loaded_key_bindings = keymap::load_key_bindings(cx);
+        cx.bind_keys(loaded_key_bindings.key_bindings);
+        let active_modal = loaded_key_bindings.error.map(|detail| AppModal::Error {
+            title: KEYMAP_LOAD_ERROR_TITLE.to_string(),
+            detail,
+        });
 
         let editor_controller = cx.new(EditorController::new);
         let editor_subscription =
@@ -183,7 +164,7 @@ impl SoukouApp {
             rich_text_synced_text: String::new(),
             ruby_editor: None,
             page_break_menu: None,
-            active_modal: None,
+            active_modal,
             _workspace_subscription: workspace_subscription,
             _editor_subscription: editor_subscription,
             title_bar,
@@ -1139,23 +1120,41 @@ impl RenderOnce for RubyEditorPopover {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(ruby_editor_button(icons::CHECK, cx, move |cx| {
-                        app_for_apply.update(cx, |app, cx| app.apply_ruby_editor(cx));
-                    }))
-                    .child(ruby_editor_button(icons::X, cx, move |cx| {
-                        app_for_cancel.update(cx, |app, cx| app.cancel_ruby_editor(cx));
-                    })),
+                    .child(ruby_editor_button(
+                        icons::CHECK,
+                        0,
+                        "適用",
+                        None,
+                        cx,
+                        move |cx| {
+                            app_for_apply.update(cx, |app, cx| app.apply_ruby_editor(cx));
+                        },
+                    ))
+                    .child(ruby_editor_button(
+                        icons::X,
+                        1,
+                        "取り消し",
+                        Some("Esc"),
+                        cx,
+                        move |cx| {
+                            app_for_cancel.update(cx, |app, cx| app.cancel_ruby_editor(cx));
+                        },
+                    )),
             )
     }
 }
 
 fn ruby_editor_button(
     icon_path: &'static str,
+    id_index: usize,
+    tooltip_title: &'static str,
+    shortcut: Option<&'static str>,
     cx: &mut App,
     on_click: impl Fn(&mut App) + Clone + 'static,
 ) -> impl IntoElement {
     let on_click = on_click.clone();
     div()
+        .id(("ruby-editor-button", id_index))
         .w(px(24.0))
         .h(px(24.0))
         .flex()
@@ -1166,6 +1165,10 @@ fn ruby_editor_button(
         .bg(Theme::global(cx).bg_senodary())
         .cursor_pointer()
         .hover(|style| style.bg(white()))
+        .tooltip(Tooltip::new(
+            tooltip_title,
+            shortcut.map(gpui::SharedString::from),
+        ))
         .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
             on_click(cx);
         })
@@ -1219,17 +1222,25 @@ impl RenderOnce for RichTextToolbar {
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
-            .child(toolbar_button("B", RichTextBold, cx))
-            .child(toolbar_button("•", RichTextEmphasis, cx))
-            .child(toolbar_button("見", RichTextHeading, cx))
+            .child(toolbar_button("B", 0, "太字", RichTextBold, cx))
+            .child(toolbar_button("•", 1, "傍点", RichTextEmphasis, cx))
+            .child(toolbar_button("見", 2, "見出し", RichTextHeading, cx))
     }
 }
 
-fn toolbar_button<Action>(label: &'static str, action: Action, cx: &mut App) -> impl IntoElement
+fn toolbar_button<Action>(
+    label: &'static str,
+    id_index: usize,
+    tooltip_title: &'static str,
+    action: Action,
+    cx: &mut App,
+) -> impl IntoElement
 where
     Action: gpui::Action + Clone + 'static,
 {
+    let tooltip_action = action.clone();
     div()
+        .id(("rich-text-toolbar-button", id_index))
         .w(px(38.0))
         .h(px(34.0))
         .flex()
@@ -1242,6 +1253,7 @@ where
         .border_color(toolbar_border_color(cx))
         .cursor_pointer()
         .hover(|style| style.bg(white()))
+        .tooltip(Tooltip::for_action(tooltip_title, tooltip_action))
         .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
             window.dispatch_action(Box::new(action.clone()), cx);
         })

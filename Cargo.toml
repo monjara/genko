@@ -7,6 +7,7 @@ members = [
   "crates/editor",
   "crates/env",
   "crates/icons",
+  "crates/keymap",
   "crates/menu",
   "crates/rich_text",
   "crates/rope",
@@ -45,6 +46,7 @@ document = { path = "crates/document" }
 editor = { path = "crates/editor" }
 env = { path = "crates/env" }
 icons = { path = "crates/icons" }
+keymap = { path = "crates/keymap" }
 menu = { path = "crates/menu" }
 rich_text = { path = "crates/rich_text" }
 rope = { path = "crates/rope" }

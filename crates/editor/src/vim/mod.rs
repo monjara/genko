@@ -12,7 +12,6 @@ use rich_text::RichTextDocumentMeta;
 use rope::BLANK_CELL;
 use settings::AppSettings;
 
-mod bindings;
 pub(crate) mod block;
 pub(crate) mod state;
 #[cfg(test)]
@@ -82,7 +81,6 @@ actions!(
 );
 
 pub fn init(cx: &mut App) {
-    bindings::init(cx);
     state::init(cx);
 }
 
