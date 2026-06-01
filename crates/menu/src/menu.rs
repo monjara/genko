@@ -21,7 +21,6 @@ actions!(
         RichTextBold,
         RichTextEmphasis,
         RichTextHeading,
-        RichTextPageBreak,
         Quit
     ]
 );
@@ -39,7 +38,6 @@ const RICH_TEXT_MENU_LABEL: &str = "リッチテキスト";
 const RICH_TEXT_BOLD_MENU_LABEL: &str = "太字";
 const RICH_TEXT_EMPHASIS_MENU_LABEL: &str = "傍点";
 const RICH_TEXT_HEADING_MENU_LABEL: &str = "見出し";
-const RICH_TEXT_PAGE_BREAK_MENU_LABEL: &str = "改ページ";
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
@@ -90,8 +88,6 @@ pub fn init(cx: &mut App) {
                 MenuItem::action(RICH_TEXT_BOLD_MENU_LABEL, RichTextBold),
                 MenuItem::action(RICH_TEXT_EMPHASIS_MENU_LABEL, RichTextEmphasis),
                 MenuItem::action(RICH_TEXT_HEADING_MENU_LABEL, RichTextHeading),
-                MenuItem::separator(),
-                MenuItem::action(RICH_TEXT_PAGE_BREAK_MENU_LABEL, RichTextPageBreak),
             ],
         },
     ])
@@ -142,9 +138,6 @@ pub fn title_bar_menus() -> Vec<TitleBarMenu> {
                 MenuBarItem::new(RICH_TEXT_HEADING_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(RichTextHeading), cx);
                 }),
-                MenuBarItem::new(RICH_TEXT_PAGE_BREAK_MENU_LABEL, |window, cx| {
-                    window.dispatch_action(Box::new(RichTextPageBreak), cx);
-                }),
             ],
         ),
     ]
@@ -178,8 +171,6 @@ pub trait MenuActionHandler: Sized + 'static {
     fn snapshot_text(&self, cx: &App) -> String;
 
     fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize>;
-
-    fn selected_text(&self, cx: &App) -> String;
 
     fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>);
 
@@ -243,15 +234,6 @@ pub trait MenuActionHandler: Sized + 'static {
         cx: &mut Context<Self>,
     ) {
         self.apply_rich_text_to_selection(RichTextKind::Heading { level: 1 }, cx);
-    }
-
-    fn rich_text_page_break_action(
-        &mut self,
-        _: &RichTextPageBreak,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_kind(RichTextKind::PageBreak, cx);
     }
 
     fn check_for_updates_action(

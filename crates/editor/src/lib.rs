@@ -3,7 +3,7 @@ mod editor_canvas;
 mod editor_controller;
 pub mod vim;
 
-pub use editor::{Event, RubyEditRequest};
+pub use editor::{Event, PageBreakMenuKind, PageBreakMenuRequest, RubyEditRequest};
 pub use editor_controller::EditorController;
 pub use vim::{VimCommandQuit, VimCommandWrite, VimController, VimMode, VimModeLabel, VimState};
 

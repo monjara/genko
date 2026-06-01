@@ -256,7 +256,16 @@ impl Element for EditorCanvas {
                 cx,
             );
         }
-        paint_page_breaks(&visible_text, &prepared_cells, &rich_text_meta, window, cx);
+        paint_page_breaks(
+            content_bounds,
+            scroll_column,
+            visible_columns,
+            cell_size,
+            ruby_gutter_size,
+            &rich_text_meta,
+            window,
+            cx,
+        );
         paint_text(&visible_text, &prepared_cells, window, cx);
         paint_rich_text_overlays(
             &visible_text,
@@ -751,7 +760,7 @@ fn style_for_cell(
                 style.bold = true;
                 style.heading_level = Some(*level);
             }
-            RichTextKind::PageBreak => {}
+            RichTextKind::PageBreak { .. } => {}
         }
     }
     style
@@ -881,30 +890,33 @@ fn paint_ruby_text(
 }
 
 fn paint_page_breaks(
-    visible_text: &[CellText],
-    prepared_cells: &[PreparedCellPaint],
+    bounds: Bounds<Pixels>,
+    scroll_column: usize,
+    visible_columns: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
     rich_text_meta: &RichTextDocumentMeta,
     window: &mut Window,
     cx: &mut App,
 ) {
     for mark in rich_text_meta.marks() {
-        if !matches!(mark.kind(), RichTextKind::PageBreak) {
+        let RichTextKind::PageBreak { column } = mark.kind() else {
+            continue;
+        };
+        if *column < scroll_column {
+            continue;
+        };
+        let column_from_right = *column - scroll_column;
+        if column_from_right >= visible_columns {
             continue;
         }
-        let Some((_, prepared)) = visible_text
-            .iter()
-            .zip(prepared_cells.iter())
-            .find(|(cell_text, _)| cell_text.range.start >= mark.range().start)
-        else {
-            continue;
-        };
-        let Some(cell_bounds) = prepared.bounds else {
-            continue;
-        };
+        let slot = visible_columns - 1 - column_from_right;
+        let line_x =
+            board_x_for_visible_column(bounds.left(), slot, cell_size, ruby_gutter_size) - px(1.5);
         window.paint_quad(fill(
             Bounds::new(
-                point(cell_bounds.left(), cell_bounds.top()),
-                size(cell_bounds.size.width, px(2.0)),
+                point(line_x, bounds.top()),
+                size(px(3.0), bounds.size.height),
             ),
             Theme::global(cx).primary(),
         ));

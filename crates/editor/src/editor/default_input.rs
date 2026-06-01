@@ -180,6 +180,15 @@ fn on_board_mouse_down(
     editor.mouse_selection_start_command(event.position, event.modifiers.shift, window, cx);
 }
 
+fn on_board_context_mouse_down(
+    editor: &mut Editor,
+    event: &MouseDownEvent,
+    _window: &mut Window,
+    cx: &mut Context<Editor>,
+) {
+    editor.page_break_context_menu_command(event.position, cx);
+}
+
 fn on_board_mouse_up(
     editor: &mut Editor,
     event: &MouseUpEvent,
@@ -233,6 +242,7 @@ pub(super) fn render(editor: &mut Editor, cx: &mut Context<Editor>) -> impl Into
         .on_action(cx.listener(clear_selection_action))
         .on_action(cx.listener(show_character_palette))
         .on_mouse_down(MouseButton::Left, cx.listener(on_board_mouse_down))
+        .on_mouse_down(MouseButton::Right, cx.listener(on_board_context_mouse_down))
         .on_mouse_up(MouseButton::Left, cx.listener(on_board_mouse_up))
         .on_mouse_up_out(MouseButton::Left, cx.listener(on_board_mouse_up))
         .on_mouse_move(cx.listener(on_board_mouse_move))

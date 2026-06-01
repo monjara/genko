@@ -50,6 +50,16 @@ impl EditorController {
         self.vim_controller.read(cx).selected_byte_range(cx)
     }
 
+    pub fn rows_per_column(&self, cx: &App) -> usize {
+        self.vim_controller.read(cx).rows_per_column(cx)
+    }
+
+    pub fn byte_offset_for_display_cell(&self, display_cell_index: usize, cx: &App) -> usize {
+        self.vim_controller
+            .read(cx)
+            .byte_offset_for_display_cell(display_cell_index, cx)
+    }
+
     pub fn replace_byte_range(
         &mut self,
         range: Range<usize>,

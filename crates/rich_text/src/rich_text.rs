@@ -23,7 +23,7 @@ impl RichTextDocumentMeta {
             return;
         }
 
-        if range.is_empty() && !matches!(kind, RichTextKind::PageBreak) {
+        if range.is_empty() && !matches!(kind, RichTextKind::PageBreak { .. }) {
             return;
         }
 
@@ -37,8 +37,8 @@ impl RichTextDocumentMeta {
             return;
         }
 
-        if matches!(kind, RichTextKind::PageBreak) {
-            self.toggle_page_break(range.start);
+        if let RichTextKind::PageBreak { column } = kind {
+            self.toggle_page_break_column(column, range.start);
             return;
         }
 
@@ -75,28 +75,68 @@ impl RichTextDocumentMeta {
         self.marks.clear();
     }
 
+    pub fn set_page_break_column(&mut self, column: usize, offset: usize) {
+        self.marks
+            .retain(|mark| !is_page_break_column(&mark.kind, column));
+        self.add_mark(offset..offset, RichTextKind::PageBreak { column });
+    }
+
+    pub fn toggle_page_break_column(&mut self, column: usize, offset: usize) {
+        let original_len = self.marks.len();
+        self.marks
+            .retain(|mark| !is_page_break_column(&mark.kind, column));
+        if self.marks.len() == original_len {
+            self.add_mark(offset..offset, RichTextKind::PageBreak { column });
+        }
+    }
+
+    pub fn remove_page_break_column(&mut self, column: usize) {
+        self.marks
+            .retain(|mark| !is_page_break_column(&mark.kind, column));
+    }
+
+    pub fn move_page_break_column(&mut self, from_column: usize, to_column: usize, offset: usize) {
+        let mut moved = false;
+        self.marks.retain_mut(|mark| {
+            if let RichTextKind::PageBreak { column } = &mut mark.kind {
+                if *column == from_column {
+                    if moved {
+                        return false;
+                    }
+                    *column = to_column;
+                    mark.range = offset..offset;
+                    moved = true;
+                    return true;
+                }
+                return *column != to_column;
+            }
+            true
+        });
+        if !moved {
+            self.add_mark(
+                offset..offset,
+                RichTextKind::PageBreak { column: to_column },
+            );
+        }
+        self.marks
+            .sort_by_key(|mark| (mark.range.start, mark.range.end));
+    }
+
     pub fn apply_text_edit(&mut self, start: usize, removed_len: usize, inserted_len: usize) {
         let removed_range = start..start.saturating_add(removed_len);
         self.marks = self
             .marks
             .drain(..)
             .filter_map(|mut mark| {
+                if matches!(mark.kind, RichTextKind::PageBreak { .. }) {
+                    return Some(mark);
+                }
                 mark.range = transform_range(mark.range, &removed_range, inserted_len)?;
                 Some(mark)
             })
             .collect();
         self.marks
             .sort_by_key(|mark| (mark.range.start, mark.range.end));
-    }
-
-    fn toggle_page_break(&mut self, offset: usize) {
-        let original_len = self.marks.len();
-        self.marks.retain(|mark| {
-            !matches!(mark.kind, RichTextKind::PageBreak) || mark.range.start != offset
-        });
-        if self.marks.len() == original_len {
-            self.add_mark(offset..offset, RichTextKind::PageBreak);
-        }
     }
 
     fn range_is_fully_marked(&self, range: &Range<usize>, kind: &RichTextKind) -> bool {
@@ -300,9 +340,13 @@ fn mark_kind_matches(left: &RichTextKind, right: &RichTextKind) -> bool {
         (RichTextKind::Heading { level: left }, RichTextKind::Heading { level: right }) => {
             left == right
         }
-        (RichTextKind::PageBreak, RichTextKind::PageBreak) => true,
+        (RichTextKind::PageBreak { .. }, RichTextKind::PageBreak { .. }) => true,
         _ => false,
     }
+}
+
+fn is_page_break_column(kind: &RichTextKind, column: usize) -> bool {
+    matches!(kind, RichTextKind::PageBreak { column: existing_column } if *existing_column == column)
 }
 
 fn shift_after_edit(offset: usize, removed_range: &Range<usize>, inserted_len: usize) -> usize {
@@ -334,9 +378,16 @@ impl RichTextMark {
 pub enum RichTextKind {
     Bold,
     Emphasis,
-    Ruby { text: String },
-    Heading { level: u8 },
-    PageBreak,
+    Ruby {
+        text: String,
+    },
+    Heading {
+        level: u8,
+    },
+    PageBreak {
+        #[serde(default)]
+        column: usize,
+    },
 }
 
 pub fn meta_path_for_text_path(text_path: &Path) -> PathBuf {
@@ -485,11 +536,13 @@ fn render_body(text: &str, meta: &RichTextDocumentMeta) -> String {
         if !text.is_char_boundary(mark.range.start) || !text.is_char_boundary(mark.range.end) {
             continue;
         }
-        if mark.range.start < offset && !matches!(mark.kind, RichTextKind::PageBreak) {
+        if mark.range.start < offset && !matches!(mark.kind, RichTextKind::PageBreak { .. }) {
             continue;
         }
 
-        output.push_str(&escape_xml(&text[offset..mark.range.start]));
+        if mark.range.start >= offset {
+            output.push_str(&escape_xml(&text[offset..mark.range.start]));
+        }
         match mark.kind {
             RichTextKind::Bold => {
                 output.push_str("<strong>");
@@ -514,11 +567,11 @@ fn render_body(text: &str, meta: &RichTextDocumentMeta) -> String {
                 output.push_str(&escape_xml(&text[mark.range.clone()]));
                 output.push_str(&format!("</h{level}>"));
             }
-            RichTextKind::PageBreak => {
+            RichTextKind::PageBreak { .. } => {
                 output.push_str(r#"<div class="page-break"></div>"#);
             }
         }
-        offset = mark.range.end;
+        offset = offset.max(mark.range.end);
     }
 
     output.push_str(&escape_xml(&text[offset..]));
@@ -768,14 +821,30 @@ mod tests {
     }
 
     #[test]
-    fn toggle_page_break_removes_existing_break_at_offset() {
+    fn toggle_page_break_removes_existing_break_at_column() {
         let mut meta = RichTextDocumentMeta::default();
-        meta.toggle_mark(10..10, RichTextKind::PageBreak);
+        meta.toggle_mark(10..10, RichTextKind::PageBreak { column: 3 });
         assert_eq!(meta.marks().len(), 1);
 
-        meta.toggle_mark(10..10, RichTextKind::PageBreak);
+        meta.toggle_mark(10..10, RichTextKind::PageBreak { column: 3 });
 
         assert!(meta.marks().is_empty());
+    }
+
+    #[test]
+    fn text_edit_does_not_shift_page_break_columns() {
+        let mut meta = RichTextDocumentMeta::default();
+        meta.set_page_break_column(3, 10);
+
+        meta.apply_text_edit(0, 0, 5);
+
+        assert_eq!(
+            meta.marks(),
+            &[RichTextMark {
+                range: 10..10,
+                kind: RichTextKind::PageBreak { column: 3 },
+            }]
+        );
     }
 
     #[test]

@@ -71,8 +71,26 @@ pub struct RubyEditRequest {
 }
 
 #[derive(Clone, Debug)]
+pub struct PageBreakMenuRequest {
+    pub column: usize,
+    pub bounds: Bounds<Pixels>,
+    pub kind: PageBreakMenuKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PageBreakMenuKind {
+    Set,
+    Remove,
+}
+
+#[derive(Clone, Debug)]
 pub enum Event {
     RubyEditRequested(RubyEditRequest),
+    PageBreakMenuRequested(PageBreakMenuRequest),
+    PageBreakMoved {
+        from_column: usize,
+        to_column: usize,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -188,6 +206,7 @@ pub(crate) struct Editor {
     pub(crate) grid_path_cache: Option<GridPathCache>,
     last_viewport_size: Option<Size<Pixels>>,
     mouse_selection_anchor_cell: Option<usize>,
+    page_break_drag_column: Option<usize>,
     is_mouse_selecting: bool,
 }
 impl Editor {
@@ -221,6 +240,7 @@ impl Editor {
             last_board_bounds: None,
             last_viewport_size: None,
             mouse_selection_anchor_cell: None,
+            page_break_drag_column: None,
             is_mouse_selecting: false,
         }
     }
@@ -430,6 +450,34 @@ impl Editor {
         position: gpui::Point<Pixels>,
     ) -> Option<RubyEditRequest> {
         editor_selection::ruby_edit_request_for_point(self, position)
+    }
+
+    pub(crate) fn page_break_menu_request_for_point(
+        &self,
+        position: gpui::Point<Pixels>,
+    ) -> Option<PageBreakMenuRequest> {
+        editor_selection::page_break_menu_request_for_point(self, position)
+    }
+
+    pub(crate) fn page_break_drag_column_for_point(
+        &self,
+        position: gpui::Point<Pixels>,
+    ) -> Option<usize> {
+        editor_selection::page_break_drag_column_for_point(self, position)
+    }
+
+    pub(crate) fn page_break_context_menu_request_for_point(
+        &self,
+        position: gpui::Point<Pixels>,
+    ) -> Option<PageBreakMenuRequest> {
+        editor_selection::page_break_context_menu_request_for_point(self, position)
+    }
+
+    pub(crate) fn page_break_drop_column_for_point(
+        &self,
+        position: gpui::Point<Pixels>,
+    ) -> Option<usize> {
+        editor_selection::page_break_drop_column_for_point(self, position)
     }
 
     pub(crate) fn set_cursor_from_offset(&mut self, cursor_offset: usize) {
