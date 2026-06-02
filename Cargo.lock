@@ -1575,11 +1575,13 @@ version = "0.1.0"
 dependencies = [
  "env",
  "gpui",
+ "icons",
  "lindera",
  "rich_text",
  "rope",
  "settings",
  "theme",
+ "ui",
 ]
 
 [[package]]
@@ -3797,7 +3799,6 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "reqwest 0.12.28",
- "rich_text",
  "semver",
  "serde",
  "title_bar",

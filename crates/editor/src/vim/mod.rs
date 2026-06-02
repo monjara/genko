@@ -2,13 +2,13 @@ use std::ops::Range;
 
 use crate::editor::command_types::{MotionKind, PastePosition, TextObjectTarget};
 use crate::editor::motions::MotionRangeBehavior;
-use crate::editor::{AppliedEditBatch, Editor, Event};
+use crate::editor::{Editor, Event};
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Subscription, Window, actions,
     div,
 };
-use rich_text::RichTextDocumentMeta;
+use rich_text::{RichTextDocumentMeta, RichTextKind};
 use rope::BLANK_CELL;
 use settings::AppSettings;
 
@@ -132,12 +132,8 @@ impl VimController {
         self.editor.read(cx).snapshot_text()
     }
 
-    pub fn draft_revision(&self, cx: &App) -> u64 {
-        self.editor.read(cx).draft_revision()
-    }
-
-    pub fn last_applied_edit_batch(&self, cx: &App) -> Option<AppliedEditBatch> {
-        self.editor.read(cx).last_applied_edit_batch()
+    pub fn rich_text_meta(&self, cx: &App) -> RichTextDocumentMeta {
+        self.editor.read(cx).rich_text_meta_snapshot()
     }
 
     pub fn selected_byte_range(&self, cx: &App) -> Range<usize> {
@@ -172,6 +168,42 @@ impl VimController {
     ) {
         self.editor.update(cx, |editor, cx| {
             editor.set_rich_text_meta(rich_text_meta, cx);
+        });
+    }
+
+    pub fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            editor.apply_rich_text_kind(kind, cx);
+        });
+    }
+
+    pub fn set_ruby(&mut self, range: Range<usize>, text: String, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            editor.set_ruby(range, text, cx);
+        });
+    }
+
+    pub fn set_page_break_column(&mut self, column: usize, offset: usize, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            editor.set_page_break_column(column, offset, cx);
+        });
+    }
+
+    pub fn move_page_break_column(
+        &mut self,
+        from_column: usize,
+        to_column: usize,
+        offset: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.editor.update(cx, |editor, cx| {
+            editor.move_page_break_column(from_column, to_column, offset, cx);
+        });
+    }
+
+    pub fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            editor.remove_page_break_column(column, cx);
         });
     }
 

@@ -6,9 +6,9 @@
       "ctrl-o": "menu::OpenFile",
       "ctrl-s": "menu::SaveFile",
       "ctrl-shift-e": "workspace::ToggleWorkspacePane",
-      "ctrl-b": "menu::RichTextBold",
-      "ctrl-alt-e": "menu::RichTextEmphasis",
-      "ctrl-alt-h": "menu::RichTextHeading"
+      "ctrl-b": "editor::ApplyRichTextBold",
+      "ctrl-alt-e": "editor::ApplyRichTextEmphasis",
+      "ctrl-alt-h": "editor::ApplyRichTextHeading"
     }
   },
   {

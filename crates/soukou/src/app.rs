@@ -17,20 +17,24 @@ use document::{
     },
 };
 use editor::{
-    EditorController, Event as EditorEvent, PageBreakMenuKind, PageBreakMenuRequest,
-    RubyEditRequest, VimCommandQuit, VimCommandWrite,
+    ApplyRichTextBold as EditorApplyRichTextBold,
+    ApplyRichTextEmphasis as EditorApplyRichTextEmphasis,
+    ApplyRichTextHeading as EditorApplyRichTextHeading, ApplyRubyEdit, CancelRubyEdit,
+    EditorController, Event as EditorEvent, PageBreakMenu, PageBreakMenuRequest,
+    RemovePageBreakColumn, RichTextToolbar, RubyEditRequest, RubyEditorPopover,
+    SetPageBreakLeftOfColumn, SetPageBreakRightOfColumn, VimCommandQuit, VimCommandWrite,
 };
 use gpui::{
     AnyWindowHandle, App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle,
     Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
-    RenderOnce, StatefulInteractiveElement, Styled, Subscription, Window, div, point,
-    prelude::FluentBuilder, px, svg, transparent_black, white,
+    RenderOnce, Styled, Subscription, Window, div, point, prelude::FluentBuilder, px, svg,
+    transparent_black,
 };
-use menu::{MenuActionHandler, RichTextBold, RichTextEmphasis, RichTextHeading};
-use rich_text::{RichTextDocumentMeta, RichTextEdit, RichTextKind};
+use menu::MenuActionHandler;
+use rich_text::{RichTextDocumentMeta, RichTextKind};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
-use ui::{TextInput, Tooltip};
+use ui::TextInput;
 use workspace::{
     Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceState,
     scan_workspace_entries,
@@ -50,9 +54,6 @@ pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
     workspace: Entity<Workspace>,
     active_document: ActiveDocument,
-    rich_text_meta: RichTextDocumentMeta,
-    rich_text_synced_revision: u64,
-    rich_text_synced_text: String,
     ruby_editor: Option<RubyEditorState>,
     page_break_menu: Option<PageBreakMenuState>,
     active_modal: Option<AppModal>,
@@ -180,9 +181,6 @@ impl SoukouApp {
             editor_controller,
             workspace,
             active_document: ActiveDocument::default(),
-            rich_text_meta: RichTextDocumentMeta::default(),
-            rich_text_synced_revision: 0,
-            rich_text_synced_text: String::new(),
             ruby_editor: None,
             page_break_menu: None,
             active_modal: None,
@@ -294,6 +292,33 @@ impl SoukouApp {
         cx.quit();
     }
 
+    fn editor_rich_text_bold_action(
+        &mut self,
+        _: &EditorApplyRichTextBold,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Bold, cx);
+    }
+
+    fn editor_rich_text_emphasis_action(
+        &mut self,
+        _: &EditorApplyRichTextEmphasis,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Emphasis, cx);
+    }
+
+    fn editor_rich_text_heading_action(
+        &mut self,
+        _: &EditorApplyRichTextHeading,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Heading { level: 1 }, cx);
+    }
+
     fn drop_external_paths(
         &mut self,
         paths: &ExternalPaths,
@@ -305,6 +330,18 @@ impl SoukouApp {
 
     fn current_document_kind(&self, _cx: &App) -> DocumentKind {
         DocumentKind::PlainText
+    }
+
+    fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize> {
+        self.editor_controller.read(cx).selected_byte_range(cx)
+    }
+
+    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.apply_rich_text_kind(kind, cx);
+        });
+        self.save_rich_text_meta(cx);
+        cx.notify();
     }
 
     fn workspace_pane_visible(&self, cx: &App) -> bool {
@@ -320,12 +357,9 @@ impl SoukouApp {
     ) {
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.load_plain_text(text, cx);
-            editor_controller.set_rich_text_meta(rich_text_meta.clone(), cx);
+            editor_controller.set_rich_text_meta(rich_text_meta, cx);
         });
         self.active_document.set_path(path);
-        self.rich_text_meta = rich_text_meta;
-        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
-        self.rich_text_synced_text = text.to_string();
         self.ruby_editor = None;
         self.page_break_menu = None;
     }
@@ -380,7 +414,7 @@ impl SoukouApp {
         _window_handle: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        let rich_text_meta = self.rich_text_meta.clone();
+        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -579,24 +613,6 @@ impl MenuActionHandler for SoukouApp {
         }
     }
 
-    fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize> {
-        self.editor_controller.read(cx).selected_byte_range(cx)
-    }
-
-    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
-        let range = self.editor_controller.read(cx).selected_byte_range(cx);
-        self.rich_text_meta.toggle_mark(range, kind);
-        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
-        self.rich_text_synced_text = self.snapshot_text(cx);
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
-        });
-
-        self.save_rich_text_meta(cx);
-
-        cx.notify();
-    }
-
     fn export_epub_path_from_menu(
         &mut self,
         path: PathBuf,
@@ -604,7 +620,7 @@ impl MenuActionHandler for SoukouApp {
         cx: &mut Context<Self>,
     ) {
         let title = self.export_base_name(cx);
-        let rich_text_meta = self.rich_text_meta.clone();
+        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -691,7 +707,6 @@ impl MenuActionHandler for SoukouApp {
 
 impl Render for SoukouApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_rich_text_meta_after_editor_edits(cx);
         title_bar::sync_client_window_inset(window);
         self.sync_window_title(window, cx);
         let title_bar_height = title_bar::platform_title_bar_height(window);
@@ -748,10 +763,15 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::save_file_action))
                     .on_action(cx.listener(Self::export_txt_action))
                     .on_action(cx.listener(Self::export_epub_action))
-                    .on_action(cx.listener(Self::rich_text_bold_action))
-                    .on_action(cx.listener(Self::rich_text_emphasis_action))
-                    .on_action(cx.listener(Self::rich_text_heading_action))
+                    .on_action(cx.listener(Self::editor_rich_text_bold_action))
+                    .on_action(cx.listener(Self::editor_rich_text_emphasis_action))
+                    .on_action(cx.listener(Self::editor_rich_text_heading_action))
                     .on_action(cx.listener(Self::cancel_ruby_editor_action))
+                    .on_action(cx.listener(Self::apply_ruby_editor_action))
+                    .on_action(cx.listener(Self::cancel_ruby_edit_action))
+                    .on_action(cx.listener(Self::set_page_break_right_of_column_action))
+                    .on_action(cx.listener(Self::set_page_break_left_of_column_action))
+                    .on_action(cx.listener(Self::remove_page_break_column_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
@@ -790,13 +810,12 @@ impl Render for SoukouApp {
                         this.child(RichTextToolbar::new(bounds))
                     })
                     .when_some(self.page_break_menu.clone(), |this, page_break_menu| {
-                        this.child(PageBreakMenu::new(page_break_menu.request, cx.entity()))
+                        this.child(PageBreakMenu::new(page_break_menu.request))
                     })
                     .when_some(self.ruby_editor.as_ref(), |this, ruby_editor| {
                         this.child(RubyEditorPopover::new(
                             ruby_editor.request.bounds,
                             ruby_editor.input.clone(),
-                            cx.entity(),
                         ))
                     })
                     .child(
@@ -846,15 +865,34 @@ impl SoukouApp {
         self.set_page_break_column(column.saturating_sub(1), cx);
     }
 
+    fn set_page_break_right_of_column_action(
+        &mut self,
+        action: &SetPageBreakRightOfColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_page_break_right_of_column(action.column, cx);
+    }
+
     fn set_page_break_left_of_column(&mut self, column: usize, cx: &mut Context<Self>) {
         self.set_page_break_column(column, cx);
     }
 
+    fn set_page_break_left_of_column_action(
+        &mut self,
+        action: &SetPageBreakLeftOfColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_page_break_left_of_column(action.column, cx);
+    }
+
     fn set_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
         let offset = self.byte_offset_for_column(column, cx);
-        self.rich_text_meta.set_page_break_column(column, offset);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.set_page_break_column(column, offset, cx);
+        });
         self.page_break_menu = None;
-        self.sync_rich_text_meta_to_editor(cx);
         self.save_rich_text_meta(cx);
         cx.notify();
     }
@@ -866,34 +904,36 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         let offset = self.byte_offset_for_column(to_column, cx);
-        self.rich_text_meta
-            .move_page_break_column(from_column, to_column, offset);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.move_page_break_column(from_column, to_column, offset, cx);
+        });
         self.page_break_menu = None;
-        self.sync_rich_text_meta_to_editor(cx);
         self.save_rich_text_meta(cx);
         cx.notify();
     }
 
     fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
-        self.rich_text_meta.remove_page_break_column(column);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.remove_page_break_column(column, cx);
+        });
         self.page_break_menu = None;
-        self.sync_rich_text_meta_to_editor(cx);
         self.save_rich_text_meta(cx);
         cx.notify();
+    }
+
+    fn remove_page_break_column_action(
+        &mut self,
+        action: &RemovePageBreakColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remove_page_break_column(action.column, cx);
     }
 
     fn byte_offset_for_column(&self, column: usize, cx: &App) -> usize {
         let editor_controller = self.editor_controller.read(cx);
         let rows_per_column = editor_controller.rows_per_column(cx).max(1);
         editor_controller.byte_offset_for_display_cell(column * rows_per_column, cx)
-    }
-
-    fn sync_rich_text_meta_to_editor(&mut self, cx: &mut Context<Self>) {
-        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
-        self.rich_text_synced_text = self.snapshot_text(cx);
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
-        });
     }
 
     fn open_ruby_editor(&mut self, request: RubyEditRequest, cx: &mut Context<Self>) {
@@ -917,20 +957,34 @@ impl SoukouApp {
             return;
         };
         let ruby_text = ruby_editor.input.read(cx).text();
-        self.rich_text_meta
-            .set_ruby(ruby_editor.request.range, ruby_text);
-        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
-        self.rich_text_synced_text = self.snapshot_text(cx);
         self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
+            editor_controller.set_ruby(ruby_editor.request.range, ruby_text, cx);
         });
         self.save_rich_text_meta(cx);
         cx.notify();
     }
 
+    fn apply_ruby_editor_action(
+        &mut self,
+        _: &ApplyRubyEdit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_ruby_editor(cx);
+    }
+
     fn cancel_ruby_editor(&mut self, cx: &mut Context<Self>) {
         self.ruby_editor = None;
         cx.notify();
+    }
+
+    fn cancel_ruby_edit_action(
+        &mut self,
+        _: &CancelRubyEdit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.cancel_ruby_editor(cx);
     }
 
     fn cancel_ruby_editor_action(
@@ -946,7 +1000,7 @@ impl SoukouApp {
         let Some(path) = self.active_document.path().map(Path::to_path_buf) else {
             return;
         };
-        let rich_text_meta = self.rich_text_meta.clone();
+        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         cx.background_spawn(async move {
             if let Err(error) = rich_text::save_meta_for_text_path(&path, &rich_text_meta) {
                 eprintln!("failed to save rich text metadata: {error}");
@@ -954,355 +1008,6 @@ impl SoukouApp {
         })
         .detach();
     }
-
-    fn sync_rich_text_meta_after_editor_edits(&mut self, cx: &mut Context<Self>) {
-        let (current_revision, current_text, edit_batch) = {
-            let editor_controller = self.editor_controller.read(cx);
-            (
-                editor_controller.draft_revision(cx),
-                editor_controller.snapshot_text(cx),
-                editor_controller.last_applied_edit_batch(cx),
-            )
-        };
-        if current_revision <= self.rich_text_synced_revision {
-            return;
-        }
-
-        if current_text == self.rich_text_synced_text {
-            self.rich_text_synced_revision = current_revision;
-            return;
-        }
-
-        let rich_text_edits = edit_batch
-            .filter(|edit_batch| edit_batch.revision() == current_revision)
-            .map(|edit_batch| {
-                edit_batch
-                    .edits()
-                    .iter()
-                    .map(|edit| {
-                        RichTextEdit::new(
-                            edit.start(),
-                            edit.removed_text().to_string(),
-                            edit.inserted_text().to_string(),
-                            edit.affects_rich_text(),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        rich_text::sync_meta_after_text_change(
-            &mut self.rich_text_meta,
-            self.rich_text_synced_text.as_str(),
-            current_text.as_str(),
-            rich_text_edits.as_slice(),
-        );
-        self.rich_text_synced_revision = current_revision;
-        self.rich_text_synced_text = current_text;
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
-        });
-    }
-}
-
-#[derive(IntoElement)]
-struct PageBreakMenu {
-    request: PageBreakMenuRequest,
-    app: Entity<SoukouApp>,
-}
-
-impl PageBreakMenu {
-    fn new(request: PageBreakMenuRequest, app: Entity<SoukouApp>) -> Self {
-        Self { request, app }
-    }
-}
-
-impl RenderOnce for PageBreakMenu {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let column_for_right = self.request.column;
-        let column_for_left = self.request.column;
-        let column_for_remove = self.request.column;
-        let app_for_right = self.app.clone();
-        let app_for_left = self.app.clone();
-        let app_for_remove = self.app;
-        let left = (self.request.bounds.right() + px(6.0)).max(px(8.0));
-        let top = self.request.bounds.top().max(px(8.0));
-
-        div()
-            .absolute()
-            .left(left)
-            .top(top)
-            .flex()
-            .flex_col()
-            .bg(Theme::global(cx).white())
-            .border_1()
-            .border_color(toolbar_border_color(cx))
-            .rounded_md()
-            .shadow(vec![BoxShadow {
-                color: Hsla {
-                    h: 0.0,
-                    s: 0.0,
-                    l: 0.0,
-                    a: 0.16,
-                },
-                offset: point(px(0.0), px(8.0)),
-                blur_radius: px(18.0),
-                spread_radius: px(0.0),
-            }])
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .when(self.request.kind == PageBreakMenuKind::Set, |this| {
-                this.child(page_break_menu_item(
-                    "右側に改ページ",
-                    cx,
-                    move |cx| {
-                        app_for_right.update(cx, |app, cx| {
-                            app.set_page_break_right_of_column(column_for_right, cx);
-                        });
-                    },
-                ))
-                .child(page_break_menu_item(
-                    "左側に改ページ",
-                    cx,
-                    move |cx| {
-                        app_for_left.update(cx, |app, cx| {
-                            app.set_page_break_left_of_column(column_for_left, cx);
-                        });
-                    },
-                ))
-            })
-            .when(self.request.kind == PageBreakMenuKind::Remove, |this| {
-                this.child(page_break_menu_item(
-                    "改ページを削除",
-                    cx,
-                    move |cx| {
-                        app_for_remove.update(cx, |app, cx| {
-                            app.remove_page_break_column(column_for_remove, cx);
-                        });
-                    },
-                ))
-            })
-    }
-}
-
-fn page_break_menu_item(
-    label: &'static str,
-    cx: &mut App,
-    on_click: impl Fn(&mut App) + Clone + 'static,
-) -> impl IntoElement {
-    let on_click = on_click.clone();
-    div()
-        .px_3()
-        .py_2()
-        .text_size(px(12.0))
-        .text_color(Theme::global(cx).text_primary())
-        .cursor_pointer()
-        .hover(|style| style.bg(white()))
-        .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
-            on_click(cx);
-            cx.stop_propagation();
-        })
-        .child(label)
-}
-
-#[derive(IntoElement)]
-struct RubyEditorPopover {
-    bounds: gpui::Bounds<Pixels>,
-    input: Entity<TextInput>,
-    app: Entity<SoukouApp>,
-}
-
-impl RubyEditorPopover {
-    fn new(bounds: gpui::Bounds<Pixels>, input: Entity<TextInput>, app: Entity<SoukouApp>) -> Self {
-        Self { bounds, input, app }
-    }
-}
-
-impl RenderOnce for RubyEditorPopover {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let input = self.input;
-        let focus_handle = input.focus_handle(cx);
-        window.focus(&focus_handle, cx);
-
-        let app_for_apply = self.app.clone();
-        let app_for_cancel = self.app;
-        let left = (self.bounds.right() + px(4.0)).max(px(8.0));
-        let top = (self.bounds.top() - px(4.0)).max(px(8.0));
-
-        div()
-            .absolute()
-            .left(left)
-            .top(top)
-            .w(px(78.0))
-            .h(px(190.0))
-            .p_2()
-            .flex()
-            .flex_row()
-            .gap_2()
-            .bg(Theme::global(cx).white())
-            .border_1()
-            .border_color(toolbar_border_color(cx))
-            .rounded_md()
-            .shadow(vec![BoxShadow {
-                color: Hsla {
-                    h: 0.0,
-                    s: 0.0,
-                    l: 0.0,
-                    a: 0.18,
-                },
-                offset: point(px(0.0), px(8.0)),
-                blur_radius: px(20.0),
-                spread_radius: px(0.0),
-            }])
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .child(input)
-            .child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(ruby_editor_button(
-                        icons::CHECK,
-                        0,
-                        "適用",
-                        None,
-                        cx,
-                        move |cx| {
-                            app_for_apply.update(cx, |app, cx| app.apply_ruby_editor(cx));
-                        },
-                    ))
-                    .child(ruby_editor_button(
-                        icons::X,
-                        1,
-                        "取り消し",
-                        Some("Esc"),
-                        cx,
-                        move |cx| {
-                            app_for_cancel.update(cx, |app, cx| app.cancel_ruby_editor(cx));
-                        },
-                    )),
-            )
-    }
-}
-
-fn ruby_editor_button(
-    icon_path: &'static str,
-    id_index: usize,
-    tooltip_title: &'static str,
-    shortcut: Option<&'static str>,
-    cx: &mut App,
-    on_click: impl Fn(&mut App) + Clone + 'static,
-) -> impl IntoElement {
-    let on_click = on_click.clone();
-    div()
-        .id(("ruby-editor-button", id_index))
-        .w(px(24.0))
-        .h(px(24.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_sm()
-        .text_color(Theme::global(cx).text_primary())
-        .bg(Theme::global(cx).bg_senodary())
-        .cursor_pointer()
-        .hover(|style| style.bg(white()))
-        .tooltip(Tooltip::new(
-            tooltip_title,
-            shortcut.map(gpui::SharedString::from),
-        ))
-        .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
-            on_click(cx);
-        })
-        .child(
-            svg()
-                .external_path(icon_path)
-                .size_4()
-                .text_color(Theme::global(cx).text_primary()),
-        )
-}
-
-#[derive(IntoElement)]
-struct RichTextToolbar {
-    selection_bounds: gpui::Bounds<Pixels>,
-}
-
-impl RichTextToolbar {
-    fn new(selection_bounds: gpui::Bounds<Pixels>) -> Self {
-        Self { selection_bounds }
-    }
-}
-
-impl RenderOnce for RichTextToolbar {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let x = (self.selection_bounds.right() + px(1.0)).max(px(1.0));
-        let y = (self.selection_bounds.top() - px(10.0)).max(px(8.0));
-        let border = toolbar_border_color(cx);
-
-        div()
-            .absolute()
-            .left(x)
-            .top(y)
-            .flex()
-            .flex_col()
-            .items_center()
-            .bg(Theme::global(cx).white())
-            .border_1()
-            .border_color(border)
-            .rounded_md()
-            .shadow(vec![BoxShadow {
-                color: Hsla {
-                    h: 0.0,
-                    s: 0.0,
-                    l: 0.0,
-                    a: 0.2,
-                },
-                offset: point(px(0.0), px(8.0)),
-                blur_radius: px(22.0),
-                spread_radius: px(0.0),
-            }])
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .child(toolbar_button("B", 0, "太字", RichTextBold, cx))
-            .child(toolbar_button("•", 1, "傍点", RichTextEmphasis, cx))
-            .child(toolbar_button("見", 2, "見出し", RichTextHeading, cx))
-    }
-}
-
-fn toolbar_button<Action>(
-    label: &'static str,
-    id_index: usize,
-    tooltip_title: &'static str,
-    action: Action,
-    cx: &mut App,
-) -> impl IntoElement
-where
-    Action: gpui::Action + Clone + 'static,
-{
-    let tooltip_action = action.clone();
-    div()
-        .id(("rich-text-toolbar-button", id_index))
-        .w(px(38.0))
-        .h(px(34.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(14.0))
-        .font_weight(FontWeight::BOLD)
-        .text_color(Theme::global(cx).black())
-        .border_b_1()
-        .border_color(toolbar_border_color(cx))
-        .cursor_pointer()
-        .hover(|style| style.bg(white()))
-        .tooltip(Tooltip::for_action(tooltip_title, tooltip_action))
-        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
-            window.dispatch_action(Box::new(action.clone()), cx);
-        })
-        .child(label)
 }
 
 #[derive(IntoElement)]

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use gpui::{
     AnyWindowHandle, App, AppContext, Context, Menu, MenuItem, PathPromptOptions, Window, actions,
 };
-use rich_text::RichTextKind;
 use semver::Version;
 use serde::Deserialize;
 use title_bar::TitleBarMenu;
@@ -18,9 +17,6 @@ actions!(
         SaveFile,
         ExportTxt,
         ExportEpub,
-        RichTextBold,
-        RichTextEmphasis,
-        RichTextHeading,
         Quit
     ]
 );
@@ -37,7 +33,6 @@ const EXPORT_EPUB_MENU_LABEL: &str = "epubエクスポート";
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
-const RICH_TEXT_SELECTION_ERROR_TITLE: &str = "リッチテキストを適用できません";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
 const RELEASES_LATEST_API_URL: &str = "https://api.github.com/repos/monjara/genko/releases/latest";
@@ -143,10 +138,6 @@ pub trait MenuActionHandler: Sized + 'static {
 
     fn snapshot_text(&self, cx: &App) -> String;
 
-    fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize>;
-
-    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>);
-
     fn export_epub_path_from_menu(
         &mut self,
         path: PathBuf,
@@ -180,33 +171,6 @@ pub trait MenuActionHandler: Sized + 'static {
 
     fn export_epub_action(&mut self, _: &ExportEpub, window: &mut Window, cx: &mut Context<Self>) {
         self.export_epub(window, cx);
-    }
-
-    fn rich_text_bold_action(
-        &mut self,
-        _: &RichTextBold,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_to_selection(RichTextKind::Bold, cx);
-    }
-
-    fn rich_text_emphasis_action(
-        &mut self,
-        _: &RichTextEmphasis,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_to_selection(RichTextKind::Emphasis, cx);
-    }
-
-    fn rich_text_heading_action(
-        &mut self,
-        _: &RichTextHeading,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_to_selection(RichTextKind::Heading { level: 1 }, cx);
     }
 
     fn check_for_updates_action(
@@ -335,19 +299,6 @@ pub trait MenuActionHandler: Sized + 'static {
             }
         })
         .detach();
-    }
-
-    fn apply_rich_text_to_selection(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
-        if self.selected_byte_range(cx).is_empty() {
-            self.show_menu_error(
-                RICH_TEXT_SELECTION_ERROR_TITLE,
-                "範囲を選択してから実行してください。".to_string(),
-                cx,
-            );
-            return;
-        }
-
-        self.apply_rich_text_kind(kind, cx);
     }
 
     fn export_txt(&mut self, _window: &mut Window, cx: &mut Context<Self>) {

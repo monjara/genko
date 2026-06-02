@@ -6,9 +6,9 @@
       "cmd-o": "menu::OpenFile",
       "cmd-s": "menu::SaveFile",
       "cmd-shift-e": "workspace::ToggleWorkspacePane",
-      "cmd-b": "menu::RichTextBold",
-      "cmd-alt-e": "menu::RichTextEmphasis",
-      "cmd-alt-h": "menu::RichTextHeading"
+      "cmd-b": "editor::ApplyRichTextBold",
+      "cmd-alt-e": "editor::ApplyRichTextEmphasis",
+      "cmd-alt-h": "editor::ApplyRichTextHeading"
     }
   },
   {

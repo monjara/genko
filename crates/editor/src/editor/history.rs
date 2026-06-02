@@ -29,6 +29,7 @@ pub(super) fn commit_transaction(editor: &mut Editor, cx: &mut Context<Editor>) 
         revision: editor.draft_revision,
         edits: pending.edits,
     });
+    editor.sync_rich_text_meta_after_text_change();
     editor.history.redo_stack.clear();
     cx.notify();
     true
@@ -67,6 +68,7 @@ pub(super) fn undo(editor: &mut Editor, cx: &mut Context<Editor>) -> bool {
         revision: editor.draft_revision,
         edits: inverse_edit_operations(&transaction.edits),
     });
+    editor.sync_rich_text_meta_after_text_change();
     editor.history.redo_stack.push(transaction);
     cx.notify();
     true
@@ -89,6 +91,7 @@ pub(super) fn redo(editor: &mut Editor, cx: &mut Context<Editor>) -> bool {
         revision: editor.draft_revision,
         edits: transaction.edits.clone(),
     });
+    editor.sync_rich_text_meta_after_text_change();
     editor.history.undo_stack.push(transaction);
     cx.notify();
     true

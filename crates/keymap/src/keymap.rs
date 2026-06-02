@@ -247,7 +247,8 @@ mod tests {
         let keymap_file = serde_json::from_str::<KeymapFile>(keymap_json).unwrap();
 
         assert!(keymap_file.0.iter().any(|section| {
-            section.bindings.get(bold_keystroke).map(String::as_str) == Some("menu::RichTextBold")
+            section.bindings.get(bold_keystroke).map(String::as_str)
+                == Some("editor::ApplyRichTextBold")
         }));
         assert!(
             keymap_file

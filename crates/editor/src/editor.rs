@@ -13,7 +13,7 @@ use gpui::{
     App, Bounds, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable, IntoElement,
     Pixels, Render, Size, UTF16Selection, Window, actions, px,
 };
-use rich_text::RichTextDocumentMeta;
+use rich_text::{RichTextDocumentMeta, RichTextEdit, RichTextKind};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
@@ -108,7 +108,7 @@ pub(crate) struct BlockSelection {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EditOperation {
+pub(crate) struct EditOperation {
     pub(crate) start: usize,
     pub(crate) removed_text: String,
     pub(crate) inserted_text: String,
@@ -116,19 +116,19 @@ pub struct EditOperation {
 }
 
 impl EditOperation {
-    pub fn start(&self) -> usize {
+    pub(crate) fn start(&self) -> usize {
         self.start
     }
 
-    pub fn removed_text(&self) -> &str {
+    pub(crate) fn removed_text(&self) -> &str {
         self.removed_text.as_str()
     }
 
-    pub fn inserted_text(&self) -> &str {
+    pub(crate) fn inserted_text(&self) -> &str {
         self.inserted_text.as_str()
     }
 
-    pub fn affects_rich_text(&self) -> bool {
+    pub(crate) fn affects_rich_text(&self) -> bool {
         self.affects_rich_text
     }
 }
@@ -147,17 +147,17 @@ pub(crate) struct PendingTransaction {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AppliedEditBatch {
+pub(crate) struct AppliedEditBatch {
     revision: u64,
     edits: Vec<EditOperation>,
 }
 
 impl AppliedEditBatch {
-    pub fn revision(&self) -> u64 {
+    pub(crate) fn revision(&self) -> u64 {
         self.revision
     }
 
-    pub fn edits(&self) -> &[EditOperation] {
+    pub(crate) fn edits(&self) -> &[EditOperation] {
         &self.edits
     }
 }
@@ -199,6 +199,8 @@ pub(crate) struct Editor {
     visible_text_cache: Option<VisibleTextCache>,
     last_applied_edit_batch: Option<AppliedEditBatch>,
     rich_text_meta: RichTextDocumentMeta,
+    rich_text_synced_revision: u64,
+    rich_text_synced_text: String,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) grid_path_cache: Option<GridPathCache>,
@@ -233,6 +235,8 @@ impl Editor {
             visible_text_cache: None,
             last_applied_edit_batch: None,
             rich_text_meta: RichTextDocumentMeta::default(),
+            rich_text_synced_revision: 0,
+            rich_text_synced_text: String::new(),
             focus_handle: cx.focus_handle(),
             grid_path_cache: None,
             last_board_bounds: None,
@@ -296,12 +300,66 @@ impl Editor {
         &self.rich_text_meta
     }
 
+    pub fn rich_text_meta_snapshot(&self) -> RichTextDocumentMeta {
+        self.rich_text_meta.clone()
+    }
+
     pub fn set_rich_text_meta(
         &mut self,
         rich_text_meta: RichTextDocumentMeta,
         cx: &mut Context<Self>,
     ) {
         self.rich_text_meta = rich_text_meta;
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = self.snapshot_text();
+        cx.notify();
+    }
+
+    pub fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
+        self.sync_rich_text_meta_after_text_change();
+        let range = self.selected_byte_range();
+        self.rich_text_meta.toggle_mark(range, kind);
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = self.snapshot_text();
+        cx.notify();
+    }
+
+    pub fn set_ruby(&mut self, range: Range<usize>, text: String, cx: &mut Context<Self>) {
+        self.sync_rich_text_meta_after_text_change();
+        self.rich_text_meta.set_ruby(range, text);
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = self.snapshot_text();
+        cx.notify();
+    }
+
+    pub fn set_page_break_column(&mut self, column: usize, offset: usize, cx: &mut Context<Self>) {
+        self.sync_rich_text_meta_after_text_change();
+        self.rich_text_meta.set_page_break_column(column, offset);
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = self.snapshot_text();
+        cx.notify();
+    }
+
+    pub fn move_page_break_column(
+        &mut self,
+        from_column: usize,
+        to_column: usize,
+        offset: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_rich_text_meta_after_text_change();
+        self.rich_text_meta
+            .move_page_break_column(from_column, to_column, offset);
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = self.snapshot_text();
+        cx.notify();
+    }
+
+    pub fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        self.sync_rich_text_meta_after_text_change();
+        self.rich_text_meta.remove_page_break_column(column);
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = self.snapshot_text();
         cx.notify();
     }
 
@@ -518,6 +576,47 @@ impl Editor {
         self.visible_text_cache = None;
     }
 
+    pub(crate) fn sync_rich_text_meta_after_text_change(&mut self) {
+        if self.draft_revision <= self.rich_text_synced_revision {
+            return;
+        }
+
+        let current_text = self.snapshot_text();
+        if current_text == self.rich_text_synced_text {
+            self.rich_text_synced_revision = self.draft_revision;
+            return;
+        }
+
+        let rich_text_edits = self
+            .last_applied_edit_batch
+            .as_ref()
+            .filter(|edit_batch| edit_batch.revision() == self.draft_revision)
+            .map(|edit_batch| {
+                edit_batch
+                    .edits()
+                    .iter()
+                    .map(|edit| {
+                        RichTextEdit::new(
+                            edit.start(),
+                            edit.removed_text().to_string(),
+                            edit.inserted_text().to_string(),
+                            edit.affects_rich_text(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        rich_text::sync_meta_after_text_change(
+            &mut self.rich_text_meta,
+            self.rich_text_synced_text.as_str(),
+            current_text.as_str(),
+            rich_text_edits.as_slice(),
+        );
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = current_text;
+    }
+
     pub(crate) fn update_viewport_size(&mut self, size: Size<Pixels>, cx: &mut Context<Self>) {
         let needs_viewport_sync = self.last_viewport_size != Some(size);
         if needs_viewport_sync {
@@ -578,14 +677,6 @@ impl Editor {
         self.draft.slice(0..self.draft.len_bytes())
     }
 
-    pub fn last_applied_edit_batch(&self) -> Option<AppliedEditBatch> {
-        self.last_applied_edit_batch.clone()
-    }
-
-    pub fn draft_revision(&self) -> u64 {
-        self.draft_revision
-    }
-
     pub fn rope(&self) -> &TextRope {
         &self.draft
     }
@@ -600,6 +691,8 @@ impl Editor {
         self.bump_draft_revision();
         self.history = EditorHistory::default();
         self.last_applied_edit_batch = None;
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = self.snapshot_text();
         self.scroll_column = 0;
         self.scroll_row = 0;
         self.scroll_remainder_columns = 0.0;

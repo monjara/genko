@@ -10,7 +10,6 @@ path = "src/menu.rs"
 
 [dependencies]
 gpui = { workspace = true }
-rich_text = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = [
   "blocking",
   "json",
