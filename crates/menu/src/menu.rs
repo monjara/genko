@@ -18,6 +18,7 @@ actions!(
         OpenFile,
         SaveFile,
         ExportTxt,
+        ExportWord,
         ExportEpub,
         Quit
     ]
@@ -33,6 +34,7 @@ const FILE_MENU_LABEL: &str = "ファイル";
 const OPEN_DOCUMENT_PROMPT_LABEL: &str = "開く";
 const SAVE_DOCUMENT_MENU_LABEL: &str = "保存";
 const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
+const EXPORT_WORD_MENU_LABEL: &str = "Wordエクスポート";
 const EXPORT_EPUB_MENU_LABEL: &str = "epubエクスポート";
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
@@ -75,6 +77,7 @@ pub fn init(cx: &mut App) {
                 MenuItem::action(SAVE_DOCUMENT_MENU_LABEL, SaveFile),
                 MenuItem::separator(),
                 MenuItem::action(EXPORT_TXT_MENU_LABEL, ExportTxt),
+                MenuItem::action(EXPORT_WORD_MENU_LABEL, ExportWord),
                 MenuItem::action(EXPORT_EPUB_MENU_LABEL, ExportEpub),
             ],
         },
@@ -114,6 +117,9 @@ pub fn title_bar_menus() -> Vec<TitleBarMenu> {
                 }),
                 MenuBarItem::new(EXPORT_TXT_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(ExportTxt), cx);
+                }),
+                MenuBarItem::new(EXPORT_WORD_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(ExportWord), cx);
                 }),
                 MenuBarItem::new(EXPORT_EPUB_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(ExportEpub), cx);
@@ -157,6 +163,13 @@ pub trait MenuActionHandler: Sized + 'static {
         cx: &mut Context<Self>,
     );
 
+    fn export_word_path_from_menu(
+        &mut self,
+        path: PathBuf,
+        contents: String,
+        cx: &mut Context<Self>,
+    );
+
     fn show_menu_error(&mut self, title: &str, detail: String, cx: &mut Context<Self>);
 
     fn show_menu_info(&mut self, title: &str, detail: String, cx: &mut Context<Self>);
@@ -183,6 +196,10 @@ pub trait MenuActionHandler: Sized + 'static {
 
     fn export_epub_action(&mut self, _: &ExportEpub, window: &mut Window, cx: &mut Context<Self>) {
         self.export_epub(window, cx);
+    }
+
+    fn export_word_action(&mut self, _: &ExportWord, window: &mut Window, cx: &mut Context<Self>) {
+        self.export_word(window, cx);
     }
 
     fn check_for_updates_action(
@@ -382,6 +399,40 @@ pub trait MenuActionHandler: Sized + 'static {
                 this.export_epub_path_from_menu(path, contents, cx);
             }) {
                 eprintln!("failed to export epub: {error}");
+            }
+        })
+        .detach();
+    }
+
+    fn export_word(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let suggested_name = format!("{}.docx", self.export_base_name(cx));
+        let initial_directory = self.export_initial_directory(cx);
+        let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
+        let contents = self.snapshot_text(cx);
+
+        cx.spawn(async move |this, cx| {
+            let Ok(result) = receiver.await else {
+                return;
+            };
+
+            let Some(path) = (match result {
+                Ok(path) => path,
+                Err(error) => {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
+                        this.show_menu_error(SAVE_PATH_PICKER_ERROR_TITLE, error.to_string(), cx);
+                    }) {
+                        eprintln!("failed to show word export path picker error: {update_error}");
+                    }
+                    None
+                }
+            }) else {
+                return;
+            };
+
+            if let Err(error) = this.update(cx, |this, cx| {
+                this.export_word_path_from_menu(path, contents, cx);
+            }) {
+                eprintln!("failed to export word: {error}");
             }
         })
         .detach();

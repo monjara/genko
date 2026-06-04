@@ -97,6 +97,7 @@ struct PageBreakMenuState {
 #[derive(Clone, Copy, Debug)]
 enum ProFeature {
     RichText,
+    ExportWord,
     ExportEpub,
 }
 
@@ -891,6 +892,19 @@ impl MenuActionHandler for SoukouApp {
         self.export_epub(window, cx);
     }
 
+    fn export_word_action(
+        &mut self,
+        _: &menu::ExportWord,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.require_pro_feature(ProFeature::ExportWord, window, cx) {
+            return;
+        }
+
+        self.export_word(window, cx);
+    }
+
     fn export_base_name(&self, _cx: &App) -> String {
         self.active_document
             .path()
@@ -940,6 +954,31 @@ impl MenuActionHandler for SoukouApp {
                 })
             {
                 eprintln!("failed to show epub export error: {update_error}");
+            }
+        })
+        .detach();
+    }
+
+    fn export_word_path_from_menu(
+        &mut self,
+        path: PathBuf,
+        contents: String,
+        cx: &mut Context<Self>,
+    ) {
+        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    rich_text::export_word(&path, contents.as_str(), &rich_text_meta)
+                })
+                .await;
+
+            if let Err(error) = result
+                && let Err(update_error) = this.update(cx, |this, cx| {
+                    this.show_error_modal("Wordを書き出せませんでした", error.to_string(), cx);
+                })
+            {
+                eprintln!("failed to show word export error: {update_error}");
             }
         })
         .detach();
@@ -1065,6 +1104,7 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::open_modal_primary_action))
                     .on_action(cx.listener(Self::save_file_action))
                     .on_action(cx.listener(Self::export_txt_action))
+                    .on_action(cx.listener(Self::export_word_action))
                     .on_action(cx.listener(Self::export_epub_action))
                     .on_action(cx.listener(Self::editor_rich_text_bold_action))
                     .on_action(cx.listener(Self::editor_rich_text_emphasis_action))
@@ -1364,6 +1404,9 @@ impl ActiveModal {
                 match feature {
                     ProFeature::RichText => {
                         "リッチテキスト編集は Pro プランで利用できます。".to_string()
+                    }
+                    ProFeature::ExportWord => {
+                        "Wordエクスポートは Pro プランで利用できます。".to_string()
                     }
                     ProFeature::ExportEpub => {
                         "epubエクスポートは Pro プランで利用できます。".to_string()

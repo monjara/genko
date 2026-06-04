@@ -5202,6 +5202,7 @@ dependencies = [
  "crc32fast",
  "serde",
  "serde_json",
+ "xmlwriter",
 ]
 
 [[package]]
