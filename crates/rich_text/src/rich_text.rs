@@ -7,6 +7,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use xmlwriter::{Options as XmlOptions, XmlWriter};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RichTextDocumentMeta {
@@ -457,6 +458,22 @@ pub fn export_epub(
     writer.finish()
 }
 
+pub fn export_word(path: &Path, plain_text: &str, meta: &RichTextDocumentMeta) -> io::Result<()> {
+    let mut writer = StoredZipWriter::new(File::create(path)?);
+    writer.add_file(
+        "word/document.xml",
+        word_document(plain_text, meta).as_bytes(),
+    )?;
+    writer.add_file("word/styles.xml", word_styles().as_bytes())?;
+    writer.add_file(
+        "word/_rels/document.xml.rels",
+        word_document_rels().as_bytes(),
+    )?;
+    writer.add_file("_rels/.rels", root_relationships().as_bytes())?;
+    writer.add_file("[Content_Types].xml", word_content_types().as_bytes())?;
+    writer.finish()
+}
+
 fn container_xml() -> &'static str {
     r#"<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -589,6 +606,261 @@ fn escape_xml(text: &str) -> String {
             _ => vec![character],
         })
         .collect()
+}
+
+#[derive(Clone, Debug)]
+struct WordParagraph {
+    heading_level: Option<u8>,
+    runs: Vec<WordRun>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct WordRunStyle {
+    bold: bool,
+    emphasis: bool,
+}
+
+#[derive(Clone, Debug)]
+struct WordRun {
+    text: String,
+    style: WordRunStyle,
+}
+
+fn word_document(plain_text: &str, meta: &RichTextDocumentMeta) -> String {
+    let paragraphs = word_paragraphs(plain_text, meta);
+    let mut xml = XmlWriter::new(XmlOptions::default());
+    xml.start_element("w:document");
+    xml.write_attribute(
+        "xmlns:w",
+        "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+    );
+    xml.write_attribute(
+        "xmlns:r",
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    );
+    xml.start_element("w:body");
+
+    for paragraph in paragraphs {
+        xml.start_element("w:p");
+        if let Some(level) = paragraph.heading_level {
+            xml.start_element("w:pPr");
+            xml.start_element("w:pStyle");
+            xml.write_attribute("w:val", if level <= 1 { "Heading1" } else { "Heading2" });
+            xml.end_element();
+            xml.end_element();
+        }
+
+        for run in paragraph.runs {
+            xml.start_element("w:r");
+            if run.style.bold || run.style.emphasis {
+                xml.start_element("w:rPr");
+                if run.style.bold {
+                    xml.start_element("w:b");
+                    xml.end_element();
+                }
+                if run.style.emphasis {
+                    xml.start_element("w:em");
+                    xml.write_attribute("w:val", "dot");
+                    xml.end_element();
+                }
+                xml.end_element();
+            }
+            xml.start_element("w:t");
+            if run.text.starts_with(' ') || run.text.ends_with(' ') {
+                xml.write_attribute("xml:space", "preserve");
+            }
+            xml.write_text(run.text.as_str());
+            xml.end_element();
+            xml.end_element();
+        }
+        xml.end_element();
+    }
+
+    xml.start_element("w:sectPr");
+    xml.start_element("w:pgSz");
+    xml.write_attribute("w:w", "16838");
+    xml.write_attribute("w:h", "11906");
+    xml.write_attribute("w:orient", "landscape");
+    xml.end_element();
+    xml.start_element("w:pgMar");
+    xml.write_attribute("w:top", "1440");
+    xml.write_attribute("w:right", "1440");
+    xml.write_attribute("w:bottom", "1440");
+    xml.write_attribute("w:left", "1440");
+    xml.write_attribute("w:header", "708");
+    xml.write_attribute("w:footer", "708");
+    xml.write_attribute("w:gutter", "0");
+    xml.end_element();
+    xml.start_element("w:textDirection");
+    xml.write_attribute("w:val", "tbRl");
+    xml.end_element();
+    xml.end_element();
+    xml.end_element();
+    xml.end_element();
+    xml.end_document()
+}
+
+fn word_paragraphs(plain_text: &str, meta: &RichTextDocumentMeta) -> Vec<WordParagraph> {
+    let mut paragraphs = Vec::new();
+    let mut start = 0;
+
+    loop {
+        let end = plain_text[start..]
+            .find('\n')
+            .map(|index| start + index)
+            .unwrap_or(plain_text.len());
+        let paragraph_text = &plain_text[start..end];
+        paragraphs.push(WordParagraph {
+            heading_level: word_heading_level(start, end, meta),
+            runs: word_runs(start, paragraph_text, meta),
+        });
+
+        if end == plain_text.len() {
+            break;
+        }
+        start = end + 1;
+    }
+
+    paragraphs
+}
+
+fn word_heading_level(start: usize, end: usize, meta: &RichTextDocumentMeta) -> Option<u8> {
+    meta.marks()
+        .iter()
+        .filter(|mark| ranges_overlap(mark.range(), &(start..end.max(start + 1))))
+        .find_map(|mark| match mark.kind() {
+            RichTextKind::Heading { level } => Some(*level),
+            _ => None,
+        })
+}
+
+fn word_runs(start_offset: usize, text: &str, meta: &RichTextDocumentMeta) -> Vec<WordRun> {
+    if text.is_empty() {
+        return vec![WordRun {
+            text: String::new(),
+            style: WordRunStyle::default(),
+        }];
+    }
+
+    let end_offset = start_offset + text.len();
+    let mut boundaries = vec![start_offset, end_offset];
+    for mark in meta.marks() {
+        if !ranges_overlap(mark.range(), &(start_offset..end_offset)) {
+            continue;
+        }
+        boundaries.push(mark.range().start.max(start_offset).min(end_offset));
+        boundaries.push(mark.range().end.max(start_offset).min(end_offset));
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+
+    let mut runs = Vec::new();
+    for window in boundaries.windows(2) {
+        let local_start = window[0] - start_offset;
+        let local_end = window[1] - start_offset;
+        if !text.is_char_boundary(local_start) || !text.is_char_boundary(local_end) {
+            continue;
+        }
+        let slice = &text[local_start..local_end];
+        if slice.is_empty() {
+            continue;
+        }
+
+        let mut style = WordRunStyle::default();
+        for mark in meta.marks() {
+            if !ranges_overlap(mark.range(), &(window[0]..window[1])) {
+                continue;
+            }
+            match mark.kind() {
+                RichTextKind::Bold => style.bold = true,
+                RichTextKind::Emphasis => style.emphasis = true,
+                RichTextKind::Ruby { .. }
+                | RichTextKind::Heading { .. }
+                | RichTextKind::PageBreak { .. } => {}
+            }
+        }
+
+        runs.push(WordRun {
+            text: slice.to_string(),
+            style,
+        });
+    }
+
+    runs
+}
+
+fn word_styles() -> String {
+    let mut xml = XmlWriter::new(XmlOptions::default());
+    xml.start_element("w:styles");
+    xml.write_attribute(
+        "xmlns:w",
+        "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+    );
+    write_word_style(&mut xml, "Normal", "Normal", None, 22, false);
+    write_word_style(&mut xml, "Heading1", "大見出し", Some("Normal"), 36, true);
+    write_word_style(&mut xml, "Heading2", "小見出し", Some("Normal"), 28, true);
+    xml.end_element();
+    xml.end_document()
+}
+
+fn write_word_style(
+    xml: &mut XmlWriter,
+    style_id: &str,
+    name: &str,
+    based_on: Option<&str>,
+    size_half_points: u32,
+    bold: bool,
+) {
+    xml.start_element("w:style");
+    xml.write_attribute("w:type", "paragraph");
+    xml.write_attribute("w:styleId", style_id);
+    xml.start_element("w:name");
+    xml.write_attribute("w:val", name);
+    xml.end_element();
+    if let Some(parent) = based_on {
+        xml.start_element("w:basedOn");
+        xml.write_attribute("w:val", parent);
+        xml.end_element();
+    }
+    xml.start_element("w:rPr");
+    if bold {
+        xml.start_element("w:b");
+        xml.end_element();
+    }
+    xml.start_element("w:sz");
+    xml.write_attribute("w:val", &size_half_points.to_string());
+    xml.end_element();
+    xml.start_element("w:rFonts");
+    xml.write_attribute("w:eastAsia", "Zen Old Mincho");
+    xml.write_attribute("w:ascii", "Zen Old Mincho");
+    xml.write_attribute("w:hAnsi", "Zen Old Mincho");
+    xml.end_element();
+    xml.end_element();
+    xml.end_element();
+}
+
+fn word_document_rels() -> &'static str {
+    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>"#
+}
+
+fn root_relationships() -> &'static str {
+    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"#
+}
+
+fn word_content_types() -> &'static str {
+    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>"#
 }
 
 struct StoredZipWriter<W: Write> {
@@ -912,6 +1184,34 @@ mod tests {
             bytes
                 .windows(b"application/epub+zip".len())
                 .any(|window| window == b"application/epub+zip")
+        );
+    }
+
+    #[test]
+    fn writes_word_zip_with_required_parts() {
+        let directory = std::env::temp_dir();
+        let path = directory.join(format!("soukou-rich-text-test-{}.docx", std::process::id()));
+        let mut meta = RichTextDocumentMeta::default();
+        meta.add_mark(0.."見出し".len(), RichTextKind::Heading { level: 1 });
+        meta.add_mark(
+            "見出し\n".len().."見出し\n本文".len(),
+            RichTextKind::Emphasis,
+        );
+
+        export_word(path.as_path(), "見出し\n本文", &meta).expect("export word");
+        let bytes = std::fs::read(path.as_path()).expect("read exported word");
+        std::fs::remove_file(path).expect("remove exported word");
+
+        assert!(bytes.starts_with(b"PK\x03\x04"));
+        assert!(
+            bytes
+                .windows(b"word/document.xml".len())
+                .any(|window| window == b"word/document.xml")
+        );
+        assert!(
+            bytes
+                .windows(b"[Content_Types].xml".len())
+                .any(|window| window == b"[Content_Types].xml")
         );
     }
 }

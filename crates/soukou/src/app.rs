@@ -96,7 +96,6 @@ struct PageBreakMenuState {
 
 #[derive(Clone, Copy, Debug)]
 enum ProFeature {
-    RichText,
     ExportWord,
     ExportEpub,
 }
@@ -549,39 +548,27 @@ impl SoukouApp {
     fn editor_rich_text_bold_action(
         &mut self,
         _: &EditorApplyRichTextBold,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.require_pro_feature(ProFeature::RichText, window, cx) {
-            return;
-        }
-
         self.apply_rich_text_kind(RichTextKind::Bold, cx);
     }
 
     fn editor_rich_text_emphasis_action(
         &mut self,
         _: &EditorApplyRichTextEmphasis,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.require_pro_feature(ProFeature::RichText, window, cx) {
-            return;
-        }
-
         self.apply_rich_text_kind(RichTextKind::Emphasis, cx);
     }
 
     fn editor_rich_text_heading_action(
         &mut self,
         _: &EditorApplyRichTextHeading,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.require_pro_feature(ProFeature::RichText, window, cx) {
-            return;
-        }
-
         self.apply_rich_text_kind(RichTextKind::Heading { level: 1 }, cx);
     }
 
@@ -704,10 +691,11 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
+        let save_rich_text_meta = self.pro_features_available();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    write_plain_document_assets(path, contents, rich_text_meta)
+                    write_plain_document_assets(path, contents, rich_text_meta, save_rich_text_meta)
                 })
                 .await;
 
@@ -1174,8 +1162,7 @@ impl Render for SoukouApp {
 
 impl SoukouApp {
     fn rich_text_toolbar_bounds(&self, cx: &App) -> Option<gpui::Bounds<Pixels>> {
-        if !self.pro_features_available()
-            || self.selected_byte_range(cx).is_empty()
+        if self.selected_byte_range(cx).is_empty()
             || WorkspaceState::global(cx).unsupported_file().is_some()
         {
             return None;
@@ -1196,8 +1183,7 @@ impl SoukouApp {
     }
 
     fn open_page_break_menu(&mut self, request: PageBreakMenuRequest, cx: &mut Context<Self>) {
-        if !self.pro_features_available() || WorkspaceState::global(cx).unsupported_file().is_some()
-        {
+        if WorkspaceState::global(cx).unsupported_file().is_some() {
             return;
         }
 
@@ -1233,11 +1219,6 @@ impl SoukouApp {
     }
 
     fn set_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
-        if !self.pro_features_available() {
-            self.show_pro_required_modal(ProFeature::RichText, cx);
-            return;
-        }
-
         let offset = self.byte_offset_for_column(column, cx);
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.set_page_break_column(column, offset, cx);
@@ -1253,11 +1234,6 @@ impl SoukouApp {
         to_column: usize,
         cx: &mut Context<Self>,
     ) {
-        if !self.pro_features_available() {
-            self.show_pro_required_modal(ProFeature::RichText, cx);
-            return;
-        }
-
         let offset = self.byte_offset_for_column(to_column, cx);
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.move_page_break_column(from_column, to_column, offset, cx);
@@ -1268,11 +1244,6 @@ impl SoukouApp {
     }
 
     fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
-        if !self.pro_features_available() {
-            self.show_pro_required_modal(ProFeature::RichText, cx);
-            return;
-        }
-
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.remove_page_break_column(column, cx);
         });
@@ -1297,8 +1268,7 @@ impl SoukouApp {
     }
 
     fn open_ruby_editor(&mut self, request: RubyEditRequest, cx: &mut Context<Self>) {
-        if !self.pro_features_available() || WorkspaceState::global(cx).unsupported_file().is_some()
-        {
+        if WorkspaceState::global(cx).unsupported_file().is_some() {
             return;
         }
 
@@ -1314,12 +1284,6 @@ impl SoukouApp {
     }
 
     fn apply_ruby_editor(&mut self, cx: &mut Context<Self>) {
-        if !self.pro_features_available() {
-            self.ruby_editor = None;
-            self.show_pro_required_modal(ProFeature::RichText, cx);
-            return;
-        }
-
         let Some(ruby_editor) = self.ruby_editor.take() else {
             return;
         };
@@ -1364,6 +1328,10 @@ impl SoukouApp {
     }
 
     fn save_rich_text_meta(&self, cx: &mut Context<Self>) {
+        if !self.pro_features_available() {
+            return;
+        }
+
         let Some(path) = self.active_document.path().map(Path::to_path_buf) else {
             return;
         };
@@ -1402,9 +1370,6 @@ impl ActiveModal {
                 icons::MODAL_INFO,
                 "Proプラン限定機能です".to_string(),
                 match feature {
-                    ProFeature::RichText => {
-                        "リッチテキスト編集は Pro プランで利用できます。".to_string()
-                    }
                     ProFeature::ExportWord => {
                         "Wordエクスポートは Pro プランで利用できます。".to_string()
                     }
@@ -1657,12 +1622,13 @@ fn write_plain_document_assets(
     path: PathBuf,
     contents: String,
     rich_text_meta: RichTextDocumentMeta,
+    save_rich_text_meta: bool,
 ) -> Result<PathBuf, DocumentError> {
     std::fs::write(&path, contents.as_bytes()).map_err(|source| DocumentError::SaveFailed {
         path: path.clone(),
         source,
     })?;
-    if !rich_text_meta.is_empty() {
+    if save_rich_text_meta && !rich_text_meta.is_empty() {
         rich_text::save_meta_for_text_path(path.as_path(), &rich_text_meta).map_err(|source| {
             DocumentError::MetadataSaveFailed {
                 path: path.clone(),
