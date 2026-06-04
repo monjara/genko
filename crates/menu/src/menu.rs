@@ -12,6 +12,8 @@ actions!(
     menu,
     [
         OpenSettings,
+        RegisterAccount,
+        SignOut,
         CheckForUpdates,
         OpenFile,
         SaveFile,
@@ -23,6 +25,8 @@ actions!(
 
 pub const APP_NAME: &str = "草稿";
 const SETTINGS_MENU_LABEL: &str = "設定";
+const REGISTER_ACCOUNT_MENU_LABEL: &str = "会員登録";
+const SIGN_OUT_MENU_LABEL: &str = "サインアウト";
 const CHECK_FOR_UPDATES_MENU_LABEL: &str = "更新を確認";
 const QUIT_MENU_LABEL: &str = "終了";
 const FILE_MENU_LABEL: &str = "ファイル";
@@ -56,6 +60,8 @@ pub fn init(cx: &mut App) {
             name: APP_NAME.into(),
             items: vec![
                 MenuItem::action(SETTINGS_MENU_LABEL, OpenSettings),
+                MenuItem::action(REGISTER_ACCOUNT_MENU_LABEL, RegisterAccount),
+                MenuItem::action(SIGN_OUT_MENU_LABEL, SignOut),
                 MenuItem::action(CHECK_FOR_UPDATES_MENU_LABEL, CheckForUpdates),
                 MenuItem::separator(),
                 MenuItem::action(QUIT_MENU_LABEL, Quit),
@@ -82,6 +88,12 @@ pub fn title_bar_menus() -> Vec<TitleBarMenu> {
             vec![
                 MenuBarItem::new(SETTINGS_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(OpenSettings), cx);
+                }),
+                MenuBarItem::new(REGISTER_ACCOUNT_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(RegisterAccount), cx);
+                }),
+                MenuBarItem::new(SIGN_OUT_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(SignOut), cx);
                 }),
                 MenuBarItem::new(CHECK_FOR_UPDATES_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(CheckForUpdates), cx);

@@ -13,6 +13,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SOUKOU_AUTH_CALLBACK_SCHEME: soukou
+  SOUKOU_SITE_URL: https://soukou.dev
+  SOUKOU_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SOUKOU_SUPABASE_PUBLISHABLE_KEY }}
+  SOUKOU_SUPABASE_URL: ${{ secrets.SOUKOU_SUPABASE_URL }}
 
 concurrency:
   group: release-windows-${{ github.workflow }}-${{ github.ref }}

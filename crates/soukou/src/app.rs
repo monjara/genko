@@ -30,7 +30,7 @@ use gpui::{
     RenderOnce, Styled, Subscription, Window, div, point, prelude::FluentBuilder, px, svg,
     transparent_black,
 };
-use menu::MenuActionHandler;
+use menu::{MenuActionHandler, RegisterAccount, SignOut};
 use rich_text::{RichTextDocumentMeta, RichTextKind};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
@@ -59,6 +59,9 @@ pub(super) struct SoukouApp {
     active_modal: Option<AppModal>,
     error_notifications: Vec<ErrorNotification>,
     next_error_notification_id: u64,
+    auth_config: auth::AuthConfig,
+    auth_state: auth::AuthState,
+    account_control: Entity<auth::TitleBarAccountControl>,
     _workspace_subscription: Subscription,
     _editor_subscription: Subscription,
     title_bar: Entity<TitleBar>,
@@ -70,6 +73,9 @@ enum AppModal {
     Info {
         title: String,
         detail: String,
+    },
+    ProRequired {
+        feature: ProFeature,
     },
     UpdateAvailable {
         current_version: String,
@@ -86,6 +92,12 @@ struct RubyEditorState {
 #[derive(Clone, Debug)]
 struct PageBreakMenuState {
     request: PageBreakMenuRequest,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ProFeature {
+    RichText,
+    ExportEpub,
 }
 
 impl SoukouApp {
@@ -145,6 +157,19 @@ impl SoukouApp {
         cx.notify();
     }
 
+    fn show_pro_required_modal(&mut self, feature: ProFeature, cx: &mut Context<Self>) {
+        self.active_modal = Some(AppModal::ProRequired { feature });
+        cx.notify();
+    }
+
+    fn set_auth_state(&mut self, auth_state: auth::AuthState, cx: &mut Context<Self>) {
+        self.auth_state = auth_state.clone();
+        self.account_control.update(cx, |account_control, cx| {
+            account_control.set_state(auth_state, cx);
+        });
+        cx.notify();
+    }
+
     pub(super) fn new(cx: &mut Context<Self>) -> Self {
         let loaded_key_bindings = keymap::load_key_bindings(cx);
         cx.bind_keys(loaded_key_bindings.key_bindings);
@@ -174,10 +199,31 @@ impl SoukouApp {
             cx.subscribe(&workspace, |this, _workspace, event, cx| match event {
                 WorkspaceEvent::OpenPath(path) => this.open_workspace_path(path.clone(), cx),
             });
-        let title_bar = cx.new(|cx| TitleBar::new(menu::APP_NAME, menu::title_bar_menus(), cx));
+        let account_actions = auth::TitleBarAccountActions::new(
+            |window, cx| {
+                window.dispatch_action(Box::new(RegisterAccount), cx);
+            },
+            |window, cx| {
+                window.dispatch_action(Box::new(RegisterAccount), cx);
+            },
+            |window, cx| {
+                window.dispatch_action(Box::new(SignOut), cx);
+            },
+        );
+        let account_control = cx.new(|_| {
+            auth::TitleBarAccountControl::new(auth::AuthState::Restoring, account_actions)
+        });
+        let title_bar = cx.new(|cx| {
+            TitleBar::new(
+                menu::APP_NAME,
+                menu::title_bar_menus(),
+                Some(account_control.clone()),
+                cx,
+            )
+        });
         let bottom_bar = cx.new(BottomBar::new);
 
-        Self {
+        let mut app = Self {
             editor_controller,
             workspace,
             active_document: ActiveDocument::default(),
@@ -186,11 +232,16 @@ impl SoukouApp {
             active_modal: None,
             error_notifications,
             next_error_notification_id,
+            auth_config: auth::AuthConfig::from_env(),
+            auth_state: auth::AuthState::Restoring,
+            account_control,
             _workspace_subscription: workspace_subscription,
             _editor_subscription: editor_subscription,
             title_bar,
             bottom_bar,
-        }
+        };
+        app.restore_auth_session(cx);
+        app
     }
 
     fn dismiss_error_notification(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -246,11 +297,15 @@ impl SoukouApp {
         self.active_modal = None;
         cx.notify();
 
-        if let Some(AppModal::UpdateAvailable {
-            release_page_url, ..
-        }) = modal
-        {
-            self.open_external_url(release_page_url.as_str(), window, cx)
+        match modal {
+            Some(AppModal::UpdateAvailable {
+                release_page_url, ..
+            }) => self.open_external_url(release_page_url.as_str(), window, cx),
+            Some(AppModal::ProRequired { .. }) => {
+                let url = self.auth_config.registration_url();
+                self.open_external_url(url.as_str(), window, cx);
+            }
+            Some(AppModal::Info { .. }) | None => {}
         }
     }
 
@@ -261,6 +316,204 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         MenuActionHandler::open_file(self, window, cx);
+    }
+
+    fn register_account_action(
+        &mut self,
+        _: &RegisterAccount,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let url = match &self.auth_state {
+            auth::AuthState::Authenticated(_) => self.auth_config.account_url(),
+            auth::AuthState::Anonymous | auth::AuthState::Restoring => {
+                self.auth_config.registration_url()
+            }
+        };
+        self.open_external_url(url.as_str(), window, cx);
+    }
+
+    fn sign_out_action(&mut self, _: &SignOut, _window: &mut Window, cx: &mut Context<Self>) {
+        let credentials_key = self.auth_config.credentials_key().to_string();
+        self.set_auth_state(auth::AuthState::Anonymous, cx);
+
+        cx.spawn(async move |this, cx| {
+            let delete_result = auth::delete_refresh_token(credentials_key, cx).await;
+
+            if let Err(error) = this.update(cx, |this, cx| match delete_result {
+                Ok(()) => {
+                    this.show_info_modal(
+                        "サインアウトしました",
+                        "保存済みのログイン情報を削除しました。".to_string(),
+                        cx,
+                    );
+                }
+                Err(error) => {
+                    this.show_error_modal("サインアウトできませんでした", error, cx);
+                }
+            }) {
+                eprintln!("failed to show sign out result: {error}");
+            }
+        })
+        .detach();
+    }
+
+    fn restore_auth_session(&mut self, cx: &mut Context<Self>) {
+        let auth_config = self.auth_config.clone();
+        let credentials_key = self.auth_config.credentials_key().to_string();
+
+        cx.spawn(async move |this, cx| {
+            let stored_refresh_token = auth::read_refresh_token(credentials_key.clone(), cx).await;
+            let refresh_token = match stored_refresh_token {
+                Ok(Some(refresh_token)) => refresh_token,
+                Ok(None) => {
+                    if let Err(error) = this.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                    }) {
+                        eprintln!("failed to clear auth state: {error}");
+                    }
+                    return;
+                }
+                Err(error) => {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                        this.show_error_modal("ログイン情報を読み込めませんでした", error, cx);
+                    }) {
+                        eprintln!("failed to show auth restore error: {update_error}");
+                    }
+                    return;
+                }
+            };
+
+            let restored_session = cx
+                .background_spawn(async move {
+                    auth::restore_session(&auth_config, refresh_token.as_str())
+                })
+                .await;
+
+            match restored_session {
+                Ok(session) => {
+                    if let Err(error) = auth::write_refresh_token(
+                        credentials_key.clone(),
+                        session.refresh_token.clone(),
+                        cx,
+                    )
+                    .await
+                    {
+                        eprintln!("failed to save refreshed auth token: {error}");
+                    }
+                    if let Err(error) = this.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                    }) {
+                        eprintln!("failed to restore auth state: {error}");
+                    }
+                }
+                Err(error) => {
+                    if let Err(delete_error) =
+                        auth::delete_refresh_token(credentials_key.clone(), cx).await
+                    {
+                        eprintln!("failed to delete invalid auth token: {delete_error}");
+                    }
+                    if let Err(update_error) = this.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                        this.show_error_modal("ログイン情報を更新できませんでした", error, cx);
+                    }) {
+                        eprintln!("failed to show auth restore failure: {update_error}");
+                    }
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(crate) fn handle_open_urls(&mut self, urls: Vec<String>, cx: &mut Context<Self>) {
+        let credentials_key = self.auth_config.credentials_key().to_string();
+
+        for url in urls {
+            let callback =
+                match auth::parse_callback(url.as_str(), self.auth_config.callback_scheme()) {
+                    Ok(Some(callback)) => callback,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        self.show_error_modal("ログイン情報を処理できませんでした", error, cx);
+                        continue;
+                    }
+                };
+
+            self.apply_auth_callback(callback, credentials_key.clone(), cx);
+        }
+    }
+
+    fn apply_auth_callback(
+        &mut self,
+        callback: auth::AuthCallback,
+        credentials_key: String,
+        cx: &mut Context<Self>,
+    ) {
+        match callback {
+            auth::AuthCallback::SignedOut => {
+                self.set_auth_state(auth::AuthState::Anonymous, cx);
+                cx.spawn(async move |_, cx| {
+                    if let Err(error) = auth::delete_refresh_token(credentials_key, cx).await {
+                        eprintln!("failed to delete auth token after sign out callback: {error}");
+                    }
+                })
+                .detach();
+            }
+            auth::AuthCallback::SignedIn { refresh_token } => {
+                let auth_config = self.auth_config.clone();
+                self.set_auth_state(auth::AuthState::Restoring, cx);
+
+                cx.spawn(async move |this, cx| {
+                    let restored_session = cx
+                        .background_spawn(async move {
+                            auth::restore_session(&auth_config, refresh_token.as_str())
+                        })
+                        .await;
+
+                    match restored_session {
+                        Ok(session) => {
+                            if let Err(error) = auth::write_refresh_token(
+                                credentials_key.clone(),
+                                session.refresh_token.clone(),
+                                cx,
+                            )
+                            .await
+                                && let Err(update_error) = this.update(cx, |this, cx| {
+                                    this.show_error_modal(
+                                        "認証情報を保存できませんでした",
+                                        error,
+                                        cx,
+                                    );
+                                })
+                            {
+                                eprintln!("failed to show auth save error: {update_error}");
+                            }
+
+                            if let Err(error) = this.update(cx, |this, cx| {
+                                this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                            }) {
+                                eprintln!("failed to apply auth callback: {error}");
+                            }
+                        }
+                        Err(error) => {
+                            if let Err(delete_error) =
+                                auth::delete_refresh_token(credentials_key.clone(), cx).await
+                            {
+                                eprintln!("failed to delete failed auth token: {delete_error}");
+                            }
+                            if let Err(update_error) = this.update(cx, |this, cx| {
+                                this.set_auth_state(auth::AuthState::Anonymous, cx);
+                                this.show_error_modal("ログインに失敗しました", error, cx);
+                            }) {
+                                eprintln!("failed to show auth callback failure: {update_error}");
+                            }
+                        }
+                    }
+                })
+                .detach();
+            }
+        }
     }
 
     fn toggle_workspace_pane_action(
@@ -295,27 +548,39 @@ impl SoukouApp {
     fn editor_rich_text_bold_action(
         &mut self,
         _: &EditorApplyRichTextBold,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.require_pro_feature(ProFeature::RichText, window, cx) {
+            return;
+        }
+
         self.apply_rich_text_kind(RichTextKind::Bold, cx);
     }
 
     fn editor_rich_text_emphasis_action(
         &mut self,
         _: &EditorApplyRichTextEmphasis,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.require_pro_feature(ProFeature::RichText, window, cx) {
+            return;
+        }
+
         self.apply_rich_text_kind(RichTextKind::Emphasis, cx);
     }
 
     fn editor_rich_text_heading_action(
         &mut self,
         _: &EditorApplyRichTextHeading,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.require_pro_feature(ProFeature::RichText, window, cx) {
+            return;
+        }
+
         self.apply_rich_text_kind(RichTextKind::Heading { level: 1 }, cx);
     }
 
@@ -330,6 +595,29 @@ impl SoukouApp {
 
     fn current_document_kind(&self, _cx: &App) -> DocumentKind {
         DocumentKind::PlainText
+    }
+
+    fn pro_features_available(&self) -> bool {
+        match &self.auth_state {
+            auth::AuthState::Authenticated(session) => {
+                session.user.plan.plan_key.supports_pro_features()
+            }
+            auth::AuthState::Anonymous | auth::AuthState::Restoring => false,
+        }
+    }
+
+    fn require_pro_feature(
+        &mut self,
+        feature: ProFeature,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.pro_features_available() {
+            return true;
+        }
+
+        self.show_pro_required_modal(feature, cx);
+        false
     }
 
     fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize> {
@@ -590,6 +878,19 @@ impl MenuActionHandler for SoukouApp {
         self.open_menu_path(path, cx);
     }
 
+    fn export_epub_action(
+        &mut self,
+        _: &menu::ExportEpub,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.require_pro_feature(ProFeature::ExportEpub, window, cx) {
+            return;
+        }
+
+        self.export_epub(window, cx);
+    }
+
     fn export_base_name(&self, _cx: &App) -> String {
         self.active_document
             .path()
@@ -756,6 +1057,8 @@ impl Render for SoukouApp {
                     .on_drop(cx.listener(Self::drop_external_paths))
                     .on_action(cx.listener(Self::open_file_action))
                     .on_action(cx.listener(Self::open_workspace_action))
+                    .on_action(cx.listener(Self::register_account_action))
+                    .on_action(cx.listener(Self::sign_out_action))
                     .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .on_action(cx.listener(Self::dismiss_active_modal_action))
                     .on_action(cx.listener(Self::dismiss_error_notification_action))
@@ -831,7 +1134,8 @@ impl Render for SoukouApp {
 
 impl SoukouApp {
     fn rich_text_toolbar_bounds(&self, cx: &App) -> Option<gpui::Bounds<Pixels>> {
-        if self.selected_byte_range(cx).is_empty()
+        if !self.pro_features_available()
+            || self.selected_byte_range(cx).is_empty()
             || WorkspaceState::global(cx).unsupported_file().is_some()
         {
             return None;
@@ -852,7 +1156,8 @@ impl SoukouApp {
     }
 
     fn open_page_break_menu(&mut self, request: PageBreakMenuRequest, cx: &mut Context<Self>) {
-        if WorkspaceState::global(cx).unsupported_file().is_some() {
+        if !self.pro_features_available() || WorkspaceState::global(cx).unsupported_file().is_some()
+        {
             return;
         }
 
@@ -888,6 +1193,11 @@ impl SoukouApp {
     }
 
     fn set_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        if !self.pro_features_available() {
+            self.show_pro_required_modal(ProFeature::RichText, cx);
+            return;
+        }
+
         let offset = self.byte_offset_for_column(column, cx);
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.set_page_break_column(column, offset, cx);
@@ -903,6 +1213,11 @@ impl SoukouApp {
         to_column: usize,
         cx: &mut Context<Self>,
     ) {
+        if !self.pro_features_available() {
+            self.show_pro_required_modal(ProFeature::RichText, cx);
+            return;
+        }
+
         let offset = self.byte_offset_for_column(to_column, cx);
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.move_page_break_column(from_column, to_column, offset, cx);
@@ -913,6 +1228,11 @@ impl SoukouApp {
     }
 
     fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        if !self.pro_features_available() {
+            self.show_pro_required_modal(ProFeature::RichText, cx);
+            return;
+        }
+
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.remove_page_break_column(column, cx);
         });
@@ -937,7 +1257,8 @@ impl SoukouApp {
     }
 
     fn open_ruby_editor(&mut self, request: RubyEditRequest, cx: &mut Context<Self>) {
-        if WorkspaceState::global(cx).unsupported_file().is_some() {
+        if !self.pro_features_available() || WorkspaceState::global(cx).unsupported_file().is_some()
+        {
             return;
         }
 
@@ -953,6 +1274,12 @@ impl SoukouApp {
     }
 
     fn apply_ruby_editor(&mut self, cx: &mut Context<Self>) {
+        if !self.pro_features_available() {
+            self.ruby_editor = None;
+            self.show_pro_required_modal(ProFeature::RichText, cx);
+            return;
+        }
+
         let Some(ruby_editor) = self.ruby_editor.take() else {
             return;
         };
@@ -1030,6 +1357,21 @@ impl ActiveModal {
                 detail,
                 None,
                 Some("閉じる".to_string()),
+            ),
+            AppModal::ProRequired { feature } => (
+                icons::MODAL_INFO,
+                "Proプラン限定機能です".to_string(),
+                match feature {
+                    ProFeature::RichText => {
+                        "リッチテキスト編集は Pro プランで利用できます。".to_string()
+                    }
+                    ProFeature::ExportEpub => {
+                        "epubエクスポートは Pro プランで利用できます。".to_string()
+                    }
+                },
+                "会員登録ページを開いて、利用できるプランを確認してください。".to_string(),
+                Some("あとで".to_string()),
+                Some("会員登録".to_string()),
             ),
             AppModal::UpdateAvailable {
                 current_version,
