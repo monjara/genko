@@ -24,7 +24,10 @@ concurrency:
 
 jobs:
   bundle_windows:
-    runs-on: windows-latest
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
     timeout-minutes: 60
     strategy:
       matrix:
