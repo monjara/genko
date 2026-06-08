@@ -39,7 +39,8 @@ const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんで
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
-const RELEASES_LATEST_API_URL: &str = "https://api.github.com/repos/monjara/genko/releases/latest";
+const RELEASES_LATEST_API_URL: &str =
+    "https://api.github.com/repos/monjara/Soukou.app/releases/latest";
 
 #[derive(Deserialize)]
 struct GitHubRelease {
