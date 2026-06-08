@@ -1,3 +1,4 @@
+use std::fmt;
 use std::rc::Rc;
 
 use gpui::AsyncApp;
@@ -35,11 +36,21 @@ pub struct AuthUser {
     pub plan: AccountPlan,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AuthSession {
     pub access_token: String,
     pub refresh_token: String,
     pub user: AuthUser,
+}
+
+impl fmt::Debug for AuthSession {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthSession")
+            .field("user", &self.user)
+            .field("access_token", &"[REDACTED]")
+            .field("refresh_token", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

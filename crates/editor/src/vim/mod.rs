@@ -811,7 +811,7 @@ impl VimController {
             }
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
-            let _ = editor.commit_transaction(cx);
+            editor.commit_transaction(cx);
         });
         VimState::global_mut(cx).mode = VimMode::Normal;
         self.visual_anchor_cell = None;
@@ -830,7 +830,7 @@ impl VimController {
         self.visual_anchor_cell = None;
         self.clear_pending();
         self.editor.update(cx, |editor, cx| {
-            let _ = editor.undo(cx);
+            editor.undo(cx);
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
         });
@@ -844,7 +844,7 @@ impl VimController {
         self.visual_anchor_cell = None;
         self.clear_pending();
         self.editor.update(cx, |editor, cx| {
-            let _ = editor.redo(cx);
+            editor.redo(cx);
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
         });
@@ -875,17 +875,17 @@ impl VimController {
 
         if VimState::global(cx).mode == VimMode::Visual {
             self.editor.update(cx, |editor, cx| {
-                let _ = editor.move_cursor_by_motion_command(motion, true, cx);
+                editor.move_cursor_by_motion_command(motion, true, cx);
             });
             self.sync_visual_selection_for_current_cursor(window, cx);
         } else if VimState::global(cx).mode == VimMode::VisualBlock {
             self.editor.update(cx, |editor, cx| {
-                let _ = editor.move_cursor_by_motion_command(motion, false, cx);
+                editor.move_cursor_by_motion_command(motion, false, cx);
             });
             self.sync_block_selection_for_current_cursor(window, cx);
         } else {
             self.editor.update(cx, |editor, cx| {
-                let _ = editor.move_cursor_by_motion_command(motion, false, cx);
+                editor.move_cursor_by_motion_command(motion, false, cx);
             });
         }
     }
@@ -1291,7 +1291,7 @@ impl VimController {
             }
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
-            let _ = editor.commit_transaction(cx);
+            editor.commit_transaction(cx);
         });
         VimState::global_mut(cx).mode = VimMode::Normal;
         self.visual_anchor_cell = None;
@@ -1328,7 +1328,7 @@ impl VimController {
             }
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
-            let _ = editor.commit_transaction(cx);
+            editor.commit_transaction(cx);
         });
         VimState::global_mut(cx).mode = VimMode::Normal;
         self.visual_anchor_cell = None;
@@ -1393,7 +1393,7 @@ impl VimController {
                 );
                 editor.set_text_input_enabled(false, cx);
                 editor.collapse_selection_to_cursor_cell(cx);
-                let _ = editor.commit_transaction(cx);
+                editor.commit_transaction(cx);
             });
             VimState::global_mut(cx).mode = VimMode::Normal;
             self.visual_anchor_cell = None;
@@ -1430,7 +1430,7 @@ impl VimController {
             );
             editor.set_text_input_enabled(false, cx);
             editor.collapse_selection_to_cursor_cell(cx);
-            let _ = editor.commit_transaction(cx);
+            editor.commit_transaction(cx);
         });
         VimState::global_mut(cx).mode = VimMode::Normal;
         self.visual_anchor_cell = None;

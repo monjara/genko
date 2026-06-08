@@ -1037,7 +1037,7 @@ impl EntityInputHandler for Editor {
         self.cursor_cell = self.display_cell_for_byte(self.cursor_offset());
         self.ensure_cursor_visible();
         if implicit_transaction {
-            let _ = self.commit_transaction(cx);
+            self.commit_transaction(cx);
         }
         invalidate_ime_position(window);
         cx.notify();

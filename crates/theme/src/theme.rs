@@ -65,8 +65,11 @@ impl Theme {
         //       設定画面からテーマを選択できるようにする
         let json_str = include_str!("../themes/default.json");
 
-        let theme_json: ThemeJson =
-            serde_json::from_str(json_str).expect("Failed to parse default theme JSON");
+        let theme_json: ThemeJson = serde_json::from_str(json_str)
+            .unwrap_or_else(|err| {
+                eprintln!("Failed to parse default theme JSON: {err}");
+                ThemeJson::fallback()
+            });
 
         Self {
             primary: theme_json.primary,
@@ -101,4 +104,19 @@ struct ThemeJson {
     bg_primary: Rgba,
     bg_senodary: Rgba,
     selection_range: Rgba,
+}
+
+impl ThemeJson {
+    fn fallback() -> Self {
+        let hex = |r: f32, g: f32, b: f32, a: f32| Rgba { r, g, b, a };
+        Self {
+            primary: hex(0.859, 0.718, 0.525, 1.),
+            senodary: hex(0.890, 0.796, 0.667, 1.),
+            text_primary: hex(0., 0., 0., 1.),
+            text_senodary: hex(0.439, 0.353, 0.290, 1.),
+            bg_primary: hex(1., 1., 1., 1.),
+            bg_senodary: hex(0.961, 0.961, 0.961, 1.),
+            selection_range: hex(0.541, 0.361, 0.965, 0.200),
+        }
+    }
 }

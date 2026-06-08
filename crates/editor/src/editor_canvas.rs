@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
@@ -6,7 +7,7 @@ use gpui::{
     GlobalElementId, IntoElement, LayoutId, Path, PathBuilder, Pixels, Style, TextAlign, TextRun,
     Window, fill, point, px, size,
 };
-use rich_text::{RichTextDocumentMeta, RichTextKind};
+use rich_text::{RichTextDocumentMeta, RichTextKind, RichTextMark};
 use rope::CellText;
 use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, Theme};
@@ -246,7 +247,11 @@ impl Element for EditorCanvas {
                         ruby_gutter_size,
                     ));
                 }
-                editor.grid_path_cache.as_ref().unwrap().clone()
+                editor
+                    .grid_path_cache
+                    .as_ref()
+                    .expect("grid_path_cache は直前のブロックで必ず設定される")
+                    .clone()
             });
             paint_grid(
                 content_bounds,
@@ -802,7 +807,11 @@ fn prepare_cell_paint_data(
     rich_text_meta: &RichTextDocumentMeta,
     marked_range: Option<&Range<usize>>,
 ) -> Vec<PreparedCellPaint> {
-    let prepared: Vec<PreparedCellPaint> = visible_text
+    // visible セルのバイト範囲に重なるマークだけを1回フィルタして再利用する。
+    // これにより style_for_cell が O(visible_cells × all_marks) になるのを防ぐ。
+    let visible_marks = visible_marks_for_cells(visible_text, rich_text_meta);
+
+    visible_text
         .iter()
         .map(|cell_text| PreparedCellPaint {
             bounds: cell_bounds_for_logical_index(
@@ -816,15 +825,31 @@ fn prepare_cell_paint_data(
                 cell_size,
                 ruby_gutter_size,
             ),
-            text_style: style_for_cell(cell_text, rich_text_meta, marked_range),
+            text_style: style_for_cell(cell_text, &visible_marks, marked_range),
         })
-        .collect();
-    prepared
+        .collect()
+}
+
+fn visible_marks_for_cells<'a>(
+    visible_text: &[CellText],
+    rich_text_meta: &'a RichTextDocumentMeta,
+) -> Vec<&'a RichTextMark> {
+    let Some(visible_start) = visible_text.first().map(|c| c.range.start) else {
+        return Vec::new();
+    };
+    let Some(visible_end) = visible_text.last().map(|c| c.range.end) else {
+        return Vec::new();
+    };
+    rich_text_meta
+        .marks()
+        .iter()
+        .filter(|m| m.range().end > visible_start && m.range().start < visible_end)
+        .collect()
 }
 
 fn style_for_cell(
     cell_text: &CellText,
-    rich_text_meta: &RichTextDocumentMeta,
+    marks: &[&RichTextMark],
     marked_range: Option<&Range<usize>>,
 ) -> CellTextStyle {
     if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
@@ -832,7 +857,7 @@ fn style_for_cell(
     }
 
     let mut style = CellTextStyle::default();
-    for mark in rich_text_meta.marks() {
+    for mark in marks {
         if !ranges_overlap(&cell_text.range, mark.range()) {
             continue;
         }
@@ -887,6 +912,19 @@ fn paint_rich_text_overlays(
     window: &mut Window,
     cx: &mut App,
 ) {
+    // ルビマークをバイトオフセット → テキストの HashMap にしてセルごとの O(n) ルックアップを O(1) に。
+    let ruby_map: HashMap<usize, &str> = rich_text_meta
+        .marks()
+        .iter()
+        .filter_map(|m| {
+            if let RichTextKind::Ruby { text } = m.kind() {
+                Some((m.range().start, text.as_str()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
     for (cell_text, prepared) in visible_text.iter().zip(prepared_cells.iter()) {
         let Some(cell_bounds) = prepared.bounds else {
             continue;
@@ -900,14 +938,8 @@ fn paint_rich_text_overlays(
             continue;
         }
 
-        for mark in rich_text_meta.marks() {
-            let RichTextKind::Ruby { text } = mark.kind() else {
-                continue;
-            };
-            if cell_text.range.start != mark.range().start {
-                continue;
-            }
-            paint_ruby_text(text.as_str(), cell_bounds, ruby_gutter_size, window, cx);
+        if let Some(ruby_text) = ruby_map.get(&cell_text.range.start) {
+            paint_ruby_text(ruby_text, cell_bounds, ruby_gutter_size, window, cx);
         }
     }
 }
