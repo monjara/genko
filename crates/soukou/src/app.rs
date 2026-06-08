@@ -20,18 +20,16 @@ use document::{
     },
 };
 use editor::{
-    ApplyRichTextBold as EditorApplyRichTextBold,
-    ApplyRichTextEmphasis as EditorApplyRichTextEmphasis,
-    ApplyRichTextHeading as EditorApplyRichTextHeading, ApplyRubyEdit, CancelRubyEdit,
-    EditorController, Event as EditorEvent, PageBreakMenu, PageBreakMenuRequest,
-    RemovePageBreakColumn, RichTextToolbar, RubyEditRequest, RubyEditorPopover,
-    SetPageBreakLeftOfColumn, SetPageBreakRightOfColumn, VimCommandQuit, VimCommandWrite,
+    ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
+    ApplyRubyEdit, CancelRubyEdit, EditorController, Event as EditorEvent, PageBreakMenu,
+    PageBreakMenuRequest, RemovePageBreakColumn, RichTextToolbar, RubyEditRequest,
+    RubyEditorPopover, SetPageBreakLeftOfColumn, SetPageBreakRightOfColumn, VimCommandQuit,
+    VimCommandWrite,
 };
 use gpui::{
-    AnyWindowHandle, App, AppContext, Context, Entity, ExternalPaths, FocusHandle,
-    Focusable, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
-    RenderOnce, Styled, Subscription, Window, div, prelude::FluentBuilder, px,
-    transparent_black,
+    AnyWindowHandle, App, AppContext, Context, Entity, ExternalPaths, FocusHandle, Focusable,
+    FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderOnce, Styled,
+    Subscription, Window, div, prelude::FluentBuilder, px, transparent_black,
 };
 use menu::{MenuActionHandler, RegisterAccount, SignOut};
 use rich_text::{EpubBookMeta, RichTextDocumentMeta, RichTextKind};
@@ -85,7 +83,6 @@ struct RubyEditorState {
 struct PageBreakMenuState {
     request: PageBreakMenuRequest,
 }
-
 
 impl SoukouApp {
     fn open_external_url(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -535,7 +532,7 @@ impl SoukouApp {
 
     fn editor_rich_text_bold_action(
         &mut self,
-        _: &EditorApplyRichTextBold,
+        _: &ApplyRichTextBold,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -544,7 +541,7 @@ impl SoukouApp {
 
     fn editor_rich_text_emphasis_action(
         &mut self,
-        _: &EditorApplyRichTextEmphasis,
+        _: &ApplyRichTextEmphasis,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -553,11 +550,20 @@ impl SoukouApp {
 
     fn editor_rich_text_heading_action(
         &mut self,
-        _: &EditorApplyRichTextHeading,
+        _: &ApplyRichTextHeading,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.apply_rich_text_kind(RichTextKind::Heading { level: 1 }, cx);
+    }
+
+    fn editor_rich_text_rotated_action(
+        &mut self,
+        _: &ApplyRichTextRotated,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Rotated, cx);
     }
 
     fn drop_external_paths(
@@ -1084,6 +1090,7 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::editor_rich_text_bold_action))
                     .on_action(cx.listener(Self::editor_rich_text_emphasis_action))
                     .on_action(cx.listener(Self::editor_rich_text_heading_action))
+                    .on_action(cx.listener(Self::editor_rich_text_rotated_action))
                     .on_action(cx.listener(Self::cancel_ruby_editor_action))
                     .on_action(cx.listener(Self::apply_ruby_editor_action))
                     .on_action(cx.listener(Self::cancel_ruby_edit_action))

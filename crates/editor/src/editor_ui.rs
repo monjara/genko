@@ -14,6 +14,7 @@ actions!(
         ApplyRichTextBold,
         ApplyRichTextEmphasis,
         ApplyRichTextHeading,
+        ApplyRichTextRotated,
         ApplyRubyEdit,
         CancelRubyEdit,
         OpenSearch,
@@ -294,6 +295,7 @@ impl RenderOnce for RichTextToolbar {
             .child(toolbar_button("B", 0, "太字", ApplyRichTextBold, cx))
             .child(toolbar_button("•", 1, "傍点", ApplyRichTextEmphasis, cx))
             .child(toolbar_button("見", 2, "見出し", ApplyRichTextHeading, cx))
+            .child(toolbar_button("回", 3, "回転", ApplyRichTextRotated, cx))
     }
 }
 

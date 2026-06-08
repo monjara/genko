@@ -967,7 +967,7 @@ dependencies = [
 [[package]]
 name = "collections"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "indexmap",
  "rustc-hash 2.1.2",
@@ -1440,7 +1440,7 @@ dependencies = [
 [[package]]
 name = "derive_refineable"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2368,7 +2368,7 @@ dependencies = [
 [[package]]
 name = "gpui"
 version = "0.2.2"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "async-channel 2.5.0",
@@ -2448,7 +2448,7 @@ dependencies = [
 [[package]]
 name = "gpui_linux"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "as-raw-xcb-connection",
@@ -2497,7 +2497,7 @@ dependencies = [
 [[package]]
 name = "gpui_macos"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "async-task",
@@ -2540,7 +2540,7 @@ dependencies = [
 [[package]]
 name = "gpui_macros"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -2551,7 +2551,7 @@ dependencies = [
 [[package]]
 name = "gpui_platform"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "console_error_panic_hook",
  "gpui",
@@ -2564,7 +2564,7 @@ dependencies = [
 [[package]]
 name = "gpui_shared_string"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "schemars",
  "serde",
@@ -2574,7 +2574,7 @@ dependencies = [
 [[package]]
 name = "gpui_util"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "log",
@@ -2583,7 +2583,7 @@ dependencies = [
 [[package]]
 name = "gpui_web"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -2607,7 +2607,7 @@ dependencies = [
 [[package]]
 name = "gpui_wgpu"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2636,7 +2636,7 @@ dependencies = [
 [[package]]
 name = "gpui_windows"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "collections",
@@ -2799,9 +2799,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "1.4.1"
+version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8be7462df143984c4598a256ef469b251d7d7f9e271135073e78fc535414f3d0"
+checksum = "6970f50e31d6fc17d3fa27329444bfa74e196cf62e95052a3f6fee181dba6425"
 dependencies = [
  "bytes",
  "itoa",
@@ -2833,7 +2833,7 @@ dependencies = [
 [[package]]
 name = "http_client"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -3769,7 +3769,7 @@ checksum = "ae960838283323069879657ca3de837e9f7bbb4c7bf6ea7f1b290d5e9476d2e0"
 [[package]]
 name = "media"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "bindgen",
@@ -4405,7 +4405,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 [[package]]
 name = "perf"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "collections",
  "serde",
@@ -5036,7 +5036,7 @@ dependencies = [
 [[package]]
 name = "refineable"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "derive_refineable",
 ]
@@ -5469,7 +5469,7 @@ dependencies = [
 [[package]]
 name = "scheduler"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "async-task",
  "backtrace",
@@ -6059,7 +6059,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "sum_tree"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "heapless",
  "log",
@@ -6838,7 +6838,7 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 [[package]]
 name = "util"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "anyhow",
  "async-fs",
@@ -6877,7 +6877,7 @@ dependencies = [
 [[package]]
 name = "util_macros"
 version = "0.1.0"
-source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#8bb739a2176bf0f7c85d08926c83f202f9790207"
+source = "git+https://github.com/monjara/zed?branch=vertical-text-feature#ee948f5317190c143801562a17f89dfa231934a3"
 dependencies = [
  "perf",
  "quote",

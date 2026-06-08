@@ -8,7 +8,8 @@ pub mod vim;
 pub use editor::{Event, PageBreakMenuKind, PageBreakMenuRequest, RubyEditRequest};
 pub use editor_controller::EditorController;
 pub use editor_ui::{
-    ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRubyEdit, CancelRubyEdit,
+    ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
+    ApplyRubyEdit, CancelRubyEdit,
     CloseSearch, FindNext, FindPrevious, OpenSearch, PageBreakMenu, RemovePageBreakColumn,
     RichTextToolbar, RubyEditorPopover, SetPageBreakLeftOfColumn, SetPageBreakRightOfColumn,
 };

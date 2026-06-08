@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFeatures,
-    GlobalElementId, IntoElement, LayoutId, Path, PathBuilder, Pixels, Style, TextAlign, TextRun,
-    Window, fill, point, px, size,
+    GlobalElementId, Hsla, IntoElement, LayoutId, Path, PathBuilder, Pixels, Radians,
+    ScaledPixels, Style, TextAlign, TextRun, TransformationMatrix, Window, fill, point, px, size,
 };
 use rich_text::{RichTextDocumentMeta, RichTextKind, RichTextMark};
 use rope::CellText;
@@ -770,14 +770,28 @@ fn paint_text(
         };
 
         match cell_paint_kind(cell_text) {
-            CellPaintKind::Main => paint_cell_text(
-                cell_text,
-                cell_bounds,
-                cell_bounds.size.width.as_f32(),
-                prepared.text_style,
-                window,
-                cx,
-            ),
+            CellPaintKind::Main => {
+                let cell_size = cell_bounds.size.width.as_f32();
+                if prepared.text_style.rotated {
+                    paint_rotated_cell_text(
+                        cell_text,
+                        cell_bounds,
+                        cell_size,
+                        prepared.text_style,
+                        window,
+                        cx,
+                    );
+                } else {
+                    paint_cell_text(
+                        cell_text,
+                        cell_bounds,
+                        cell_size,
+                        prepared.text_style,
+                        window,
+                        cx,
+                    );
+                }
+            }
             CellPaintKind::Attached => {
                 paint_attached_punctuation(cell_text, cell_bounds, window, cx)
             }
@@ -829,6 +843,82 @@ fn paint_cell_text(
         cx,
     )
     .ok();
+}
+
+fn paint_rotated_cell_text(
+    cell_text: &CellText,
+    cell_bounds: Bounds<Pixels>,
+    cell_size: f32,
+    text_style: CellTextStyle,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let style = window.text_style();
+    let font_size = px((cell_size * text_style.font_scale()).round());
+    let line_height = px((cell_size * 0.86).round());
+
+    let line = shape_text(
+        window,
+        &cell_text.text,
+        font_size,
+        text_run(
+            &cell_text.text,
+            vertical_text_font(style.font()),
+            text_style.color(cx),
+            text_style,
+            cx,
+        ),
+        text_style.layout_hash(),
+    );
+
+    let paint_offset = vertical_text_paint_offset(&line);
+    let text_origin = point(
+        cell_bounds.left() + (px(cell_size) - line.width) / 2.0 + paint_offset.x,
+        cell_bounds.top() + (px(cell_size) - line_height) / 2.0 + paint_offset.y,
+    );
+
+    let padding_top = (line_height - line.ascent - line.descent) / 2.0;
+    let baseline_y = text_origin.y + padding_top + line.ascent;
+
+    // 90° CW rotation around cell center in device pixels
+    let scale_factor = window.scale_factor();
+    let cell_center_x =
+        ScaledPixels((cell_bounds.left().as_f32() + cell_size / 2.0) * scale_factor);
+    let cell_center_y =
+        ScaledPixels((cell_bounds.top().as_f32() + cell_size / 2.0) * scale_factor);
+    let cell_center = gpui::Point::new(cell_center_x, cell_center_y);
+    let neg_cell_center = gpui::Point::new(
+        ScaledPixels(-cell_center_x.0),
+        ScaledPixels(-cell_center_y.0),
+    );
+    let transformation = TransformationMatrix::unit()
+        .translate(cell_center)
+        .rotate(Radians(std::f32::consts::FRAC_PI_2))
+        .translate(neg_cell_center);
+
+    let color: Hsla = text_style.color(cx).into();
+    let mut prev_position_x = px(0.0);
+    let mut accumulated_x = text_origin.x;
+
+    for run in &line.runs {
+        for glyph in &run.glyphs {
+            accumulated_x += glyph.position.x - prev_position_x;
+            prev_position_x = glyph.position.x;
+
+            let glyph_y = baseline_y + glyph.position.y;
+
+            window
+                .paint_glyph_with_transform(
+                    point(accumulated_x, glyph_y),
+                    run.font_id,
+                    glyph.id,
+                    font_size,
+                    color,
+                    transformation,
+                )
+                .ok();
+        }
+    }
 }
 
 fn paint_strikethrough_overlay(
@@ -913,7 +1003,10 @@ fn partition_marks<'a>(
             RichTextKind::Ruby { text } => {
                 ruby_map.insert(mark.range().start, text.as_str());
             }
-            RichTextKind::Bold | RichTextKind::Emphasis | RichTextKind::Heading { .. } => {
+            RichTextKind::Bold
+            | RichTextKind::Emphasis
+            | RichTextKind::Rotated
+            | RichTextKind::Heading { .. } => {
                 if mark.range().end > visible_start && mark.range().start < visible_end {
                     style_marks.push(mark);
                 }
@@ -974,6 +1067,7 @@ fn style_for_cell(
         match mark.kind() {
             RichTextKind::Bold => style.bold = true,
             RichTextKind::Emphasis => style.emphasis = true,
+            RichTextKind::Rotated => style.rotated = true,
             RichTextKind::Ruby { .. } => {}
             RichTextKind::Heading { level } => {
                 style.bold = true;
@@ -1269,6 +1363,7 @@ struct CellTextStyle {
     bold: bool,
     emphasis: bool,
     strikethrough: bool,
+    rotated: bool,
     heading_level: Option<u8>,
 }
 
@@ -1298,6 +1393,7 @@ impl CellTextStyle {
         u64::from(self.bold)
             | (u64::from(self.emphasis) << 1)
             | (u64::from(self.strikethrough) << 2)
+            | (u64::from(self.rotated) << 3)
             | (heading << 8)
     }
 }

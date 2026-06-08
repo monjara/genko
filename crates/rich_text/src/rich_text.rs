@@ -141,17 +141,44 @@ impl RichTextDocumentMeta {
 
     pub fn apply_text_edit(&mut self, start: usize, removed_len: usize, inserted_len: usize) {
         let removed_range = start..start.saturating_add(removed_len);
-        self.marks = self
-            .marks
-            .drain(..)
-            .filter_map(|mut mark| {
-                if matches!(mark.kind, RichTextKind::PageBreak { .. }) {
-                    return Some(mark);
-                }
-                mark.range = transform_range(mark.range, &removed_range, inserted_len)?;
-                Some(mark)
-            })
-            .collect();
+        let mut new_marks: Vec<RichTextMark> = Vec::with_capacity(self.marks.len());
+
+        for mark in self.marks.drain(..) {
+            if matches!(mark.kind, RichTextKind::PageBreak { .. }) {
+                new_marks.push(mark);
+                continue;
+            }
+
+            // Rotated marks split on interior insertion instead of expanding,
+            // so newly typed characters between rotated characters are not rotated.
+            if matches!(mark.kind, RichTextKind::Rotated)
+                && removed_range.is_empty()
+                && removed_range.start > mark.range.start
+                && removed_range.start < mark.range.end
+            {
+                let p = removed_range.start;
+                new_marks.push(RichTextMark {
+                    range: mark.range.start..p,
+                    kind: mark.kind.clone(),
+                });
+                new_marks.push(RichTextMark {
+                    range: (p + inserted_len)..(mark.range.end + inserted_len),
+                    kind: mark.kind,
+                });
+                continue;
+            }
+
+            if let Some(new_range) =
+                transform_range(mark.range.clone(), &removed_range, inserted_len)
+            {
+                new_marks.push(RichTextMark {
+                    range: new_range,
+                    kind: mark.kind,
+                });
+            }
+        }
+
+        self.marks = new_marks;
         self.marks
             .sort_by_key(|mark| (mark.range.start, mark.range.end));
     }
@@ -353,6 +380,7 @@ fn mark_kind_matches(left: &RichTextKind, right: &RichTextKind) -> bool {
     match (left, right) {
         (RichTextKind::Bold, RichTextKind::Bold) => true,
         (RichTextKind::Emphasis, RichTextKind::Emphasis) => true,
+        (RichTextKind::Rotated, RichTextKind::Rotated) => true,
         (RichTextKind::Ruby { .. }, RichTextKind::Ruby { .. }) => true,
         (RichTextKind::Heading { level: left }, RichTextKind::Heading { level: right }) => {
             left == right
@@ -395,6 +423,7 @@ impl RichTextMark {
 pub enum RichTextKind {
     Bold,
     Emphasis,
+    Rotated,
     Ruby {
         text: String,
     },
@@ -549,8 +578,9 @@ fn text_document(title: &str, plain_text: &str, meta: &RichTextDocumentMeta) -> 
   <head>
     <title>{}</title>
     <style>
-      body {{ writing-mode: vertical-rl; line-height: 1.8; }}
+      body {{ writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; }}
       .emphasis {{ text-emphasis: filled sesame; -webkit-text-emphasis: filled sesame; }}
+      .rotated {{ text-orientation: sideways; }}
       .page-break {{ break-before: page; page-break-before: always; }}
     </style>
   </head>
@@ -589,6 +619,11 @@ fn render_body(text: &str, meta: &RichTextDocumentMeta) -> String {
             }
             RichTextKind::Emphasis => {
                 output.push_str(r#"<span class="emphasis">"#);
+                output.push_str(&escape_xml(&text[mark.range.clone()]));
+                output.push_str("</span>");
+            }
+            RichTextKind::Rotated => {
+                output.push_str(r#"<span class="rotated">"#);
                 output.push_str(&escape_xml(&text[mark.range.clone()]));
                 output.push_str("</span>");
             }
@@ -639,6 +674,7 @@ struct WordParagraph {
 struct WordRunStyle {
     bold: bool,
     emphasis: bool,
+    rotated: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -673,7 +709,7 @@ fn word_document(plain_text: &str, meta: &RichTextDocumentMeta) -> String {
 
         for run in paragraph.runs {
             xml.start_element("w:r");
-            if run.style.bold || run.style.emphasis {
+            if run.style.bold || run.style.emphasis || run.style.rotated {
                 xml.start_element("w:rPr");
                 if run.style.bold {
                     xml.start_element("w:b");
@@ -682,6 +718,11 @@ fn word_document(plain_text: &str, meta: &RichTextDocumentMeta) -> String {
                 if run.style.emphasis {
                     xml.start_element("w:em");
                     xml.write_attribute("w:val", "dot");
+                    xml.end_element();
+                }
+                if run.style.rotated {
+                    xml.start_element("w:eastAsianLayout");
+                    xml.write_attribute("w:vert", "0");
                     xml.end_element();
                 }
                 xml.end_element();
@@ -795,6 +836,7 @@ fn word_runs(start_offset: usize, text: &str, meta: &RichTextDocumentMeta) -> Ve
             match mark.kind() {
                 RichTextKind::Bold => style.bold = true,
                 RichTextKind::Emphasis => style.emphasis = true,
+                RichTextKind::Rotated => style.rotated = true,
                 RichTextKind::Ruby { .. }
                 | RichTextKind::Heading { .. }
                 | RichTextKind::PageBreak { .. } => {}

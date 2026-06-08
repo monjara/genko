@@ -32,6 +32,7 @@ fn main() {
     }
 
     let application = gpui_platform::application();
+
     let (open_url_sender, open_url_receiver) = futures::channel::mpsc::unbounded::<Vec<String>>();
     application.on_open_urls(move |urls| {
         if let Err(error) = open_url_sender.unbounded_send(urls) {
