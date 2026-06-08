@@ -215,17 +215,17 @@ case "$target_triple" in
     ;;
 esac
 
-rustup target add "$target_triple"
+if ! rustup target list --installed | grep -qx "$target_triple"; then
+  rustup target add "$target_triple"
+fi
 
 export CXXFLAGS="-stdlib=libc++"
 
 setup_signing
 
-echo "Building 草稿 for $target_triple"
-cargo build ${build_flag} --package soukou --target "$target_triple"
-
 echo "Bundling 草稿.app"
 cargo bundle ${build_flag} \
+  --format osx \
   --package soukou \
   --target "$target_triple"
 
