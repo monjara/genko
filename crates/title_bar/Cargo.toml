@@ -9,6 +9,7 @@ name = "title_bar"
 path = "src/title_bar.rs"
 
 [dependencies]
+auth = { workspace = true }
 gpui = { workspace = true }
 theme = { workspace = true }
 ui = { workspace = true }

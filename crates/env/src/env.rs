@@ -5,7 +5,5 @@ pub fn lindera_dictinary_path() -> Option<OsString> {
 }
 
 pub fn watch_mode() -> bool {
-    let debug = std::env::var("SOUKOU_DEVELOPMENT_MODE").is_ok();
-    println!("debug: {debug}");
     std::env::var("SOUKOU_DEVELOPMENT_WATCH_MODE").is_ok()
 }

@@ -4,12 +4,9 @@ use gpui::{
     App, AppContext, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Pixels, Render, Subscription, Window,
 };
-use rich_text::RichTextDocumentMeta;
+use rich_text::{RichTextDocumentMeta, RichTextKind};
 
-use crate::{
-    editor::{AppliedEditBatch, Event},
-    vim::VimController,
-};
+use crate::{editor::Event, vim::VimController};
 
 pub struct EditorController {
     vim_controller: Entity<VimController>,
@@ -38,12 +35,8 @@ impl EditorController {
         self.vim_controller.read(cx).snapshot_text(cx)
     }
 
-    pub fn draft_revision(&self, cx: &App) -> u64 {
-        self.vim_controller.read(cx).draft_revision(cx)
-    }
-
-    pub fn last_applied_edit_batch(&self, cx: &App) -> Option<AppliedEditBatch> {
-        self.vim_controller.read(cx).last_applied_edit_batch(cx)
+    pub fn rich_text_meta(&self, cx: &App) -> RichTextDocumentMeta {
+        self.vim_controller.read(cx).rich_text_meta(cx)
     }
 
     pub fn selected_byte_range(&self, cx: &App) -> Range<usize> {
@@ -78,6 +71,42 @@ impl EditorController {
     ) {
         self.vim_controller.update(cx, |vim_controller, cx| {
             vim_controller.set_rich_text_meta(rich_text_meta, cx);
+        });
+    }
+
+    pub fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
+        self.vim_controller.update(cx, |vim_controller, cx| {
+            vim_controller.apply_rich_text_kind(kind, cx);
+        });
+    }
+
+    pub fn set_ruby(&mut self, range: Range<usize>, text: String, cx: &mut Context<Self>) {
+        self.vim_controller.update(cx, |vim_controller, cx| {
+            vim_controller.set_ruby(range, text, cx);
+        });
+    }
+
+    pub fn set_page_break_column(&mut self, column: usize, offset: usize, cx: &mut Context<Self>) {
+        self.vim_controller.update(cx, |vim_controller, cx| {
+            vim_controller.set_page_break_column(column, offset, cx);
+        });
+    }
+
+    pub fn move_page_break_column(
+        &mut self,
+        from_column: usize,
+        to_column: usize,
+        offset: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.vim_controller.update(cx, |vim_controller, cx| {
+            vim_controller.move_page_break_column(from_column, to_column, offset, cx);
+        });
+    }
+
+    pub fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        self.vim_controller.update(cx, |vim_controller, cx| {
+            vim_controller.remove_page_break_column(column, cx);
         });
     }
 

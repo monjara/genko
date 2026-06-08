@@ -1,3 +1,6 @@
+mod modal;
+use modal::{ActiveModal, AppModal, ProFeature};
+
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::process::Command;
@@ -17,20 +20,24 @@ use document::{
     },
 };
 use editor::{
-    EditorController, Event as EditorEvent, PageBreakMenuKind, PageBreakMenuRequest,
-    RubyEditRequest, VimCommandQuit, VimCommandWrite,
+    ApplyRichTextBold as EditorApplyRichTextBold,
+    ApplyRichTextEmphasis as EditorApplyRichTextEmphasis,
+    ApplyRichTextHeading as EditorApplyRichTextHeading, ApplyRubyEdit, CancelRubyEdit,
+    EditorController, Event as EditorEvent, PageBreakMenu, PageBreakMenuRequest,
+    RemovePageBreakColumn, RichTextToolbar, RubyEditRequest, RubyEditorPopover,
+    SetPageBreakLeftOfColumn, SetPageBreakRightOfColumn, VimCommandQuit, VimCommandWrite,
 };
 use gpui::{
-    AnyWindowHandle, App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle,
-    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
-    RenderOnce, StatefulInteractiveElement, Styled, Subscription, Window, div, point,
-    prelude::FluentBuilder, px, svg, transparent_black, white,
+    AnyWindowHandle, App, AppContext, Context, Entity, ExternalPaths, FocusHandle,
+    Focusable, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    RenderOnce, Styled, Subscription, Window, div, prelude::FluentBuilder, px,
+    transparent_black,
 };
-use menu::{MenuActionHandler, RichTextBold, RichTextEmphasis, RichTextHeading};
-use rich_text::{RichTextDocumentMeta, RichTextEdit, RichTextKind};
+use menu::{MenuActionHandler, RegisterAccount, SignOut};
+use rich_text::{RichTextDocumentMeta, RichTextKind};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
-use ui::{TextInput, Tooltip};
+use ui::TextInput;
 use workspace::{
     Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceState,
     scan_workspace_entries,
@@ -38,7 +45,6 @@ use workspace::{
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
 const WINDOW_TITLE_SEPARATOR: &str = " - ";
 const FILE_OPEN_ERROR_TITLE: &str = "ファイルを開けませんでした";
 const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでした";
@@ -50,31 +56,18 @@ pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
     workspace: Entity<Workspace>,
     active_document: ActiveDocument,
-    rich_text_meta: RichTextDocumentMeta,
-    rich_text_synced_revision: u64,
-    rich_text_synced_text: String,
     ruby_editor: Option<RubyEditorState>,
     page_break_menu: Option<PageBreakMenuState>,
     active_modal: Option<AppModal>,
     error_notifications: Vec<ErrorNotification>,
     next_error_notification_id: u64,
+    auth_config: auth::AuthConfig,
+    auth_state: auth::AuthState,
+    account_control: Entity<auth::TitleBarAccountControl>,
     _workspace_subscription: Subscription,
     _editor_subscription: Subscription,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
-}
-
-#[derive(Clone, Debug)]
-enum AppModal {
-    Info {
-        title: String,
-        detail: String,
-    },
-    UpdateAvailable {
-        current_version: String,
-        latest_version: String,
-        release_page_url: String,
-    },
 }
 
 struct RubyEditorState {
@@ -86,6 +79,7 @@ struct RubyEditorState {
 struct PageBreakMenuState {
     request: PageBreakMenuRequest,
 }
+
 
 impl SoukouApp {
     fn open_external_url(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -144,6 +138,19 @@ impl SoukouApp {
         cx.notify();
     }
 
+    fn show_pro_required_modal(&mut self, feature: ProFeature, cx: &mut Context<Self>) {
+        self.active_modal = Some(AppModal::ProRequired { feature });
+        cx.notify();
+    }
+
+    fn set_auth_state(&mut self, auth_state: auth::AuthState, cx: &mut Context<Self>) {
+        self.auth_state = auth_state.clone();
+        self.account_control.update(cx, |account_control, cx| {
+            account_control.set_state(auth_state, cx);
+        });
+        cx.notify();
+    }
+
     pub(super) fn new(cx: &mut Context<Self>) -> Self {
         let loaded_key_bindings = keymap::load_key_bindings(cx);
         cx.bind_keys(loaded_key_bindings.key_bindings);
@@ -173,26 +180,49 @@ impl SoukouApp {
             cx.subscribe(&workspace, |this, _workspace, event, cx| match event {
                 WorkspaceEvent::OpenPath(path) => this.open_workspace_path(path.clone(), cx),
             });
-        let title_bar = cx.new(|cx| TitleBar::new(menu::APP_NAME, menu::title_bar_menus(), cx));
+        let account_actions = auth::TitleBarAccountActions::new(
+            |window, cx| {
+                window.dispatch_action(Box::new(RegisterAccount), cx);
+            },
+            |window, cx| {
+                window.dispatch_action(Box::new(RegisterAccount), cx);
+            },
+            |window, cx| {
+                window.dispatch_action(Box::new(SignOut), cx);
+            },
+        );
+        let account_control = cx.new(|_| {
+            auth::TitleBarAccountControl::new(auth::AuthState::Restoring, account_actions)
+        });
+        let title_bar = cx.new(|cx| {
+            TitleBar::new(
+                menu::APP_NAME,
+                menu::title_bar_menus(),
+                Some(account_control.clone()),
+                cx,
+            )
+        });
         let bottom_bar = cx.new(BottomBar::new);
 
-        Self {
+        let mut app = Self {
             editor_controller,
             workspace,
             active_document: ActiveDocument::default(),
-            rich_text_meta: RichTextDocumentMeta::default(),
-            rich_text_synced_revision: 0,
-            rich_text_synced_text: String::new(),
             ruby_editor: None,
             page_break_menu: None,
             active_modal: None,
             error_notifications,
             next_error_notification_id,
+            auth_config: auth::AuthConfig::from_env(),
+            auth_state: auth::AuthState::Restoring,
+            account_control,
             _workspace_subscription: workspace_subscription,
             _editor_subscription: editor_subscription,
             title_bar,
             bottom_bar,
-        }
+        };
+        app.restore_auth_session(cx);
+        app
     }
 
     fn dismiss_error_notification(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -248,11 +278,15 @@ impl SoukouApp {
         self.active_modal = None;
         cx.notify();
 
-        if let Some(AppModal::UpdateAvailable {
-            release_page_url, ..
-        }) = modal
-        {
-            self.open_external_url(release_page_url.as_str(), window, cx)
+        match modal {
+            Some(AppModal::UpdateAvailable {
+                release_page_url, ..
+            }) => self.open_external_url(release_page_url.as_str(), window, cx),
+            Some(AppModal::ProRequired { .. }) => {
+                let url = self.auth_config.registration_url();
+                self.open_external_url(url.as_str(), window, cx);
+            }
+            Some(AppModal::Info { .. }) | None => {}
         }
     }
 
@@ -263,6 +297,204 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         MenuActionHandler::open_file(self, window, cx);
+    }
+
+    fn register_account_action(
+        &mut self,
+        _: &RegisterAccount,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let url = match &self.auth_state {
+            auth::AuthState::Authenticated(_) => self.auth_config.account_url(),
+            auth::AuthState::Anonymous | auth::AuthState::Restoring => {
+                self.auth_config.registration_url()
+            }
+        };
+        self.open_external_url(url.as_str(), window, cx);
+    }
+
+    fn sign_out_action(&mut self, _: &SignOut, _window: &mut Window, cx: &mut Context<Self>) {
+        let credentials_key = self.auth_config.credentials_key().to_string();
+        self.set_auth_state(auth::AuthState::Anonymous, cx);
+
+        cx.spawn(async move |this, cx| {
+            let delete_result = auth::delete_refresh_token(credentials_key, cx).await;
+
+            if let Err(error) = this.update(cx, |this, cx| match delete_result {
+                Ok(()) => {
+                    this.show_info_modal(
+                        "サインアウトしました",
+                        "保存済みのログイン情報を削除しました。".to_string(),
+                        cx,
+                    );
+                }
+                Err(error) => {
+                    this.show_error_modal("サインアウトできませんでした", error, cx);
+                }
+            }) {
+                eprintln!("failed to show sign out result: {error}");
+            }
+        })
+        .detach();
+    }
+
+    fn restore_auth_session(&mut self, cx: &mut Context<Self>) {
+        let auth_config = self.auth_config.clone();
+        let credentials_key = self.auth_config.credentials_key().to_string();
+
+        cx.spawn(async move |this, cx| {
+            let stored_refresh_token = auth::read_refresh_token(credentials_key.clone(), cx).await;
+            let refresh_token = match stored_refresh_token {
+                Ok(Some(refresh_token)) => refresh_token,
+                Ok(None) => {
+                    if let Err(error) = this.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                    }) {
+                        eprintln!("failed to clear auth state: {error}");
+                    }
+                    return;
+                }
+                Err(error) => {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                        this.show_error_modal("ログイン情報を読み込めませんでした", error, cx);
+                    }) {
+                        eprintln!("failed to show auth restore error: {update_error}");
+                    }
+                    return;
+                }
+            };
+
+            let restored_session = cx
+                .background_spawn(async move {
+                    auth::restore_session(&auth_config, refresh_token.as_str())
+                })
+                .await;
+
+            match restored_session {
+                Ok(session) => {
+                    if let Err(error) = auth::write_refresh_token(
+                        credentials_key.clone(),
+                        session.refresh_token.clone(),
+                        cx,
+                    )
+                    .await
+                    {
+                        eprintln!("failed to save refreshed auth token: {error}");
+                    }
+                    if let Err(error) = this.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                    }) {
+                        eprintln!("failed to restore auth state: {error}");
+                    }
+                }
+                Err(error) => {
+                    if let Err(delete_error) =
+                        auth::delete_refresh_token(credentials_key.clone(), cx).await
+                    {
+                        eprintln!("failed to delete invalid auth token: {delete_error}");
+                    }
+                    if let Err(update_error) = this.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Anonymous, cx);
+                        this.show_error_modal("ログイン情報を更新できませんでした", error, cx);
+                    }) {
+                        eprintln!("failed to show auth restore failure: {update_error}");
+                    }
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(crate) fn handle_open_urls(&mut self, urls: Vec<String>, cx: &mut Context<Self>) {
+        let credentials_key = self.auth_config.credentials_key().to_string();
+
+        for url in urls {
+            let callback =
+                match auth::parse_callback(url.as_str(), self.auth_config.callback_scheme()) {
+                    Ok(Some(callback)) => callback,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        self.show_error_modal("ログイン情報を処理できませんでした", error, cx);
+                        continue;
+                    }
+                };
+
+            self.apply_auth_callback(callback, credentials_key.clone(), cx);
+        }
+    }
+
+    fn apply_auth_callback(
+        &mut self,
+        callback: auth::AuthCallback,
+        credentials_key: String,
+        cx: &mut Context<Self>,
+    ) {
+        match callback {
+            auth::AuthCallback::SignedOut => {
+                self.set_auth_state(auth::AuthState::Anonymous, cx);
+                cx.spawn(async move |_, cx| {
+                    if let Err(error) = auth::delete_refresh_token(credentials_key, cx).await {
+                        eprintln!("failed to delete auth token after sign out callback: {error}");
+                    }
+                })
+                .detach();
+            }
+            auth::AuthCallback::SignedIn { refresh_token } => {
+                let auth_config = self.auth_config.clone();
+                self.set_auth_state(auth::AuthState::Restoring, cx);
+
+                cx.spawn(async move |this, cx| {
+                    let restored_session = cx
+                        .background_spawn(async move {
+                            auth::restore_session(&auth_config, refresh_token.as_str())
+                        })
+                        .await;
+
+                    match restored_session {
+                        Ok(session) => {
+                            if let Err(error) = auth::write_refresh_token(
+                                credentials_key.clone(),
+                                session.refresh_token.clone(),
+                                cx,
+                            )
+                            .await
+                                && let Err(update_error) = this.update(cx, |this, cx| {
+                                    this.show_error_modal(
+                                        "認証情報を保存できませんでした",
+                                        error,
+                                        cx,
+                                    );
+                                })
+                            {
+                                eprintln!("failed to show auth save error: {update_error}");
+                            }
+
+                            if let Err(error) = this.update(cx, |this, cx| {
+                                this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                            }) {
+                                eprintln!("failed to apply auth callback: {error}");
+                            }
+                        }
+                        Err(error) => {
+                            if let Err(delete_error) =
+                                auth::delete_refresh_token(credentials_key.clone(), cx).await
+                            {
+                                eprintln!("failed to delete failed auth token: {delete_error}");
+                            }
+                            if let Err(update_error) = this.update(cx, |this, cx| {
+                                this.set_auth_state(auth::AuthState::Anonymous, cx);
+                                this.show_error_modal("ログインに失敗しました", error, cx);
+                            }) {
+                                eprintln!("failed to show auth callback failure: {update_error}");
+                            }
+                        }
+                    }
+                })
+                .detach();
+            }
+        }
     }
 
     fn toggle_workspace_pane_action(
@@ -294,6 +526,33 @@ impl SoukouApp {
         cx.quit();
     }
 
+    fn editor_rich_text_bold_action(
+        &mut self,
+        _: &EditorApplyRichTextBold,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Bold, cx);
+    }
+
+    fn editor_rich_text_emphasis_action(
+        &mut self,
+        _: &EditorApplyRichTextEmphasis,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Emphasis, cx);
+    }
+
+    fn editor_rich_text_heading_action(
+        &mut self,
+        _: &EditorApplyRichTextHeading,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Heading { level: 1 }, cx);
+    }
+
     fn drop_external_paths(
         &mut self,
         paths: &ExternalPaths,
@@ -305,6 +564,41 @@ impl SoukouApp {
 
     fn current_document_kind(&self, _cx: &App) -> DocumentKind {
         DocumentKind::PlainText
+    }
+
+    fn pro_features_available(&self) -> bool {
+        match &self.auth_state {
+            auth::AuthState::Authenticated(session) => {
+                session.user.plan.plan_key.supports_pro_features()
+            }
+            auth::AuthState::Anonymous | auth::AuthState::Restoring => false,
+        }
+    }
+
+    fn require_pro_feature(
+        &mut self,
+        feature: ProFeature,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.pro_features_available() {
+            return true;
+        }
+
+        self.show_pro_required_modal(feature, cx);
+        false
+    }
+
+    fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize> {
+        self.editor_controller.read(cx).selected_byte_range(cx)
+    }
+
+    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.apply_rich_text_kind(kind, cx);
+        });
+        self.save_rich_text_meta(cx);
+        cx.notify();
     }
 
     fn workspace_pane_visible(&self, cx: &App) -> bool {
@@ -320,12 +614,9 @@ impl SoukouApp {
     ) {
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.load_plain_text(text, cx);
-            editor_controller.set_rich_text_meta(rich_text_meta.clone(), cx);
+            editor_controller.set_rich_text_meta(rich_text_meta, cx);
         });
         self.active_document.set_path(path);
-        self.rich_text_meta = rich_text_meta;
-        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
-        self.rich_text_synced_text = text.to_string();
         self.ruby_editor = None;
         self.page_break_menu = None;
     }
@@ -380,11 +671,12 @@ impl SoukouApp {
         _window_handle: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
-        let rich_text_meta = self.rich_text_meta.clone();
+        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
+        let save_rich_text_meta = self.pro_features_available();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    write_plain_document_assets(path, contents, rich_text_meta)
+                    write_plain_document_assets(path, contents, rich_text_meta, save_rich_text_meta)
                 })
                 .await;
 
@@ -556,6 +848,32 @@ impl MenuActionHandler for SoukouApp {
         self.open_menu_path(path, cx);
     }
 
+    fn export_epub_action(
+        &mut self,
+        _: &menu::ExportEpub,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.require_pro_feature(ProFeature::ExportEpub, window, cx) {
+            return;
+        }
+
+        self.export_epub(window, cx);
+    }
+
+    fn export_word_action(
+        &mut self,
+        _: &menu::ExportWord,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.require_pro_feature(ProFeature::ExportWord, window, cx) {
+            return;
+        }
+
+        self.export_word(window, cx);
+    }
+
     fn export_base_name(&self, _cx: &App) -> String {
         self.active_document
             .path()
@@ -579,24 +897,6 @@ impl MenuActionHandler for SoukouApp {
         }
     }
 
-    fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize> {
-        self.editor_controller.read(cx).selected_byte_range(cx)
-    }
-
-    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
-        let range = self.editor_controller.read(cx).selected_byte_range(cx);
-        self.rich_text_meta.toggle_mark(range, kind);
-        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
-        self.rich_text_synced_text = self.snapshot_text(cx);
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
-        });
-
-        self.save_rich_text_meta(cx);
-
-        cx.notify();
-    }
-
     fn export_epub_path_from_menu(
         &mut self,
         path: PathBuf,
@@ -604,7 +904,7 @@ impl MenuActionHandler for SoukouApp {
         cx: &mut Context<Self>,
     ) {
         let title = self.export_base_name(cx);
-        let rich_text_meta = self.rich_text_meta.clone();
+        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -623,6 +923,31 @@ impl MenuActionHandler for SoukouApp {
                 })
             {
                 eprintln!("failed to show epub export error: {update_error}");
+            }
+        })
+        .detach();
+    }
+
+    fn export_word_path_from_menu(
+        &mut self,
+        path: PathBuf,
+        contents: String,
+        cx: &mut Context<Self>,
+    ) {
+        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    rich_text::export_word(&path, contents.as_str(), &rich_text_meta)
+                })
+                .await;
+
+            if let Err(error) = result
+                && let Err(update_error) = this.update(cx, |this, cx| {
+                    this.show_error_modal("Wordを書き出せませんでした", error.to_string(), cx);
+                })
+            {
+                eprintln!("failed to show word export error: {update_error}");
             }
         })
         .detach();
@@ -691,7 +1016,6 @@ impl MenuActionHandler for SoukouApp {
 
 impl Render for SoukouApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_rich_text_meta_after_editor_edits(cx);
         title_bar::sync_client_window_inset(window);
         self.sync_window_title(window, cx);
         let title_bar_height = title_bar::platform_title_bar_height(window);
@@ -741,17 +1065,25 @@ impl Render for SoukouApp {
                     .on_drop(cx.listener(Self::drop_external_paths))
                     .on_action(cx.listener(Self::open_file_action))
                     .on_action(cx.listener(Self::open_workspace_action))
+                    .on_action(cx.listener(Self::register_account_action))
+                    .on_action(cx.listener(Self::sign_out_action))
                     .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .on_action(cx.listener(Self::dismiss_active_modal_action))
                     .on_action(cx.listener(Self::dismiss_error_notification_action))
                     .on_action(cx.listener(Self::open_modal_primary_action))
                     .on_action(cx.listener(Self::save_file_action))
                     .on_action(cx.listener(Self::export_txt_action))
+                    .on_action(cx.listener(Self::export_word_action))
                     .on_action(cx.listener(Self::export_epub_action))
-                    .on_action(cx.listener(Self::rich_text_bold_action))
-                    .on_action(cx.listener(Self::rich_text_emphasis_action))
-                    .on_action(cx.listener(Self::rich_text_heading_action))
+                    .on_action(cx.listener(Self::editor_rich_text_bold_action))
+                    .on_action(cx.listener(Self::editor_rich_text_emphasis_action))
+                    .on_action(cx.listener(Self::editor_rich_text_heading_action))
                     .on_action(cx.listener(Self::cancel_ruby_editor_action))
+                    .on_action(cx.listener(Self::apply_ruby_editor_action))
+                    .on_action(cx.listener(Self::cancel_ruby_edit_action))
+                    .on_action(cx.listener(Self::set_page_break_right_of_column_action))
+                    .on_action(cx.listener(Self::set_page_break_left_of_column_action))
+                    .on_action(cx.listener(Self::remove_page_break_column_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
@@ -790,13 +1122,12 @@ impl Render for SoukouApp {
                         this.child(RichTextToolbar::new(bounds))
                     })
                     .when_some(self.page_break_menu.clone(), |this, page_break_menu| {
-                        this.child(PageBreakMenu::new(page_break_menu.request, cx.entity()))
+                        this.child(PageBreakMenu::new(page_break_menu.request))
                     })
                     .when_some(self.ruby_editor.as_ref(), |this, ruby_editor| {
                         this.child(RubyEditorPopover::new(
                             ruby_editor.request.bounds,
                             ruby_editor.input.clone(),
-                            cx.entity(),
                         ))
                     })
                     .child(
@@ -846,15 +1177,34 @@ impl SoukouApp {
         self.set_page_break_column(column.saturating_sub(1), cx);
     }
 
+    fn set_page_break_right_of_column_action(
+        &mut self,
+        action: &SetPageBreakRightOfColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_page_break_right_of_column(action.column, cx);
+    }
+
     fn set_page_break_left_of_column(&mut self, column: usize, cx: &mut Context<Self>) {
         self.set_page_break_column(column, cx);
     }
 
+    fn set_page_break_left_of_column_action(
+        &mut self,
+        action: &SetPageBreakLeftOfColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_page_break_left_of_column(action.column, cx);
+    }
+
     fn set_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
         let offset = self.byte_offset_for_column(column, cx);
-        self.rich_text_meta.set_page_break_column(column, offset);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.set_page_break_column(column, offset, cx);
+        });
         self.page_break_menu = None;
-        self.sync_rich_text_meta_to_editor(cx);
         self.save_rich_text_meta(cx);
         cx.notify();
     }
@@ -866,34 +1216,36 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         let offset = self.byte_offset_for_column(to_column, cx);
-        self.rich_text_meta
-            .move_page_break_column(from_column, to_column, offset);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.move_page_break_column(from_column, to_column, offset, cx);
+        });
         self.page_break_menu = None;
-        self.sync_rich_text_meta_to_editor(cx);
         self.save_rich_text_meta(cx);
         cx.notify();
     }
 
     fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
-        self.rich_text_meta.remove_page_break_column(column);
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.remove_page_break_column(column, cx);
+        });
         self.page_break_menu = None;
-        self.sync_rich_text_meta_to_editor(cx);
         self.save_rich_text_meta(cx);
         cx.notify();
+    }
+
+    fn remove_page_break_column_action(
+        &mut self,
+        action: &RemovePageBreakColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remove_page_break_column(action.column, cx);
     }
 
     fn byte_offset_for_column(&self, column: usize, cx: &App) -> usize {
         let editor_controller = self.editor_controller.read(cx);
         let rows_per_column = editor_controller.rows_per_column(cx).max(1);
         editor_controller.byte_offset_for_display_cell(column * rows_per_column, cx)
-    }
-
-    fn sync_rich_text_meta_to_editor(&mut self, cx: &mut Context<Self>) {
-        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
-        self.rich_text_synced_text = self.snapshot_text(cx);
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
-        });
     }
 
     fn open_ruby_editor(&mut self, request: RubyEditRequest, cx: &mut Context<Self>) {
@@ -917,20 +1269,34 @@ impl SoukouApp {
             return;
         };
         let ruby_text = ruby_editor.input.read(cx).text();
-        self.rich_text_meta
-            .set_ruby(ruby_editor.request.range, ruby_text);
-        self.rich_text_synced_revision = self.editor_controller.read(cx).draft_revision(cx);
-        self.rich_text_synced_text = self.snapshot_text(cx);
         self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
+            editor_controller.set_ruby(ruby_editor.request.range, ruby_text, cx);
         });
         self.save_rich_text_meta(cx);
         cx.notify();
     }
 
+    fn apply_ruby_editor_action(
+        &mut self,
+        _: &ApplyRubyEdit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_ruby_editor(cx);
+    }
+
     fn cancel_ruby_editor(&mut self, cx: &mut Context<Self>) {
         self.ruby_editor = None;
         cx.notify();
+    }
+
+    fn cancel_ruby_edit_action(
+        &mut self,
+        _: &CancelRubyEdit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.cancel_ruby_editor(cx);
     }
 
     fn cancel_ruby_editor_action(
@@ -943,550 +1309,20 @@ impl SoukouApp {
     }
 
     fn save_rich_text_meta(&self, cx: &mut Context<Self>) {
+        if !self.pro_features_available() {
+            return;
+        }
+
         let Some(path) = self.active_document.path().map(Path::to_path_buf) else {
             return;
         };
-        let rich_text_meta = self.rich_text_meta.clone();
+        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         cx.background_spawn(async move {
             if let Err(error) = rich_text::save_meta_for_text_path(&path, &rich_text_meta) {
                 eprintln!("failed to save rich text metadata: {error}");
             }
         })
         .detach();
-    }
-
-    fn sync_rich_text_meta_after_editor_edits(&mut self, cx: &mut Context<Self>) {
-        let (current_revision, current_text, edit_batch) = {
-            let editor_controller = self.editor_controller.read(cx);
-            (
-                editor_controller.draft_revision(cx),
-                editor_controller.snapshot_text(cx),
-                editor_controller.last_applied_edit_batch(cx),
-            )
-        };
-        if current_revision <= self.rich_text_synced_revision {
-            return;
-        }
-
-        if current_text == self.rich_text_synced_text {
-            self.rich_text_synced_revision = current_revision;
-            return;
-        }
-
-        let rich_text_edits = edit_batch
-            .filter(|edit_batch| edit_batch.revision() == current_revision)
-            .map(|edit_batch| {
-                edit_batch
-                    .edits()
-                    .iter()
-                    .map(|edit| {
-                        RichTextEdit::new(
-                            edit.start(),
-                            edit.removed_text().to_string(),
-                            edit.inserted_text().to_string(),
-                            edit.affects_rich_text(),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        rich_text::sync_meta_after_text_change(
-            &mut self.rich_text_meta,
-            self.rich_text_synced_text.as_str(),
-            current_text.as_str(),
-            rich_text_edits.as_slice(),
-        );
-        self.rich_text_synced_revision = current_revision;
-        self.rich_text_synced_text = current_text;
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(self.rich_text_meta.clone(), cx);
-        });
-    }
-}
-
-#[derive(IntoElement)]
-struct PageBreakMenu {
-    request: PageBreakMenuRequest,
-    app: Entity<SoukouApp>,
-}
-
-impl PageBreakMenu {
-    fn new(request: PageBreakMenuRequest, app: Entity<SoukouApp>) -> Self {
-        Self { request, app }
-    }
-}
-
-impl RenderOnce for PageBreakMenu {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let column_for_right = self.request.column;
-        let column_for_left = self.request.column;
-        let column_for_remove = self.request.column;
-        let app_for_right = self.app.clone();
-        let app_for_left = self.app.clone();
-        let app_for_remove = self.app;
-        let left = (self.request.bounds.right() + px(6.0)).max(px(8.0));
-        let top = self.request.bounds.top().max(px(8.0));
-
-        div()
-            .absolute()
-            .left(left)
-            .top(top)
-            .flex()
-            .flex_col()
-            .bg(Theme::global(cx).white())
-            .border_1()
-            .border_color(toolbar_border_color(cx))
-            .rounded_md()
-            .shadow(vec![BoxShadow {
-                color: Hsla {
-                    h: 0.0,
-                    s: 0.0,
-                    l: 0.0,
-                    a: 0.16,
-                },
-                offset: point(px(0.0), px(8.0)),
-                blur_radius: px(18.0),
-                spread_radius: px(0.0),
-            }])
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .when(self.request.kind == PageBreakMenuKind::Set, |this| {
-                this.child(page_break_menu_item(
-                    "右側に改ページ",
-                    cx,
-                    move |cx| {
-                        app_for_right.update(cx, |app, cx| {
-                            app.set_page_break_right_of_column(column_for_right, cx);
-                        });
-                    },
-                ))
-                .child(page_break_menu_item(
-                    "左側に改ページ",
-                    cx,
-                    move |cx| {
-                        app_for_left.update(cx, |app, cx| {
-                            app.set_page_break_left_of_column(column_for_left, cx);
-                        });
-                    },
-                ))
-            })
-            .when(self.request.kind == PageBreakMenuKind::Remove, |this| {
-                this.child(page_break_menu_item(
-                    "改ページを削除",
-                    cx,
-                    move |cx| {
-                        app_for_remove.update(cx, |app, cx| {
-                            app.remove_page_break_column(column_for_remove, cx);
-                        });
-                    },
-                ))
-            })
-    }
-}
-
-fn page_break_menu_item(
-    label: &'static str,
-    cx: &mut App,
-    on_click: impl Fn(&mut App) + Clone + 'static,
-) -> impl IntoElement {
-    let on_click = on_click.clone();
-    div()
-        .px_3()
-        .py_2()
-        .text_size(px(12.0))
-        .text_color(Theme::global(cx).text_primary())
-        .cursor_pointer()
-        .hover(|style| style.bg(white()))
-        .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
-            on_click(cx);
-            cx.stop_propagation();
-        })
-        .child(label)
-}
-
-#[derive(IntoElement)]
-struct RubyEditorPopover {
-    bounds: gpui::Bounds<Pixels>,
-    input: Entity<TextInput>,
-    app: Entity<SoukouApp>,
-}
-
-impl RubyEditorPopover {
-    fn new(bounds: gpui::Bounds<Pixels>, input: Entity<TextInput>, app: Entity<SoukouApp>) -> Self {
-        Self { bounds, input, app }
-    }
-}
-
-impl RenderOnce for RubyEditorPopover {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let input = self.input;
-        let focus_handle = input.focus_handle(cx);
-        window.focus(&focus_handle, cx);
-
-        let app_for_apply = self.app.clone();
-        let app_for_cancel = self.app;
-        let left = (self.bounds.right() + px(4.0)).max(px(8.0));
-        let top = (self.bounds.top() - px(4.0)).max(px(8.0));
-
-        div()
-            .absolute()
-            .left(left)
-            .top(top)
-            .w(px(78.0))
-            .h(px(190.0))
-            .p_2()
-            .flex()
-            .flex_row()
-            .gap_2()
-            .bg(Theme::global(cx).white())
-            .border_1()
-            .border_color(toolbar_border_color(cx))
-            .rounded_md()
-            .shadow(vec![BoxShadow {
-                color: Hsla {
-                    h: 0.0,
-                    s: 0.0,
-                    l: 0.0,
-                    a: 0.18,
-                },
-                offset: point(px(0.0), px(8.0)),
-                blur_radius: px(20.0),
-                spread_radius: px(0.0),
-            }])
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .child(input)
-            .child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(ruby_editor_button(
-                        icons::CHECK,
-                        0,
-                        "適用",
-                        None,
-                        cx,
-                        move |cx| {
-                            app_for_apply.update(cx, |app, cx| app.apply_ruby_editor(cx));
-                        },
-                    ))
-                    .child(ruby_editor_button(
-                        icons::X,
-                        1,
-                        "取り消し",
-                        Some("Esc"),
-                        cx,
-                        move |cx| {
-                            app_for_cancel.update(cx, |app, cx| app.cancel_ruby_editor(cx));
-                        },
-                    )),
-            )
-    }
-}
-
-fn ruby_editor_button(
-    icon_path: &'static str,
-    id_index: usize,
-    tooltip_title: &'static str,
-    shortcut: Option<&'static str>,
-    cx: &mut App,
-    on_click: impl Fn(&mut App) + Clone + 'static,
-) -> impl IntoElement {
-    let on_click = on_click.clone();
-    div()
-        .id(("ruby-editor-button", id_index))
-        .w(px(24.0))
-        .h(px(24.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_sm()
-        .text_color(Theme::global(cx).text_primary())
-        .bg(Theme::global(cx).bg_senodary())
-        .cursor_pointer()
-        .hover(|style| style.bg(white()))
-        .tooltip(Tooltip::new(
-            tooltip_title,
-            shortcut.map(gpui::SharedString::from),
-        ))
-        .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
-            on_click(cx);
-        })
-        .child(
-            svg()
-                .external_path(icon_path)
-                .size_4()
-                .text_color(Theme::global(cx).text_primary()),
-        )
-}
-
-#[derive(IntoElement)]
-struct RichTextToolbar {
-    selection_bounds: gpui::Bounds<Pixels>,
-}
-
-impl RichTextToolbar {
-    fn new(selection_bounds: gpui::Bounds<Pixels>) -> Self {
-        Self { selection_bounds }
-    }
-}
-
-impl RenderOnce for RichTextToolbar {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let x = (self.selection_bounds.right() + px(1.0)).max(px(1.0));
-        let y = (self.selection_bounds.top() - px(10.0)).max(px(8.0));
-        let border = toolbar_border_color(cx);
-
-        div()
-            .absolute()
-            .left(x)
-            .top(y)
-            .flex()
-            .flex_col()
-            .items_center()
-            .bg(Theme::global(cx).white())
-            .border_1()
-            .border_color(border)
-            .rounded_md()
-            .shadow(vec![BoxShadow {
-                color: Hsla {
-                    h: 0.0,
-                    s: 0.0,
-                    l: 0.0,
-                    a: 0.2,
-                },
-                offset: point(px(0.0), px(8.0)),
-                blur_radius: px(22.0),
-                spread_radius: px(0.0),
-            }])
-            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                cx.stop_propagation();
-            })
-            .child(toolbar_button("B", 0, "太字", RichTextBold, cx))
-            .child(toolbar_button("•", 1, "傍点", RichTextEmphasis, cx))
-            .child(toolbar_button("見", 2, "見出し", RichTextHeading, cx))
-    }
-}
-
-fn toolbar_button<Action>(
-    label: &'static str,
-    id_index: usize,
-    tooltip_title: &'static str,
-    action: Action,
-    cx: &mut App,
-) -> impl IntoElement
-where
-    Action: gpui::Action + Clone + 'static,
-{
-    let tooltip_action = action.clone();
-    div()
-        .id(("rich-text-toolbar-button", id_index))
-        .w(px(38.0))
-        .h(px(34.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(14.0))
-        .font_weight(FontWeight::BOLD)
-        .text_color(Theme::global(cx).black())
-        .border_b_1()
-        .border_color(toolbar_border_color(cx))
-        .cursor_pointer()
-        .hover(|style| style.bg(white()))
-        .tooltip(Tooltip::for_action(tooltip_title, tooltip_action))
-        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
-            window.dispatch_action(Box::new(action.clone()), cx);
-        })
-        .child(label)
-}
-
-#[derive(IntoElement)]
-struct ActiveModal {
-    icon_path: &'static str,
-    title: String,
-    subtitle: String,
-    detail: String,
-    secondary_label: Option<String>,
-    primary_label: Option<String>,
-}
-
-impl ActiveModal {
-    fn from_modal(modal: AppModal) -> Self {
-        let (icon_path, title, subtitle, detail, secondary_label, primary_label) = match modal {
-            AppModal::Info { title, detail } => (
-                icons::MODAL_INFO,
-                title,
-                String::new(),
-                detail,
-                None,
-                Some("閉じる".to_string()),
-            ),
-            AppModal::UpdateAvailable {
-                current_version,
-                latest_version,
-                ..
-            } => (
-                icons::MODAL_UPDATE,
-                UPDATE_AVAILABLE_TITLE.to_string(),
-                "ダウンロードページを開いて更新できます。".to_string(),
-                format!(
-                    "現在のバージョンは {current_version}、最新バージョンは {latest_version} です。"
-                ),
-                Some("あとで".to_string()),
-                Some("ダウンロード".to_string()),
-            ),
-        };
-
-        Self {
-            icon_path,
-            title,
-            subtitle,
-            detail,
-            secondary_label,
-            primary_label,
-        }
-    }
-}
-
-impl RenderOnce for ActiveModal {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let accent = mix(Theme::global(cx).primary(), Theme::global(cx).white(), 0.84);
-
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .right_0()
-            .bottom_0()
-            .bg(Hsla {
-                h: 0.61,
-                s: 0.32,
-                l: 0.08,
-                a: 0.58,
-            })
-            .flex()
-            .items_center()
-            .justify_center()
-            .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
-                window.dispatch_action(Box::new(DismissActiveModal), cx);
-            })
-            .child(
-                div()
-                    .w(px(420.0))
-                    .p_6()
-                    .flex()
-                    .flex_col()
-                    .gap_5()
-                    .bg(Theme::global(cx).white())
-                    .border_1()
-                    .border_color(toolbar_border_color(cx))
-                    .rounded_lg()
-                    .shadow(vec![BoxShadow {
-                        color: Hsla {
-                            h: 0.0,
-                            s: 0.0,
-                            l: 0.0,
-                            a: 0.18,
-                        },
-                        offset: point(px(0.0), px(18.0)),
-                        blur_radius: px(42.0),
-                        spread_radius: px(0.0),
-                    }])
-                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                        cx.stop_propagation();
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .child(
-                                div()
-                                    .w(px(46.0))
-                                    .h(px(46.0))
-                                    .rounded_full()
-                                    .bg(accent)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .child(
-                                        svg()
-                                            .external_path(self.icon_path)
-                                            .size_6()
-                                            .text_color(Theme::global(cx).primary()),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_size(px(24.0))
-                                            .font_weight(FontWeight::BOLD)
-                                            .child(self.title),
-                                    )
-                                    .when(!self.subtitle.is_empty(), |this| {
-                                        this.child(
-                                            div()
-                                                .text_color(Theme::global(cx).text_senodary())
-                                                .child(self.subtitle),
-                                        )
-                                    })
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(Theme::global(cx).text_senodary())
-                                            .child(self.detail),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_end()
-                            .gap_2()
-                            .when_some(self.secondary_label, |this, label| {
-                                this.child(
-                                    div()
-                                        .px_4()
-                                        .py_2()
-                                        .rounded_sm()
-                                        .border_1()
-                                        .border_color(toolbar_border_color(cx))
-                                        .cursor_pointer()
-                                        .hover(|style| style.bg(gpui::rgb(0xf4f5f6)))
-                                        .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
-                                            window
-                                                .dispatch_action(Box::new(DismissActiveModal), cx);
-                                        })
-                                        .child(label),
-                                )
-                            })
-                            .when_some(self.primary_label, |this, label| {
-                                this.child(
-                                    div()
-                                        .px_4()
-                                        .py_2()
-                                        .rounded_sm()
-                                        .bg(Theme::global(cx).primary())
-                                        .text_color(Theme::global(cx).white())
-                                        .cursor_pointer()
-                                        .hover(|style| style.opacity(0.92))
-                                        .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
-                                            window.dispatch_action(Box::new(OpenModalPrimary), cx);
-                                        })
-                                        .child(label),
-                                )
-                            }),
-                    ),
-            )
     }
 }
 
@@ -1532,7 +1368,7 @@ pub(crate) fn toolbar_border_color(cx: &App) -> gpui::Hsla {
     mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.72).into()
 }
 
-fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {
+pub(super) fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {
     let ratio = ratio.clamp(0.0, 1.0);
     let inv = 1.0 - ratio;
     gpui::Rgba {
@@ -1567,12 +1403,13 @@ fn write_plain_document_assets(
     path: PathBuf,
     contents: String,
     rich_text_meta: RichTextDocumentMeta,
+    save_rich_text_meta: bool,
 ) -> Result<PathBuf, DocumentError> {
     std::fs::write(&path, contents.as_bytes()).map_err(|source| DocumentError::SaveFailed {
         path: path.clone(),
         source,
     })?;
-    if !rich_text_meta.is_empty() {
+    if save_rich_text_meta && !rich_text_meta.is_empty() {
         rich_text::save_meta_for_text_path(path.as_path(), &rich_text_meta).map_err(|source| {
             DocumentError::MetadataSaveFailed {
                 path: path.clone(),

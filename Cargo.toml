@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   ".",
+  "crates/auth",
   "crates/bottom_bar",
   "crates/document",
   "crates/editor",
@@ -27,6 +28,7 @@ publish = false
 [workspace.dependencies]
 crc32fast = "1"
 dotenvy = "0.15"
+futures = "0.3"
 gpui = { package = "gpui", git = "https://github.com/monjara/zed", branch = "vertical-text-feature" }
 gpui_platform = { package = "gpui_platform", git = "https://github.com/monjara/zed", branch = "vertical-text-feature", features = [
   "font-kit",
@@ -38,9 +40,11 @@ semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 unicode-segmentation = "1.13.2"
+url = "2"
 xdg = "3.0.0"
 xmlwriter = "0.1"
 
+auth = { path = "crates/auth" }
 bottom_bar = { path = "crates/bottom_bar" }
 document = { path = "crates/document" }
 editor = { path = "crates/editor" }

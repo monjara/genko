@@ -3,9 +3,10 @@ mod font;
 mod notification;
 
 use app::SoukouApp;
+use futures::StreamExt;
 use gpui::{
-    App, AppContext, Bounds, Focusable, WindowBounds, WindowDecorations, WindowOptions, actions,
-    px, size,
+    App, AppContext, AsyncApp, Bounds, Focusable, WindowBounds, WindowDecorations, WindowOptions,
+    actions, px, size,
 };
 use menu::{OpenSettings, Quit};
 use settings::open_settings_window;
@@ -25,6 +26,12 @@ fn main() {
     }
 
     let application = gpui_platform::application();
+    let (open_url_sender, open_url_receiver) = futures::channel::mpsc::unbounded::<Vec<String>>();
+    application.on_open_urls(move |urls| {
+        if let Err(error) = open_url_sender.unbounded_send(urls) {
+            eprintln!("failed to receive auth callback url: {error}");
+        }
+    });
 
     application.run(move |cx: &mut App| {
         font::init(cx);
@@ -62,5 +69,33 @@ fn main() {
                 cx.activate(true);
             })
             .expect("Failed to focus main window");
+
+        let callback_prefix = format!("{}://", auth::AuthConfig::from_env().callback_scheme());
+        let startup_urls = std::env::args()
+            .skip(1)
+            .filter(|argument| argument.starts_with(callback_prefix.as_str()))
+            .collect::<Vec<_>>();
+        if !startup_urls.is_empty()
+            && let Err(error) = main_window.update(cx, |this, _, cx| {
+                this.handle_open_urls(startup_urls, cx);
+            })
+        {
+            eprintln!("failed to handle startup auth callback url: {error}");
+        }
+
+        let mut open_url_receiver = open_url_receiver;
+        cx.spawn(move |cx: &mut AsyncApp| {
+            let mut app = cx.clone();
+            async move {
+                while let Some(urls) = open_url_receiver.next().await {
+                    if let Err(error) = main_window.update(&mut app, |this, _, cx| {
+                        this.handle_open_urls(urls, cx);
+                    }) {
+                        eprintln!("failed to handle auth callback url: {error}");
+                    }
+                }
+            }
+        })
+        .detach();
     })
 }

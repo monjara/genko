@@ -6,7 +6,6 @@ use std::{
 
 pub mod document_io;
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DocumentKind {
     PlainText,

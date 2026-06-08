@@ -13,6 +13,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SOUKOU_AUTH_CALLBACK_SCHEME: soukou
+  SOUKOU_SITE_URL: https://soukou.dev
+  SOUKOU_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SOUKOU_SUPABASE_PUBLISHABLE_KEY }}
+  SOUKOU_SUPABASE_URL: ${{ secrets.SOUKOU_SUPABASE_URL }}
 
 concurrency:
   group: release-macos-${{ github.workflow }}-${{ github.ref }}
@@ -73,8 +77,8 @@ jobs:
         if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
         uses: softprops/action-gh-release@v2
         with:
-          repository: monjara/genko
-          token: ${{ github.token }}
+          repository: monjara/Soukou.app
+          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           tag_name: ${{ github.ref_name }}
           target_commitish: main
           files: target/${{ matrix.target }}/release/soukou-*.dmg

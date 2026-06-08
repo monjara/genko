@@ -13,7 +13,7 @@ use gpui::{
     App, Bounds, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable, IntoElement,
     Pixels, Render, Size, UTF16Selection, Window, actions, px,
 };
-use rich_text::RichTextDocumentMeta;
+use rich_text::{RichTextDocumentMeta, RichTextEdit, RichTextKind};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
@@ -23,6 +23,7 @@ use crate::editor::layout::{
     rows_per_column_for_window_height, visible_columns_for_window_width,
 };
 use crate::editor_canvas::GridPathCache;
+use crate::search::{SearchState, find_matches, nearest_match_index};
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const DEFAULT_CELL_SIZE: f32 = 32.0;
@@ -108,7 +109,7 @@ pub(crate) struct BlockSelection {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EditOperation {
+pub(crate) struct EditOperation {
     pub(crate) start: usize,
     pub(crate) removed_text: String,
     pub(crate) inserted_text: String,
@@ -116,19 +117,19 @@ pub struct EditOperation {
 }
 
 impl EditOperation {
-    pub fn start(&self) -> usize {
+    pub(crate) fn start(&self) -> usize {
         self.start
     }
 
-    pub fn removed_text(&self) -> &str {
+    pub(crate) fn removed_text(&self) -> &str {
         self.removed_text.as_str()
     }
 
-    pub fn inserted_text(&self) -> &str {
+    pub(crate) fn inserted_text(&self) -> &str {
         self.inserted_text.as_str()
     }
 
-    pub fn affects_rich_text(&self) -> bool {
+    pub(crate) fn affects_rich_text(&self) -> bool {
         self.affects_rich_text
     }
 }
@@ -147,17 +148,17 @@ pub(crate) struct PendingTransaction {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AppliedEditBatch {
+pub(crate) struct AppliedEditBatch {
     revision: u64,
     edits: Vec<EditOperation>,
 }
 
 impl AppliedEditBatch {
-    pub fn revision(&self) -> u64 {
+    pub(crate) fn revision(&self) -> u64 {
         self.revision
     }
 
-    pub fn edits(&self) -> &[EditOperation] {
+    pub(crate) fn edits(&self) -> &[EditOperation] {
         &self.edits
     }
 }
@@ -199,6 +200,8 @@ pub(crate) struct Editor {
     visible_text_cache: Option<VisibleTextCache>,
     last_applied_edit_batch: Option<AppliedEditBatch>,
     rich_text_meta: RichTextDocumentMeta,
+    rich_text_synced_revision: u64,
+    rich_text_synced_text: String,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) grid_path_cache: Option<GridPathCache>,
@@ -206,6 +209,7 @@ pub(crate) struct Editor {
     mouse_selection_anchor_cell: Option<usize>,
     page_break_drag_column: Option<usize>,
     is_mouse_selecting: bool,
+    pub(crate) search_state: Option<SearchState>,
 }
 impl Editor {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -233,6 +237,8 @@ impl Editor {
             visible_text_cache: None,
             last_applied_edit_batch: None,
             rich_text_meta: RichTextDocumentMeta::default(),
+            rich_text_synced_revision: 0,
+            rich_text_synced_text: String::new(),
             focus_handle: cx.focus_handle(),
             grid_path_cache: None,
             last_board_bounds: None,
@@ -240,6 +246,7 @@ impl Editor {
             mouse_selection_anchor_cell: None,
             page_break_drag_column: None,
             is_mouse_selecting: false,
+            search_state: None,
         }
     }
 
@@ -296,12 +303,61 @@ impl Editor {
         &self.rich_text_meta
     }
 
+    pub fn rich_text_meta_snapshot(&self) -> RichTextDocumentMeta {
+        self.rich_text_meta.clone()
+    }
+
     pub fn set_rich_text_meta(
         &mut self,
         rich_text_meta: RichTextDocumentMeta,
         cx: &mut Context<Self>,
     ) {
         self.rich_text_meta = rich_text_meta;
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = self.snapshot_text();
+        cx.notify();
+    }
+
+    pub fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
+        self.sync_rich_text_meta_after_text_change();
+        let range = self.selected_byte_range();
+        self.rich_text_meta.toggle_mark(range, kind);
+        self.rich_text_synced_revision = self.draft_revision;
+        cx.notify();
+    }
+
+    pub fn set_ruby(&mut self, range: Range<usize>, text: String, cx: &mut Context<Self>) {
+        self.sync_rich_text_meta_after_text_change();
+        self.rich_text_meta.set_ruby(range, text);
+        self.rich_text_synced_revision = self.draft_revision;
+        cx.notify();
+    }
+
+    pub fn set_page_break_column(&mut self, column: usize, offset: usize, cx: &mut Context<Self>) {
+        self.sync_rich_text_meta_after_text_change();
+        self.rich_text_meta.set_page_break_column(column, offset);
+        self.rich_text_synced_revision = self.draft_revision;
+        cx.notify();
+    }
+
+    pub fn move_page_break_column(
+        &mut self,
+        from_column: usize,
+        to_column: usize,
+        offset: usize,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_rich_text_meta_after_text_change();
+        self.rich_text_meta
+            .move_page_break_column(from_column, to_column, offset);
+        self.rich_text_synced_revision = self.draft_revision;
+        cx.notify();
+    }
+
+    pub fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        self.sync_rich_text_meta_after_text_change();
+        self.rich_text_meta.remove_page_break_column(column);
+        self.rich_text_synced_revision = self.draft_revision;
         cx.notify();
     }
 
@@ -518,6 +574,47 @@ impl Editor {
         self.visible_text_cache = None;
     }
 
+    pub(crate) fn sync_rich_text_meta_after_text_change(&mut self) {
+        if self.draft_revision <= self.rich_text_synced_revision {
+            return;
+        }
+
+        let current_text = self.snapshot_text();
+        if current_text == self.rich_text_synced_text {
+            self.rich_text_synced_revision = self.draft_revision;
+            return;
+        }
+
+        let rich_text_edits = self
+            .last_applied_edit_batch
+            .as_ref()
+            .filter(|edit_batch| edit_batch.revision() == self.draft_revision)
+            .map(|edit_batch| {
+                edit_batch
+                    .edits()
+                    .iter()
+                    .map(|edit| {
+                        RichTextEdit::new(
+                            edit.start(),
+                            edit.removed_text(),
+                            edit.inserted_text(),
+                            edit.affects_rich_text(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        rich_text::sync_meta_after_text_change(
+            &mut self.rich_text_meta,
+            self.rich_text_synced_text.as_str(),
+            current_text.as_str(),
+            rich_text_edits.as_slice(),
+        );
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = current_text;
+    }
+
     pub(crate) fn update_viewport_size(&mut self, size: Size<Pixels>, cx: &mut Context<Self>) {
         let needs_viewport_sync = self.last_viewport_size != Some(size);
         if needs_viewport_sync {
@@ -578,16 +675,127 @@ impl Editor {
         self.draft.slice(0..self.draft.len_bytes())
     }
 
-    pub fn last_applied_edit_batch(&self) -> Option<AppliedEditBatch> {
-        self.last_applied_edit_batch.clone()
-    }
-
-    pub fn draft_revision(&self) -> u64 {
-        self.draft_revision
-    }
-
     pub fn rope(&self) -> &TextRope {
         &self.draft
+    }
+
+    // --- 検索 ---
+
+    pub fn open_search(&mut self, cx: &mut Context<Self>) {
+        if self.search_state.is_none() {
+            self.search_state = Some(SearchState::new(self.draft_revision));
+            cx.notify();
+        }
+    }
+
+    pub fn close_search(&mut self, cx: &mut Context<Self>) {
+        if self.search_state.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    pub fn update_search_query(&mut self, query: &str, cx: &mut Context<Self>) {
+        if self.search_state.is_none() {
+            return;
+        }
+        let matches = if query.is_empty() {
+            Vec::new()
+        } else {
+            let text = self.snapshot_text();
+            find_matches(&text, query)
+        };
+        let current_match = nearest_match_index(&matches, self.cursor_offset());
+        let navigate_range = current_match.and_then(|i| matches.get(i)).cloned();
+        let revision = self.draft_revision;
+
+        if let Some(state) = &mut self.search_state {
+            state.query = query.to_string();
+            state.matches = matches;
+            state.current_match = current_match;
+            state.synced_at_revision = revision;
+        }
+
+        if let Some(range) = navigate_range {
+            self.select_match_range(range, cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    // テキスト変更後にマッチ一覧を再計算する（ナビゲーションなし）。
+    // VimController がドキュメント変更を検知したときに呼ぶ。
+    pub fn resync_search_matches(&mut self, cx: &mut Context<Self>) {
+        let (query, synced_rev) = match &self.search_state {
+            None => return,
+            Some(state) if state.query.is_empty() => return,
+            Some(state) if state.synced_at_revision == self.draft_revision => return,
+            Some(state) => (state.query.clone(), state.synced_at_revision),
+        };
+        let _ = synced_rev;
+
+        let text = self.snapshot_text();
+        let new_matches = find_matches(&text, &query);
+        let revision = self.draft_revision;
+
+        let Some(state) = &mut self.search_state else { return };
+        if let Some(idx) = state.current_match {
+            if idx >= new_matches.len() {
+                state.current_match =
+                    if new_matches.is_empty() { None } else { Some(new_matches.len() - 1) };
+            }
+        }
+        state.matches = new_matches;
+        state.synced_at_revision = revision;
+        cx.notify();
+    }
+
+    pub fn find_next(&mut self, cx: &mut Context<Self>) {
+        let (next_idx, range) = {
+            let Some(state) = &self.search_state else { return };
+            if state.matches.is_empty() { return; }
+            let next_idx = match state.current_match {
+                None => 0,
+                Some(idx) => (idx + 1) % state.matches.len(),
+            };
+            let range = state.matches[next_idx].clone();
+            (next_idx, range)
+        };
+        self.search_state.as_mut().unwrap().current_match = Some(next_idx);
+        self.select_match_range(range, cx);
+    }
+
+    pub fn find_previous(&mut self, cx: &mut Context<Self>) {
+        let (prev_idx, range) = {
+            let Some(state) = &self.search_state else { return };
+            if state.matches.is_empty() { return; }
+            let prev_idx = match state.current_match {
+                None | Some(0) => state.matches.len() - 1,
+                Some(idx) => idx - 1,
+            };
+            let range = state.matches[prev_idx].clone();
+            (prev_idx, range)
+        };
+        self.search_state.as_mut().unwrap().current_match = Some(prev_idx);
+        self.select_match_range(range, cx);
+    }
+
+    fn select_match_range(&mut self, range: Range<usize>, cx: &mut Context<Self>) {
+        self.selected_range = range.clone();
+        self.selection_reversed = false;
+        self.cursor_cell = self.display_cell_for_byte(range.end);
+        self.ensure_cursor_visible();
+        cx.notify();
+    }
+
+    pub fn search_state(&self) -> Option<&SearchState> {
+        self.search_state.as_ref()
+    }
+
+    pub fn search_match_info(&self) -> (usize, Option<usize>) {
+        match &self.search_state {
+            None => (0, None),
+            Some(state) => (state.matches.len(), state.current_match.map(|i| i + 1)),
+        }
     }
 
     pub fn load_text(&mut self, text: &str, cx: &mut Context<Self>) {
@@ -600,6 +808,8 @@ impl Editor {
         self.bump_draft_revision();
         self.history = EditorHistory::default();
         self.last_applied_edit_batch = None;
+        self.rich_text_synced_revision = self.draft_revision;
+        self.rich_text_synced_text = self.snapshot_text();
         self.scroll_column = 0;
         self.scroll_row = 0;
         self.scroll_remainder_columns = 0.0;
@@ -944,7 +1154,7 @@ impl EntityInputHandler for Editor {
         self.cursor_cell = self.display_cell_for_byte(self.cursor_offset());
         self.ensure_cursor_visible();
         if implicit_transaction {
-            let _ = self.commit_transaction(cx);
+            self.commit_transaction(cx);
         }
         invalidate_ime_position(window);
         cx.notify();

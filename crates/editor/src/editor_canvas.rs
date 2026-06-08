@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
@@ -6,7 +7,7 @@ use gpui::{
     GlobalElementId, IntoElement, LayoutId, Path, PathBuilder, Pixels, Style, TextAlign, TextRun,
     Window, fill, point, px, size,
 };
-use rich_text::{RichTextDocumentMeta, RichTextKind};
+use rich_text::{RichTextDocumentMeta, RichTextKind, RichTextMark};
 use rope::CellText;
 use settings::{AppSettings, ColumnNumberMode};
 use theme::{APP_FONT_FAMILY, Theme};
@@ -39,6 +40,8 @@ struct PaintState {
     visible_rows: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
+    search_matches: Vec<Range<usize>>,
+    search_current_match: Option<Range<usize>>,
 }
 
 #[derive(Clone, Copy)]
@@ -153,21 +156,29 @@ impl Element for EditorCanvas {
         });
 
         let show_grid = AppSettings::global(cx).show_grid_lines;
-        let paint_state = self.editor.update(cx, |editor, _cx| PaintState {
-            visible_text: editor.visible_text(),
-            rich_text_meta: editor.rich_text_meta().clone(),
-            selected_cell_range: selected_cell_range(editor, &editor.selected_range),
-            selected_range: editor.selected_range.clone(),
-            marked_range: editor.marked_range.clone(),
-            block_selection: editor.block_selection,
-            cursor_index: editor.cursor_cell,
-            scroll_column: editor.scroll_column,
-            scroll_row: editor.scroll_row,
-            rows_per_column: editor.rows_per_column(),
-            visible_columns: editor.visible_columns(),
-            visible_rows: editor.visible_rows(),
-            cell_size: editor.cell_size(),
-            ruby_gutter_size: editor.ruby_gutter_size(),
+        let paint_state = self.editor.update(cx, |editor, _cx| {
+            let (search_matches, search_current_match) = editor
+                .search_state()
+                .map(|state| (state.matches.clone(), state.current_match_range().cloned()))
+                .unwrap_or_default();
+            PaintState {
+                visible_text: editor.visible_text(),
+                rich_text_meta: editor.rich_text_meta().clone(),
+                selected_cell_range: selected_cell_range(editor, &editor.selected_range),
+                selected_range: editor.selected_range.clone(),
+                marked_range: editor.marked_range.clone(),
+                block_selection: editor.block_selection,
+                cursor_index: editor.cursor_cell,
+                scroll_column: editor.scroll_column,
+                scroll_row: editor.scroll_row,
+                rows_per_column: editor.rows_per_column(),
+                visible_columns: editor.visible_columns(),
+                visible_rows: editor.visible_rows(),
+                cell_size: editor.cell_size(),
+                ruby_gutter_size: editor.ruby_gutter_size(),
+                search_matches,
+                search_current_match,
+            }
         });
         let PaintState {
             visible_text,
@@ -184,8 +195,11 @@ impl Element for EditorCanvas {
             visible_rows,
             cell_size,
             ruby_gutter_size,
+            search_matches,
+            search_current_match,
         } = paint_state;
 
+        let partitioned = partition_marks(&visible_text, &rich_text_meta);
         let prepared_cells = prepare_cell_paint_data(
             &visible_text,
             content_bounds,
@@ -196,7 +210,7 @@ impl Element for EditorCanvas {
             visible_rows,
             cell_size,
             ruby_gutter_size,
-            &rich_text_meta,
+            &partitioned.style_marks,
             marked_range.as_ref(),
         );
 
@@ -228,6 +242,21 @@ impl Element for EditorCanvas {
             window,
             cx,
         );
+        paint_search_matches(
+            &visible_text,
+            &search_matches,
+            search_current_match.as_ref(),
+            content_bounds,
+            scroll_column,
+            scroll_row,
+            rows_per_column,
+            visible_columns,
+            visible_rows,
+            cell_size,
+            ruby_gutter_size,
+            window,
+            cx,
+        );
         if show_grid {
             let grid_cache = self.editor.update(cx, |editor, _cx| {
                 let needs_rebuild = editor.grid_path_cache.as_ref().is_none_or(|cache| {
@@ -246,7 +275,11 @@ impl Element for EditorCanvas {
                         ruby_gutter_size,
                     ));
                 }
-                editor.grid_path_cache.as_ref().unwrap().clone()
+                editor
+                    .grid_path_cache
+                    .as_ref()
+                    .expect("grid_path_cache は直前のブロックで必ず設定される")
+                    .clone()
             });
             paint_grid(
                 content_bounds,
@@ -266,7 +299,7 @@ impl Element for EditorCanvas {
             visible_columns,
             cell_size,
             ruby_gutter_size,
-            &rich_text_meta,
+            &partitioned.page_break_columns,
             window,
             cx,
         );
@@ -274,7 +307,7 @@ impl Element for EditorCanvas {
         paint_rich_text_overlays(
             &visible_text,
             &prepared_cells,
-            &rich_text_meta,
+            &partitioned.ruby_map,
             marked_range.as_ref(),
             ruby_gutter_size,
             window,
@@ -491,6 +524,72 @@ fn build_grid_path_cache(
         ruby_gutter_size,
         vertical_dashes: vertical_dashes.build().ok(),
         horizontal_dashes: horizontal_dashes.build().ok(),
+    }
+}
+
+fn paint_search_matches(
+    visible_text: &[CellText],
+    all_matches: &[Range<usize>],
+    current_match: Option<&Range<usize>>,
+    bounds: Bounds<Pixels>,
+    scroll_column: usize,
+    first_visible_row: usize,
+    rows_per_column: usize,
+    visible_columns: usize,
+    visible_rows: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if all_matches.is_empty() {
+        return;
+    }
+    let Some(visible_start) = visible_text.first().map(|c| c.range.start) else { return };
+    let Some(visible_end) = visible_text.last().map(|c| c.range.end) else { return };
+
+    // バイナリサーチで可視範囲に重なる最初のマッチを特定
+    let first_relevant = all_matches.partition_point(|m| m.end <= visible_start);
+    let visible_matches: &[Range<usize>] = {
+        let end =
+            all_matches[first_relevant..].partition_point(|m| m.start < visible_end);
+        &all_matches[first_relevant..first_relevant + end]
+    };
+
+    if visible_matches.is_empty() {
+        return;
+    }
+
+    let primary = Theme::global(cx).primary();
+    let match_color: gpui::Hsla =
+        gpui::Rgba { r: primary.r, g: primary.g, b: primary.b, a: 0.35 }.into();
+    let current_color: gpui::Hsla =
+        gpui::Rgba { r: primary.r, g: primary.g, b: primary.b, a: 0.70 }.into();
+
+    for cell_text in visible_text {
+        let is_any_match = visible_matches.iter().any(|m| ranges_overlap(&cell_text.range, m));
+        if !is_any_match {
+            continue;
+        }
+
+        let Some(cell_bounds) = cell_bounds_for_logical_index(
+            bounds,
+            cell_text.logical_index,
+            scroll_column,
+            first_visible_row,
+            rows_per_column,
+            visible_columns,
+            visible_rows,
+            cell_size,
+            ruby_gutter_size,
+        ) else {
+            continue;
+        };
+
+        let is_current =
+            current_match.is_some_and(|mr| ranges_overlap(&cell_text.range, mr));
+        let color = if is_current { current_color } else { match_color };
+        window.paint_quad(fill(cell_bounds, color));
     }
 }
 
@@ -789,6 +888,42 @@ fn paint_strikethrough_overlay(
     flush_strike_segment(&mut current_segment, window, cx);
 }
 
+struct PartitionedMarks<'a> {
+    style_marks: Vec<&'a RichTextMark>,
+    ruby_map: HashMap<usize, &'a str>,
+    page_break_columns: Vec<usize>,
+}
+
+fn partition_marks<'a>(
+    visible_text: &[CellText],
+    rich_text_meta: &'a RichTextDocumentMeta,
+) -> PartitionedMarks<'a> {
+    let visible_start = visible_text.first().map(|c| c.range.start).unwrap_or(0);
+    let visible_end = visible_text.last().map(|c| c.range.end).unwrap_or(0);
+
+    let mut style_marks = Vec::new();
+    let mut ruby_map = HashMap::new();
+    let mut page_break_columns = Vec::new();
+
+    for mark in rich_text_meta.marks() {
+        match mark.kind() {
+            RichTextKind::PageBreak { column } => {
+                page_break_columns.push(*column);
+            }
+            RichTextKind::Ruby { text } => {
+                ruby_map.insert(mark.range().start, text.as_str());
+            }
+            RichTextKind::Bold | RichTextKind::Emphasis | RichTextKind::Heading { .. } => {
+                if mark.range().end > visible_start && mark.range().start < visible_end {
+                    style_marks.push(mark);
+                }
+            }
+        }
+    }
+
+    PartitionedMarks { style_marks, ruby_map, page_break_columns }
+}
+
 fn prepare_cell_paint_data(
     visible_text: &[CellText],
     bounds: Bounds<Pixels>,
@@ -799,10 +934,10 @@ fn prepare_cell_paint_data(
     visible_rows: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
-    rich_text_meta: &RichTextDocumentMeta,
+    style_marks: &[&RichTextMark],
     marked_range: Option<&Range<usize>>,
 ) -> Vec<PreparedCellPaint> {
-    let prepared: Vec<PreparedCellPaint> = visible_text
+    visible_text
         .iter()
         .map(|cell_text| PreparedCellPaint {
             bounds: cell_bounds_for_logical_index(
@@ -816,15 +951,14 @@ fn prepare_cell_paint_data(
                 cell_size,
                 ruby_gutter_size,
             ),
-            text_style: style_for_cell(cell_text, rich_text_meta, marked_range),
+            text_style: style_for_cell(cell_text, style_marks, marked_range),
         })
-        .collect();
-    prepared
+        .collect()
 }
 
 fn style_for_cell(
     cell_text: &CellText,
-    rich_text_meta: &RichTextDocumentMeta,
+    marks: &[&RichTextMark],
     marked_range: Option<&Range<usize>>,
 ) -> CellTextStyle {
     if marked_range.is_some_and(|range| ranges_overlap(&cell_text.range, range)) {
@@ -832,7 +966,7 @@ fn style_for_cell(
     }
 
     let mut style = CellTextStyle::default();
-    for mark in rich_text_meta.marks() {
+    for mark in marks {
         if !ranges_overlap(&cell_text.range, mark.range()) {
             continue;
         }
@@ -881,7 +1015,7 @@ fn flush_strike_segment(segment: &mut Option<StrikeSegment>, window: &mut Window
 fn paint_rich_text_overlays(
     visible_text: &[CellText],
     prepared_cells: &[PreparedCellPaint],
-    rich_text_meta: &RichTextDocumentMeta,
+    ruby_map: &HashMap<usize, &str>,
     marked_range: Option<&Range<usize>>,
     ruby_gutter_size: f32,
     window: &mut Window,
@@ -900,14 +1034,8 @@ fn paint_rich_text_overlays(
             continue;
         }
 
-        for mark in rich_text_meta.marks() {
-            let RichTextKind::Ruby { text } = mark.kind() else {
-                continue;
-            };
-            if cell_text.range.start != mark.range().start {
-                continue;
-            }
-            paint_ruby_text(text.as_str(), cell_bounds, ruby_gutter_size, window, cx);
+        if let Some(ruby_text) = ruby_map.get(&cell_text.range.start) {
+            paint_ruby_text(ruby_text, cell_bounds, ruby_gutter_size, window, cx);
         }
     }
 }
@@ -986,18 +1114,15 @@ fn paint_page_breaks(
     visible_columns: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
-    rich_text_meta: &RichTextDocumentMeta,
+    page_break_columns: &[usize],
     window: &mut Window,
     cx: &mut App,
 ) {
-    for mark in rich_text_meta.marks() {
-        let RichTextKind::PageBreak { column } = mark.kind() else {
+    for &column in page_break_columns {
+        if column < scroll_column {
             continue;
-        };
-        if *column < scroll_column {
-            continue;
-        };
-        let column_from_right = *column - scroll_column;
+        }
+        let column_from_right = column - scroll_column;
         if column_from_right >= visible_columns {
             continue;
         }

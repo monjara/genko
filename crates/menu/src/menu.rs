@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use gpui::{
     AnyWindowHandle, App, AppContext, Context, Menu, MenuItem, PathPromptOptions, Window, actions,
 };
-use rich_text::RichTextKind;
 use semver::Version;
 use serde::Deserialize;
 use title_bar::TitleBarMenu;
@@ -13,14 +12,14 @@ actions!(
     menu,
     [
         OpenSettings,
+        RegisterAccount,
+        SignOut,
         CheckForUpdates,
         OpenFile,
         SaveFile,
         ExportTxt,
+        ExportWord,
         ExportEpub,
-        RichTextBold,
-        RichTextEmphasis,
-        RichTextHeading,
         Quit
     ]
 );
@@ -33,11 +32,11 @@ const FILE_MENU_LABEL: &str = "ファイル";
 const OPEN_DOCUMENT_PROMPT_LABEL: &str = "開く";
 const SAVE_DOCUMENT_MENU_LABEL: &str = "保存";
 const EXPORT_TXT_MENU_LABEL: &str = "txtエクスポート";
+const EXPORT_WORD_MENU_LABEL: &str = "Wordエクスポート";
 const EXPORT_EPUB_MENU_LABEL: &str = "epubエクスポート";
 const FILE_PICKER_ERROR_TITLE: &str = "ファイル選択を開けませんでした";
 const SAVE_PATH_PICKER_ERROR_TITLE: &str = "保存先を選択できませんでした";
 const EXPORT_ERROR_TITLE: &str = "書き出しを開始できませんでした";
-const RICH_TEXT_SELECTION_ERROR_TITLE: &str = "リッチテキストを適用できません";
 const UPDATE_CHECK_ERROR_TITLE: &str = "更新を確認できませんでした";
 const UPDATE_NOT_AVAILABLE_TITLE: &str = "最新版を使用しています";
 const RELEASES_LATEST_API_URL: &str = "https://api.github.com/repos/monjara/genko/releases/latest";
@@ -74,6 +73,7 @@ pub fn init(cx: &mut App) {
                 MenuItem::action(SAVE_DOCUMENT_MENU_LABEL, SaveFile),
                 MenuItem::separator(),
                 MenuItem::action(EXPORT_TXT_MENU_LABEL, ExportTxt),
+                MenuItem::action(EXPORT_WORD_MENU_LABEL, ExportWord),
                 MenuItem::action(EXPORT_EPUB_MENU_LABEL, ExportEpub),
             ],
         },
@@ -107,6 +107,9 @@ pub fn title_bar_menus() -> Vec<TitleBarMenu> {
                 }),
                 MenuBarItem::new(EXPORT_TXT_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(ExportTxt), cx);
+                }),
+                MenuBarItem::new(EXPORT_WORD_MENU_LABEL, |window, cx| {
+                    window.dispatch_action(Box::new(ExportWord), cx);
                 }),
                 MenuBarItem::new(EXPORT_EPUB_MENU_LABEL, |window, cx| {
                     window.dispatch_action(Box::new(ExportEpub), cx);
@@ -143,11 +146,14 @@ pub trait MenuActionHandler: Sized + 'static {
 
     fn snapshot_text(&self, cx: &App) -> String;
 
-    fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize>;
-
-    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>);
-
     fn export_epub_path_from_menu(
+        &mut self,
+        path: PathBuf,
+        contents: String,
+        cx: &mut Context<Self>,
+    );
+
+    fn export_word_path_from_menu(
         &mut self,
         path: PathBuf,
         contents: String,
@@ -182,31 +188,8 @@ pub trait MenuActionHandler: Sized + 'static {
         self.export_epub(window, cx);
     }
 
-    fn rich_text_bold_action(
-        &mut self,
-        _: &RichTextBold,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_to_selection(RichTextKind::Bold, cx);
-    }
-
-    fn rich_text_emphasis_action(
-        &mut self,
-        _: &RichTextEmphasis,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_to_selection(RichTextKind::Emphasis, cx);
-    }
-
-    fn rich_text_heading_action(
-        &mut self,
-        _: &RichTextHeading,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_to_selection(RichTextKind::Heading { level: 1 }, cx);
+    fn export_word_action(&mut self, _: &ExportWord, window: &mut Window, cx: &mut Context<Self>) {
+        self.export_word(window, cx);
     }
 
     fn check_for_updates_action(
@@ -337,19 +320,6 @@ pub trait MenuActionHandler: Sized + 'static {
         .detach();
     }
 
-    fn apply_rich_text_to_selection(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
-        if self.selected_byte_range(cx).is_empty() {
-            self.show_menu_error(
-                RICH_TEXT_SELECTION_ERROR_TITLE,
-                "範囲を選択してから実行してください。".to_string(),
-                cx,
-            );
-            return;
-        }
-
-        self.apply_rich_text_kind(kind, cx);
-    }
-
     fn export_txt(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let suggested_name = format!("{}.txt", self.export_base_name(cx));
         let initial_directory = self.export_initial_directory(cx);
@@ -419,6 +389,40 @@ pub trait MenuActionHandler: Sized + 'static {
                 this.export_epub_path_from_menu(path, contents, cx);
             }) {
                 eprintln!("failed to export epub: {error}");
+            }
+        })
+        .detach();
+    }
+
+    fn export_word(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let suggested_name = format!("{}.docx", self.export_base_name(cx));
+        let initial_directory = self.export_initial_directory(cx);
+        let receiver = cx.prompt_for_new_path(&initial_directory, Some(&suggested_name));
+        let contents = self.snapshot_text(cx);
+
+        cx.spawn(async move |this, cx| {
+            let Ok(result) = receiver.await else {
+                return;
+            };
+
+            let Some(path) = (match result {
+                Ok(path) => path,
+                Err(error) => {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
+                        this.show_menu_error(SAVE_PATH_PICKER_ERROR_TITLE, error.to_string(), cx);
+                    }) {
+                        eprintln!("failed to show word export path picker error: {update_error}");
+                    }
+                    None
+                }
+            }) else {
+                return;
+            };
+
+            if let Err(error) = this.update(cx, |this, cx| {
+                this.export_word_path_from_menu(path, contents, cx);
+            }) {
+                eprintln!("failed to export word: {error}");
             }
         })
         .detach();
