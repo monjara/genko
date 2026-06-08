@@ -23,6 +23,7 @@ use crate::editor::layout::{
     rows_per_column_for_window_height, visible_columns_for_window_width,
 };
 use crate::editor_canvas::GridPathCache;
+use crate::search::{SearchState, find_matches, nearest_match_index};
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
 pub(crate) const DEFAULT_CELL_SIZE: f32 = 32.0;
@@ -208,6 +209,7 @@ pub(crate) struct Editor {
     mouse_selection_anchor_cell: Option<usize>,
     page_break_drag_column: Option<usize>,
     is_mouse_selecting: bool,
+    pub(crate) search_state: Option<SearchState>,
 }
 impl Editor {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -244,6 +246,7 @@ impl Editor {
             mouse_selection_anchor_cell: None,
             page_break_drag_column: None,
             is_mouse_selecting: false,
+            search_state: None,
         }
     }
 
@@ -674,6 +677,125 @@ impl Editor {
 
     pub fn rope(&self) -> &TextRope {
         &self.draft
+    }
+
+    // --- 検索 ---
+
+    pub fn open_search(&mut self, cx: &mut Context<Self>) {
+        if self.search_state.is_none() {
+            self.search_state = Some(SearchState::new(self.draft_revision));
+            cx.notify();
+        }
+    }
+
+    pub fn close_search(&mut self, cx: &mut Context<Self>) {
+        if self.search_state.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    pub fn update_search_query(&mut self, query: &str, cx: &mut Context<Self>) {
+        if self.search_state.is_none() {
+            return;
+        }
+        let matches = if query.is_empty() {
+            Vec::new()
+        } else {
+            let text = self.snapshot_text();
+            find_matches(&text, query)
+        };
+        let current_match = nearest_match_index(&matches, self.cursor_offset());
+        let navigate_range = current_match.and_then(|i| matches.get(i)).cloned();
+        let revision = self.draft_revision;
+
+        if let Some(state) = &mut self.search_state {
+            state.query = query.to_string();
+            state.matches = matches;
+            state.current_match = current_match;
+            state.synced_at_revision = revision;
+        }
+
+        if let Some(range) = navigate_range {
+            self.select_match_range(range, cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    // テキスト変更後にマッチ一覧を再計算する（ナビゲーションなし）。
+    // VimController がドキュメント変更を検知したときに呼ぶ。
+    pub fn resync_search_matches(&mut self, cx: &mut Context<Self>) {
+        let (query, synced_rev) = match &self.search_state {
+            None => return,
+            Some(state) if state.query.is_empty() => return,
+            Some(state) if state.synced_at_revision == self.draft_revision => return,
+            Some(state) => (state.query.clone(), state.synced_at_revision),
+        };
+        let _ = synced_rev;
+
+        let text = self.snapshot_text();
+        let new_matches = find_matches(&text, &query);
+        let revision = self.draft_revision;
+
+        let Some(state) = &mut self.search_state else { return };
+        if let Some(idx) = state.current_match {
+            if idx >= new_matches.len() {
+                state.current_match =
+                    if new_matches.is_empty() { None } else { Some(new_matches.len() - 1) };
+            }
+        }
+        state.matches = new_matches;
+        state.synced_at_revision = revision;
+        cx.notify();
+    }
+
+    pub fn find_next(&mut self, cx: &mut Context<Self>) {
+        let (next_idx, range) = {
+            let Some(state) = &self.search_state else { return };
+            if state.matches.is_empty() { return; }
+            let next_idx = match state.current_match {
+                None => 0,
+                Some(idx) => (idx + 1) % state.matches.len(),
+            };
+            let range = state.matches[next_idx].clone();
+            (next_idx, range)
+        };
+        self.search_state.as_mut().unwrap().current_match = Some(next_idx);
+        self.select_match_range(range, cx);
+    }
+
+    pub fn find_previous(&mut self, cx: &mut Context<Self>) {
+        let (prev_idx, range) = {
+            let Some(state) = &self.search_state else { return };
+            if state.matches.is_empty() { return; }
+            let prev_idx = match state.current_match {
+                None | Some(0) => state.matches.len() - 1,
+                Some(idx) => idx - 1,
+            };
+            let range = state.matches[prev_idx].clone();
+            (prev_idx, range)
+        };
+        self.search_state.as_mut().unwrap().current_match = Some(prev_idx);
+        self.select_match_range(range, cx);
+    }
+
+    fn select_match_range(&mut self, range: Range<usize>, cx: &mut Context<Self>) {
+        self.selected_range = range.clone();
+        self.selection_reversed = false;
+        self.cursor_cell = self.display_cell_for_byte(range.end);
+        self.ensure_cursor_visible();
+        cx.notify();
+    }
+
+    pub fn search_state(&self) -> Option<&SearchState> {
+        self.search_state.as_ref()
+    }
+
+    pub fn search_match_info(&self) -> (usize, Option<usize>) {
+        match &self.search_state {
+            None => (0, None),
+            Some(state) => (state.matches.len(), state.current_match.map(|i| i + 1)),
+        }
     }
 
     pub fn load_text(&mut self, text: &str, cx: &mut Context<Self>) {

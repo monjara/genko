@@ -8,13 +8,24 @@
       "cmd-shift-e": "workspace::ToggleWorkspacePane",
       "cmd-b": "editor::ApplyRichTextBold",
       "cmd-alt-e": "editor::ApplyRichTextEmphasis",
-      "cmd-alt-h": "editor::ApplyRichTextHeading"
+      "cmd-alt-h": "editor::ApplyRichTextHeading",
+      "cmd-f": "editor::OpenSearch"
     }
   },
   {
-    "context": "SoukouTextInput",
+    "context": "SoukouTextInput && !search_active",
     "bindings": {
       "escape": "soukou::CancelRubyEditor"
+    }
+  },
+  {
+    "context": "search_active",
+    "bindings": {
+      "enter": "editor::FindNext",
+      "shift-enter": "editor::FindPrevious",
+      "cmd-g": "editor::FindNext",
+      "shift-cmd-g": "editor::FindPrevious",
+      "escape": "editor::CloseSearch"
     }
   },
   {

@@ -5,9 +5,10 @@ use crate::editor::motions::MotionRangeBehavior;
 use crate::editor::{Editor, Event};
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Subscription, Window, actions,
-    div,
+    InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Subscription, Window,
+    actions, div, prelude::FluentBuilder,
 };
+use ui::TextInput;
 use rich_text::{RichTextDocumentMeta, RichTextKind};
 use rope::BLANK_CELL;
 use settings::AppSettings;
@@ -33,6 +34,9 @@ use text_objects::resolve_repeat_target_range;
 
 pub use state::{VimMode, VimState};
 pub use vim_mode_label::VimModeLabel;
+
+use crate::editor_ui::{CloseSearch, FindNext, FindPrevious, OpenSearch};
+use crate::search::SearchPanel;
 
 use self::state::operator_key_context;
 
@@ -84,9 +88,15 @@ pub fn init(cx: &mut App) {
     state::init(cx);
 }
 
+struct SearchInput {
+    entity: Entity<TextInput>,
+    _text_subscription: Subscription,
+}
+
 pub struct VimController {
     editor: Entity<Editor>,
     _editor_subscription: Subscription,
+    _search_sync_subscription: Subscription,
     yank_register: YankRegister,
     last_change: Option<RepeatableCommand>,
     pending_operator: Option<VimOperator>,
@@ -94,6 +104,7 @@ pub struct VimController {
     pending_block_insert: Option<PendingBlockInsert>,
     pending_text_object_modifier: Option<TextObjectModifier>,
     visual_anchor_cell: Option<usize>,
+    search_input: Option<SearchInput>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,9 +121,18 @@ impl VimController {
         let _editor_subscription = cx.subscribe(&editor, |_, _editor, event: &Event, cx| {
             cx.emit(event.clone())
         });
+        // テキストが変更されたとき検索マッチを再同期する
+        let _search_sync_subscription = cx.observe(&editor, |this, _editor, cx| {
+            if this.search_input.is_some() {
+                this.editor.update(cx, |editor, cx| {
+                    editor.resync_search_matches(cx);
+                });
+            }
+        });
         Self {
             editor,
             _editor_subscription,
+            _search_sync_subscription,
             yank_register: YankRegister::Empty,
             last_change: None,
             pending_operator: None,
@@ -120,6 +140,7 @@ impl VimController {
             pending_block_insert: None,
             pending_text_object_modifier: None,
             visual_anchor_cell: None,
+            search_input: None,
         }
     }
 
@@ -856,6 +877,46 @@ impl VimController {
             return;
         };
         self.execute_repeatable_command(command, window, cx);
+    }
+
+    fn open_search(&mut self, _: &OpenSearch, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.search_input.is_some() {
+            return;
+        }
+        let input = cx.new(|cx| {
+            let mut text_input = TextInput::new(cx);
+            text_input.set_placeholder("検索", cx);
+            text_input
+        });
+        let _text_subscription = cx.observe(&input, |this, input, cx| {
+            let query = input.read(cx).text();
+            this.editor.update(cx, |editor, cx| {
+                editor.update_search_query(&query, cx);
+            });
+        });
+        self.search_input = Some(SearchInput { entity: input, _text_subscription });
+        self.editor.update(cx, |editor, cx| {
+            editor.open_search(cx);
+        });
+    }
+
+    fn close_search(&mut self, _: &CloseSearch, _window: &mut Window, cx: &mut Context<Self>) {
+        self.search_input = None;
+        self.editor.update(cx, |editor, cx| {
+            editor.close_search(cx);
+        });
+    }
+
+    fn find_next(&mut self, _: &FindNext, _window: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            editor.find_next(cx);
+        });
+    }
+
+    fn find_previous(&mut self, _: &FindPrevious, _window: &mut Window, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            editor.find_previous(cx);
+        });
     }
 
     fn move_by_motion(&mut self, motion: MotionKind, window: &mut Window, cx: &mut Context<Self>) {
@@ -1928,13 +1989,29 @@ impl Render for VimController {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         self.sync_text_input_enabled(window, cx);
 
-        div()
-            .track_focus(&self.editor.focus_handle(cx))
-            .key_context(if AppSettings::global(cx).vim_mode {
+        let is_search_active = self.search_input.is_some();
+        let search_panel = self.search_input.as_ref().map(|si| {
+            let (match_count, current_match) = self.editor.read(cx).search_match_info();
+            SearchPanel::new(si.entity.clone(), match_count, current_match)
+        });
+
+        let key_ctx = {
+            let base = if AppSettings::global(cx).vim_mode {
                 self.key_context(window, cx)
             } else {
                 "Soukou vim_mode=disabled"
-            })
+            };
+            if is_search_active {
+                format!("{base} search_active")
+            } else {
+                base.to_string()
+            }
+        };
+
+        div()
+            .relative()
+            .track_focus(&self.editor.focus_handle(cx))
+            .key_context(key_ctx.as_str())
             .on_key_down(cx.listener(Self::handle_vim_key_down))
             .on_action(cx.listener(Self::vim_enter_insert_mode))
             .on_action(cx.listener(Self::vim_append))
@@ -1972,7 +2049,12 @@ impl Render for VimController {
             .on_action(cx.listener(Self::vim_undo))
             .on_action(cx.listener(Self::vim_redo))
             .on_action(cx.listener(Self::vim_repeat_last_change))
+            .on_action(cx.listener(Self::open_search))
+            .on_action(cx.listener(Self::close_search))
+            .on_action(cx.listener(Self::find_next))
+            .on_action(cx.listener(Self::find_previous))
             .child(self.editor.clone())
+            .when_some(search_panel, |d: gpui::Div, panel| d.child(panel))
     }
 }
 

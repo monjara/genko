@@ -15,7 +15,11 @@ actions!(
         ApplyRichTextEmphasis,
         ApplyRichTextHeading,
         ApplyRubyEdit,
-        CancelRubyEdit
+        CancelRubyEdit,
+        OpenSearch,
+        CloseSearch,
+        FindNext,
+        FindPrevious
     ]
 );
 

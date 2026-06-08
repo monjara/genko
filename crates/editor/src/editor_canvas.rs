@@ -40,6 +40,8 @@ struct PaintState {
     visible_rows: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
+    search_matches: Vec<Range<usize>>,
+    search_current_match: Option<Range<usize>>,
 }
 
 #[derive(Clone, Copy)]
@@ -154,21 +156,29 @@ impl Element for EditorCanvas {
         });
 
         let show_grid = AppSettings::global(cx).show_grid_lines;
-        let paint_state = self.editor.update(cx, |editor, _cx| PaintState {
-            visible_text: editor.visible_text(),
-            rich_text_meta: editor.rich_text_meta().clone(),
-            selected_cell_range: selected_cell_range(editor, &editor.selected_range),
-            selected_range: editor.selected_range.clone(),
-            marked_range: editor.marked_range.clone(),
-            block_selection: editor.block_selection,
-            cursor_index: editor.cursor_cell,
-            scroll_column: editor.scroll_column,
-            scroll_row: editor.scroll_row,
-            rows_per_column: editor.rows_per_column(),
-            visible_columns: editor.visible_columns(),
-            visible_rows: editor.visible_rows(),
-            cell_size: editor.cell_size(),
-            ruby_gutter_size: editor.ruby_gutter_size(),
+        let paint_state = self.editor.update(cx, |editor, _cx| {
+            let (search_matches, search_current_match) = editor
+                .search_state()
+                .map(|state| (state.matches.clone(), state.current_match_range().cloned()))
+                .unwrap_or_default();
+            PaintState {
+                visible_text: editor.visible_text(),
+                rich_text_meta: editor.rich_text_meta().clone(),
+                selected_cell_range: selected_cell_range(editor, &editor.selected_range),
+                selected_range: editor.selected_range.clone(),
+                marked_range: editor.marked_range.clone(),
+                block_selection: editor.block_selection,
+                cursor_index: editor.cursor_cell,
+                scroll_column: editor.scroll_column,
+                scroll_row: editor.scroll_row,
+                rows_per_column: editor.rows_per_column(),
+                visible_columns: editor.visible_columns(),
+                visible_rows: editor.visible_rows(),
+                cell_size: editor.cell_size(),
+                ruby_gutter_size: editor.ruby_gutter_size(),
+                search_matches,
+                search_current_match,
+            }
         });
         let PaintState {
             visible_text,
@@ -185,6 +195,8 @@ impl Element for EditorCanvas {
             visible_rows,
             cell_size,
             ruby_gutter_size,
+            search_matches,
+            search_current_match,
         } = paint_state;
 
         let partitioned = partition_marks(&visible_text, &rich_text_meta);
@@ -219,6 +231,21 @@ impl Element for EditorCanvas {
             selected_cell_range.as_ref(),
             marked_range.as_ref(),
             block_selection,
+            content_bounds,
+            scroll_column,
+            scroll_row,
+            rows_per_column,
+            visible_columns,
+            visible_rows,
+            cell_size,
+            ruby_gutter_size,
+            window,
+            cx,
+        );
+        paint_search_matches(
+            &visible_text,
+            &search_matches,
+            search_current_match.as_ref(),
             content_bounds,
             scroll_column,
             scroll_row,
@@ -497,6 +524,72 @@ fn build_grid_path_cache(
         ruby_gutter_size,
         vertical_dashes: vertical_dashes.build().ok(),
         horizontal_dashes: horizontal_dashes.build().ok(),
+    }
+}
+
+fn paint_search_matches(
+    visible_text: &[CellText],
+    all_matches: &[Range<usize>],
+    current_match: Option<&Range<usize>>,
+    bounds: Bounds<Pixels>,
+    scroll_column: usize,
+    first_visible_row: usize,
+    rows_per_column: usize,
+    visible_columns: usize,
+    visible_rows: usize,
+    cell_size: f32,
+    ruby_gutter_size: f32,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if all_matches.is_empty() {
+        return;
+    }
+    let Some(visible_start) = visible_text.first().map(|c| c.range.start) else { return };
+    let Some(visible_end) = visible_text.last().map(|c| c.range.end) else { return };
+
+    // バイナリサーチで可視範囲に重なる最初のマッチを特定
+    let first_relevant = all_matches.partition_point(|m| m.end <= visible_start);
+    let visible_matches: &[Range<usize>] = {
+        let end =
+            all_matches[first_relevant..].partition_point(|m| m.start < visible_end);
+        &all_matches[first_relevant..first_relevant + end]
+    };
+
+    if visible_matches.is_empty() {
+        return;
+    }
+
+    let primary = Theme::global(cx).primary();
+    let match_color: gpui::Hsla =
+        gpui::Rgba { r: primary.r, g: primary.g, b: primary.b, a: 0.35 }.into();
+    let current_color: gpui::Hsla =
+        gpui::Rgba { r: primary.r, g: primary.g, b: primary.b, a: 0.70 }.into();
+
+    for cell_text in visible_text {
+        let is_any_match = visible_matches.iter().any(|m| ranges_overlap(&cell_text.range, m));
+        if !is_any_match {
+            continue;
+        }
+
+        let Some(cell_bounds) = cell_bounds_for_logical_index(
+            bounds,
+            cell_text.logical_index,
+            scroll_column,
+            first_visible_row,
+            rows_per_column,
+            visible_columns,
+            visible_rows,
+            cell_size,
+            ruby_gutter_size,
+        ) else {
+            continue;
+        };
+
+        let is_current =
+            current_match.is_some_and(|mr| ranges_overlap(&cell_text.range, mr));
+        let color = if is_current { current_color } else { match_color };
+        window.paint_quad(fill(cell_bounds, color));
     }
 }
 
