@@ -283,7 +283,7 @@ impl TitleBarAccountControl {
             .on_click(move |_, window, cx| {
                 (actions.sign_in)(window, cx);
             })
-            .child("会員登録")
+            .child("サインイン")
     }
 
     fn render_user_badge(&self, user: &AuthUser, cx: &mut Context<Self>) -> AnyElement {
