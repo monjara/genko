@@ -187,6 +187,7 @@ impl Element for EditorCanvas {
             ruby_gutter_size,
         } = paint_state;
 
+        let partitioned = partition_marks(&visible_text, &rich_text_meta);
         let prepared_cells = prepare_cell_paint_data(
             &visible_text,
             content_bounds,
@@ -197,7 +198,7 @@ impl Element for EditorCanvas {
             visible_rows,
             cell_size,
             ruby_gutter_size,
-            &rich_text_meta,
+            &partitioned.style_marks,
             marked_range.as_ref(),
         );
 
@@ -271,7 +272,7 @@ impl Element for EditorCanvas {
             visible_columns,
             cell_size,
             ruby_gutter_size,
-            &rich_text_meta,
+            &partitioned.page_break_columns,
             window,
             cx,
         );
@@ -279,7 +280,7 @@ impl Element for EditorCanvas {
         paint_rich_text_overlays(
             &visible_text,
             &prepared_cells,
-            &rich_text_meta,
+            &partitioned.ruby_map,
             marked_range.as_ref(),
             ruby_gutter_size,
             window,
@@ -794,6 +795,42 @@ fn paint_strikethrough_overlay(
     flush_strike_segment(&mut current_segment, window, cx);
 }
 
+struct PartitionedMarks<'a> {
+    style_marks: Vec<&'a RichTextMark>,
+    ruby_map: HashMap<usize, &'a str>,
+    page_break_columns: Vec<usize>,
+}
+
+fn partition_marks<'a>(
+    visible_text: &[CellText],
+    rich_text_meta: &'a RichTextDocumentMeta,
+) -> PartitionedMarks<'a> {
+    let visible_start = visible_text.first().map(|c| c.range.start).unwrap_or(0);
+    let visible_end = visible_text.last().map(|c| c.range.end).unwrap_or(0);
+
+    let mut style_marks = Vec::new();
+    let mut ruby_map = HashMap::new();
+    let mut page_break_columns = Vec::new();
+
+    for mark in rich_text_meta.marks() {
+        match mark.kind() {
+            RichTextKind::PageBreak { column } => {
+                page_break_columns.push(*column);
+            }
+            RichTextKind::Ruby { text } => {
+                ruby_map.insert(mark.range().start, text.as_str());
+            }
+            RichTextKind::Bold | RichTextKind::Emphasis | RichTextKind::Heading { .. } => {
+                if mark.range().end > visible_start && mark.range().start < visible_end {
+                    style_marks.push(mark);
+                }
+            }
+        }
+    }
+
+    PartitionedMarks { style_marks, ruby_map, page_break_columns }
+}
+
 fn prepare_cell_paint_data(
     visible_text: &[CellText],
     bounds: Bounds<Pixels>,
@@ -804,13 +841,9 @@ fn prepare_cell_paint_data(
     visible_rows: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
-    rich_text_meta: &RichTextDocumentMeta,
+    style_marks: &[&RichTextMark],
     marked_range: Option<&Range<usize>>,
 ) -> Vec<PreparedCellPaint> {
-    // visible セルのバイト範囲に重なるマークだけを1回フィルタして再利用する。
-    // これにより style_for_cell が O(visible_cells × all_marks) になるのを防ぐ。
-    let visible_marks = visible_marks_for_cells(visible_text, rich_text_meta);
-
     visible_text
         .iter()
         .map(|cell_text| PreparedCellPaint {
@@ -825,25 +858,8 @@ fn prepare_cell_paint_data(
                 cell_size,
                 ruby_gutter_size,
             ),
-            text_style: style_for_cell(cell_text, &visible_marks, marked_range),
+            text_style: style_for_cell(cell_text, style_marks, marked_range),
         })
-        .collect()
-}
-
-fn visible_marks_for_cells<'a>(
-    visible_text: &[CellText],
-    rich_text_meta: &'a RichTextDocumentMeta,
-) -> Vec<&'a RichTextMark> {
-    let Some(visible_start) = visible_text.first().map(|c| c.range.start) else {
-        return Vec::new();
-    };
-    let Some(visible_end) = visible_text.last().map(|c| c.range.end) else {
-        return Vec::new();
-    };
-    rich_text_meta
-        .marks()
-        .iter()
-        .filter(|m| m.range().end > visible_start && m.range().start < visible_end)
         .collect()
 }
 
@@ -906,25 +922,12 @@ fn flush_strike_segment(segment: &mut Option<StrikeSegment>, window: &mut Window
 fn paint_rich_text_overlays(
     visible_text: &[CellText],
     prepared_cells: &[PreparedCellPaint],
-    rich_text_meta: &RichTextDocumentMeta,
+    ruby_map: &HashMap<usize, &str>,
     marked_range: Option<&Range<usize>>,
     ruby_gutter_size: f32,
     window: &mut Window,
     cx: &mut App,
 ) {
-    // ルビマークをバイトオフセット → テキストの HashMap にしてセルごとの O(n) ルックアップを O(1) に。
-    let ruby_map: HashMap<usize, &str> = rich_text_meta
-        .marks()
-        .iter()
-        .filter_map(|m| {
-            if let RichTextKind::Ruby { text } = m.kind() {
-                Some((m.range().start, text.as_str()))
-            } else {
-                None
-            }
-        })
-        .collect();
-
     for (cell_text, prepared) in visible_text.iter().zip(prepared_cells.iter()) {
         let Some(cell_bounds) = prepared.bounds else {
             continue;
@@ -1018,18 +1021,15 @@ fn paint_page_breaks(
     visible_columns: usize,
     cell_size: f32,
     ruby_gutter_size: f32,
-    rich_text_meta: &RichTextDocumentMeta,
+    page_break_columns: &[usize],
     window: &mut Window,
     cx: &mut App,
 ) {
-    for mark in rich_text_meta.marks() {
-        let RichTextKind::PageBreak { column } = mark.kind() else {
+    for &column in page_break_columns {
+        if column < scroll_column {
             continue;
-        };
-        if *column < scroll_column {
-            continue;
-        };
-        let column_from_right = *column - scroll_column;
+        }
+        let column_from_right = column - scroll_column;
         if column_from_right >= visible_columns {
             continue;
         }

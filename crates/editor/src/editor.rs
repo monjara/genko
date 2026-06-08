@@ -320,7 +320,6 @@ impl Editor {
         let range = self.selected_byte_range();
         self.rich_text_meta.toggle_mark(range, kind);
         self.rich_text_synced_revision = self.draft_revision;
-        self.rich_text_synced_text = self.snapshot_text();
         cx.notify();
     }
 
@@ -328,7 +327,6 @@ impl Editor {
         self.sync_rich_text_meta_after_text_change();
         self.rich_text_meta.set_ruby(range, text);
         self.rich_text_synced_revision = self.draft_revision;
-        self.rich_text_synced_text = self.snapshot_text();
         cx.notify();
     }
 
@@ -336,7 +334,6 @@ impl Editor {
         self.sync_rich_text_meta_after_text_change();
         self.rich_text_meta.set_page_break_column(column, offset);
         self.rich_text_synced_revision = self.draft_revision;
-        self.rich_text_synced_text = self.snapshot_text();
         cx.notify();
     }
 
@@ -351,7 +348,6 @@ impl Editor {
         self.rich_text_meta
             .move_page_break_column(from_column, to_column, offset);
         self.rich_text_synced_revision = self.draft_revision;
-        self.rich_text_synced_text = self.snapshot_text();
         cx.notify();
     }
 
@@ -359,7 +355,6 @@ impl Editor {
         self.sync_rich_text_meta_after_text_change();
         self.rich_text_meta.remove_page_break_column(column);
         self.rich_text_synced_revision = self.draft_revision;
-        self.rich_text_synced_text = self.snapshot_text();
         cx.notify();
     }
 
@@ -598,8 +593,8 @@ impl Editor {
                     .map(|edit| {
                         RichTextEdit::new(
                             edit.start(),
-                            edit.removed_text().to_string(),
-                            edit.inserted_text().to_string(),
+                            edit.removed_text(),
+                            edit.inserted_text(),
                             edit.affects_rich_text(),
                         )
                     })

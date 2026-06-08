@@ -202,14 +202,14 @@ pub struct RichTextEdit {
 impl RichTextEdit {
     pub fn new(
         start: usize,
-        removed_text: String,
-        inserted_text: String,
+        removed_text: &str,
+        inserted_text: &str,
         affects_rich_text: bool,
     ) -> Self {
         Self {
             start,
-            removed_text,
-            inserted_text,
+            removed_text: removed_text.to_string(),
+            inserted_text: inserted_text.to_string(),
             affects_rich_text,
         }
     }
