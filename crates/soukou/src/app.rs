@@ -1,12 +1,12 @@
 mod modal;
-use modal::{ActiveModal, AppModal, ProFeature};
+use modal::{ActiveModal, AppModal, EpubMetaFormOverlay, ProFeature};
 
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::process::Command;
 
 use crate::{
-    CancelRubyEditor, DismissActiveModal, OpenModalPrimary,
+    CancelRubyEditor, ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm, OpenModalPrimary,
     notification::{
         DismissErrorNotification, ErrorNotification, ErrorNotificationStack, ErrorPresentation,
     },
@@ -34,7 +34,7 @@ use gpui::{
     transparent_black,
 };
 use menu::{MenuActionHandler, RegisterAccount, SignOut};
-use rich_text::{RichTextDocumentMeta, RichTextKind};
+use rich_text::{EpubBookMeta, RichTextDocumentMeta, RichTextKind};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
 use ui::TextInput;
@@ -58,6 +58,7 @@ pub(super) struct SoukouApp {
     active_document: ActiveDocument,
     ruby_editor: Option<RubyEditorState>,
     page_break_menu: Option<PageBreakMenuState>,
+    epub_meta_form: Option<EpubMetaFormState>,
     active_modal: Option<AppModal>,
     error_notifications: Vec<ErrorNotification>,
     next_error_notification_id: u64,
@@ -68,6 +69,11 @@ pub(super) struct SoukouApp {
     _editor_subscription: Subscription,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
+}
+
+struct EpubMetaFormState {
+    title_input: Entity<ui::TextInput>,
+    author_input: Entity<ui::TextInput>,
 }
 
 struct RubyEditorState {
@@ -210,6 +216,7 @@ impl SoukouApp {
             active_document: ActiveDocument::default(),
             ruby_editor: None,
             page_break_menu: None,
+            epub_meta_form: None,
             active_modal: None,
             error_notifications,
             next_error_notification_id,
@@ -567,6 +574,9 @@ impl SoukouApp {
     }
 
     fn pro_features_available(&self) -> bool {
+        if env::development_mode() {
+            return true;
+        }
         match &self.auth_state {
             auth::AuthState::Authenticated(session) => {
                 session.user.plan.plan_key.supports_pro_features()
@@ -858,7 +868,7 @@ impl MenuActionHandler for SoukouApp {
             return;
         }
 
-        self.export_epub(window, cx);
+        self.show_epub_meta_form(window, cx);
     }
 
     fn export_word_action(
@@ -903,17 +913,11 @@ impl MenuActionHandler for SoukouApp {
         contents: String,
         cx: &mut Context<Self>,
     ) {
-        let title = self.export_base_name(cx);
         let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    rich_text::export_epub(
-                        &path,
-                        title.as_str(),
-                        contents.as_str(),
-                        &rich_text_meta,
-                    )
+                    rich_text::export_epub(&path, contents.as_str(), &rich_text_meta)
                 })
                 .await;
 
@@ -1075,6 +1079,8 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::export_txt_action))
                     .on_action(cx.listener(Self::export_word_action))
                     .on_action(cx.listener(Self::export_epub_action))
+                    .on_action(cx.listener(Self::confirm_epub_meta_action))
+                    .on_action(cx.listener(Self::dismiss_epub_meta_form_action))
                     .on_action(cx.listener(Self::editor_rich_text_bold_action))
                     .on_action(cx.listener(Self::editor_rich_text_emphasis_action))
                     .on_action(cx.listener(Self::editor_rich_text_heading_action))
@@ -1109,6 +1115,12 @@ impl Render for SoukouApp {
                                     .child(content),
                             ),
                     )
+                    .when_some(self.epub_meta_form.as_ref(), |this, form| {
+                        this.child(EpubMetaFormOverlay::new(
+                            form.title_input.clone(),
+                            form.author_input.clone(),
+                        ))
+                    })
                     .when_some(self.active_modal.clone(), |this, modal| {
                         this.child(ActiveModal::from_modal(modal))
                     })
@@ -1306,6 +1318,87 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.cancel_ruby_editor(cx);
+    }
+
+    fn show_epub_meta_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let existing_epub_meta = self
+            .active_document
+            .path()
+            .and_then(|path| {
+                rich_text::load_meta_for_text_path(path)
+                    .ok()
+                    .map(|meta| meta.epub)
+            })
+            .unwrap_or_default();
+
+        let default_title = if existing_epub_meta.title.is_empty() {
+            self.export_base_name(cx)
+        } else {
+            existing_epub_meta.title.clone()
+        };
+
+        let title_input = cx.new(ui::TextInput::new);
+        title_input.update(cx, |input, cx| {
+            input.set_placeholder("タイトル", cx);
+            input.set_text(default_title.as_str(), cx);
+        });
+
+        let author_input = cx.new(ui::TextInput::new);
+        author_input.update(cx, |input, cx| {
+            input.set_placeholder("著者名", cx);
+            input.set_text(existing_epub_meta.author.as_str(), cx);
+        });
+
+        let title_focus = title_input.focus_handle(cx);
+        window.focus(&title_focus, cx);
+
+        self.epub_meta_form = Some(EpubMetaFormState {
+            title_input,
+            author_input,
+        });
+        cx.notify();
+    }
+
+    fn confirm_epub_meta(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.epub_meta_form.take() else {
+            return;
+        };
+        let title = form.title_input.read(cx).text();
+        let author = form.author_input.read(cx).text();
+
+        let mut rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
+        rich_text_meta.epub = EpubBookMeta { title, author };
+        self.editor_controller.update(cx, |editor_controller, cx| {
+            editor_controller.set_rich_text_meta(rich_text_meta, cx);
+        });
+
+        self.save_rich_text_meta(cx);
+        cx.notify();
+
+        MenuActionHandler::export_epub(self, window, cx);
+    }
+
+    fn confirm_epub_meta_action(
+        &mut self,
+        _: &ConfirmEpubMeta,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.confirm_epub_meta(window, cx);
+    }
+
+    fn dismiss_epub_meta_form(&mut self, cx: &mut Context<Self>) {
+        self.epub_meta_form = None;
+        cx.notify();
+    }
+
+    fn dismiss_epub_meta_form_action(
+        &mut self,
+        _: &DismissEpubMetaForm,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dismiss_epub_meta_form(cx);
     }
 
     fn save_rich_text_meta(&self, cx: &mut Context<Self>) {

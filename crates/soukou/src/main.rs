@@ -17,7 +17,13 @@ const MAIN_WINDOW_HEIGHT: f32 = 800.0;
 
 actions!(
     soukou,
-    [DismissActiveModal, OpenModalPrimary, CancelRubyEditor]
+    [
+        DismissActiveModal,
+        OpenModalPrimary,
+        CancelRubyEditor,
+        ConfirmEpubMeta,
+        DismissEpubMetaForm,
+    ]
 );
 
 fn main() {

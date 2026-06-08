@@ -5903,6 +5903,7 @@ dependencies = [
  "dotenvy",
  "editor",
  "embed-resource",
+ "env",
  "futures",
  "gpui",
  "gpui_platform",

@@ -26,6 +26,9 @@ New-Item -Path $bundleRoot -ItemType Directory -Force | Out-Null
 Copy-Item -Path $binaryPath -Destination (Join-Path $bundleRoot "soukou.exe") -Force
 Copy-Item -Path ".\crates\soukou\resources\windows\Register-SoukouProtocol.ps1" -Destination (Join-Path $bundleRoot "Register-SoukouProtocol.ps1") -Force
 Copy-Item -Path ".\Readme.md" -Destination (Join-Path $bundleRoot "README.md") -Force
+Copy-Item -Path ".\LICENSE.md" -Destination (Join-Path $bundleRoot "LICENSE.md") -Force
+Copy-Item -Path ".\THIRD_PARTY_NOTICES.md" -Destination (Join-Path $bundleRoot "THIRD_PARTY_NOTICES.md") -Force
+Copy-Item -Path ".\THIRD_PARTY_LICENSES.json" -Destination (Join-Path $bundleRoot "THIRD_PARTY_LICENSES.json") -Force
 
 if (Test-Path $archivePath) {
     Remove-Item -Path $archivePath -Force

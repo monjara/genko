@@ -194,6 +194,16 @@ configure_app_bundle_icon() {
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$info_plist_path"
 }
 
+copy_license_documents_to_app_bundle() {
+  local bundle_path=$1
+  local resources_path="${bundle_path}/Contents/Resources"
+
+  mkdir -p "$resources_path"
+  cp LICENSE.md "${resources_path}/LICENSE.md"
+  cp THIRD_PARTY_NOTICES.md "${resources_path}/THIRD_PARTY_NOTICES.md"
+  cp THIRD_PARTY_LICENSES.json "${resources_path}/THIRD_PARTY_LICENSES.json"
+}
+
 if [[ $# -gt 0 && -n "$1" ]]; then
   target_triple="$1"
 else
@@ -238,6 +248,7 @@ fi
 
 echo "Configuring app bundle icon"
 configure_app_bundle_icon "$app_path"
+copy_license_documents_to_app_bundle "$app_path"
 
 if [[ "$target_dir" != "debug" ]]; then
   echo "Signing 草稿.app"
@@ -251,6 +262,9 @@ dmg_path="${bundle_directory}/soukou-${arch_suffix}.dmg"
 rm -rf "$dmg_staging_dir"
 mkdir -p "$dmg_staging_dir"
 cp -R "$app_path" "$dmg_staging_dir/"
+cp LICENSE.md "${dmg_staging_dir}/LICENSE.md"
+cp THIRD_PARTY_NOTICES.md "${dmg_staging_dir}/THIRD_PARTY_NOTICES.md"
+cp THIRD_PARTY_LICENSES.json "${dmg_staging_dir}/THIRD_PARTY_LICENSES.json"
 ln -s /Applications "${dmg_staging_dir}/Applications"
 
 echo "Creating DMG at $dmg_path"

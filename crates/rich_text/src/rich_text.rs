@@ -10,13 +10,29 @@ use serde::{Deserialize, Serialize};
 use xmlwriter::{Options as XmlOptions, XmlWriter};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct EpubBookMeta {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub author: String,
+}
+
+impl EpubBookMeta {
+    pub fn is_empty(&self) -> bool {
+        self.title.is_empty() && self.author.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RichTextDocumentMeta {
     marks: Vec<RichTextMark>,
+    #[serde(default, skip_serializing_if = "EpubBookMeta::is_empty")]
+    pub epub: EpubBookMeta,
 }
 
 impl RichTextDocumentMeta {
     pub fn is_empty(&self) -> bool {
-        self.marks.is_empty()
+        self.marks.is_empty() && self.epub.is_empty()
     }
 
     pub fn add_mark(&mut self, range: Range<usize>, kind: RichTextKind) {
@@ -442,14 +458,15 @@ pub struct ParsedRuby {
 
 pub fn export_epub(
     path: &Path,
-    title: &str,
     plain_text: &str,
     meta: &RichTextDocumentMeta,
 ) -> io::Result<()> {
+    let title = meta.epub.title.as_str();
+    let author = meta.epub.author.as_str();
     let mut writer = StoredZipWriter::new(File::create(path)?);
     writer.add_file("mimetype", b"application/epub+zip")?;
     writer.add_file("META-INF/container.xml", container_xml().as_bytes())?;
-    writer.add_file("OEBPS/content.opf", package_document(title).as_bytes())?;
+    writer.add_file("OEBPS/content.opf", package_document(title, author).as_bytes())?;
     writer.add_file("OEBPS/nav.xhtml", nav_document(title).as_bytes())?;
     writer.add_file(
         "OEBPS/text.xhtml",
@@ -483,24 +500,28 @@ fn container_xml() -> &'static str {
 </container>"#
 }
 
-fn package_document(title: &str) -> String {
+fn package_document(title: &str, author: &str) -> String {
+    let author_element = if author.is_empty() {
+        String::new()
+    } else {
+        format!("\n    <dc:creator>{}</dc:creator>", escape_xml(author))
+    };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <package version="3.0" unique-identifier="book-id" xmlns="http://www.idpf.org/2007/opf">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="book-id">urn:uuid:00000000-0000-0000-0000-000000000000</dc:identifier>
-    <dc:title>{}</dc:title>
+    <dc:title>{title}</dc:title>{author_element}
     <dc:language>ja</dc:language>
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="text" href="text.xhtml" media-type="application/xhtml+xml"/>
   </manifest>
-  <spine>
+  <spine page-progression-direction="rtl">
     <itemref idref="text"/>
   </spine>
-</package>"#,
-        escape_xml(title)
+</package>"#
     )
 }
 
@@ -1169,8 +1190,9 @@ mod tests {
         let path = directory.join(format!("soukou-rich-text-test-{}.epub", std::process::id()));
         let mut meta = RichTextDocumentMeta::default();
         meta.add_mark(0..6, RichTextKind::Emphasis);
+        meta.epub.title = "題名".to_string();
 
-        export_epub(path.as_path(), "題名", "本文です", &meta).expect("export epub");
+        export_epub(path.as_path(), "本文です", &meta).expect("export epub");
         let bytes = std::fs::read(path.as_path()).expect("read exported epub");
         std::fs::remove_file(path).expect("remove exported epub");
 
