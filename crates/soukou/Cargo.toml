@@ -9,7 +9,12 @@ resources = ["resources/AppIcon.icns"]
 identifier = "dev.monj.soukou"
 name = "草稿"
 osx_minimum_system_version = "11.0"
-osx_info_plist_exts = ["resources/info/*"]
+osx_info_plist_exts = [
+    "resources/info/BundleIcon.plist",
+    "resources/info/DocumentTypes.plist",
+    "resources/info/SupportedPlatforms.plist",
+    "resources/info/UrlTypes.plist",
+]
 
 [[bin]]
 name = "soukou"

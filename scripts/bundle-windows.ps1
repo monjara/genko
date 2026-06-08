@@ -24,6 +24,7 @@ if (Test-Path $bundleRoot) {
 
 New-Item -Path $bundleRoot -ItemType Directory -Force | Out-Null
 Copy-Item -Path $binaryPath -Destination (Join-Path $bundleRoot "soukou.exe") -Force
+Copy-Item -Path ".\crates\soukou\resources\windows\Register-SoukouProtocol.ps1" -Destination (Join-Path $bundleRoot "Register-SoukouProtocol.ps1") -Force
 Copy-Item -Path ".\Readme.md" -Destination (Join-Path $bundleRoot "README.md") -Force
 
 if (Test-Path $archivePath) {
