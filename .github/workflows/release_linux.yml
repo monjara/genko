@@ -86,8 +86,8 @@ jobs:
         if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
         uses: softprops/action-gh-release@v2
         with:
-          repository: monjara/genko
-          token: ${{ github.token }}
+          repository: monjara/Soukou.app
+          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           tag_name: ${{ github.ref_name }}
           target_commitish: main
           files: target/${{ matrix.target }}/release/草稿-linux-*.tar.gz
