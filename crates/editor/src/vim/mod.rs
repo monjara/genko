@@ -2,9 +2,9 @@ use std::ops::Range;
 
 use crate::editor::command_types::{MotionKind, PastePosition, TextObjectTarget};
 use crate::editor::motions::MotionRangeBehavior;
-use crate::editor::{Editor, Event};
+use crate::editor::{Editor, Event, PageBreakMenuRequest, RubyEditRequest};
 use gpui::{
-    App, AppContext, Bounds, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable,
+    App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Subscription, Window,
     actions, div, prelude::FluentBuilder,
 };
@@ -35,7 +35,13 @@ use text_objects::resolve_repeat_target_range;
 pub use state::{VimMode, VimState};
 pub use vim_mode_label::VimModeLabel;
 
-use crate::editor_ui::{CloseSearch, FindNext, FindPrevious, OpenSearch};
+use crate::editor_ui::{
+    ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
+    ApplyRubyEdit, CancelRubyEdit, CloseSearch, DismissPageBreakMenu, FindNext, FindPrevious,
+    OpenSearch, PageBreakMenu, RemovePageBreakColumn, RemovePageBreakCurrentColumn,
+    RubyEditorPopover, SetPageBreakLeftOfColumn, SetPageBreakLeftOfCurrentColumn,
+    SetPageBreakRightOfColumn, SetPageBreakRightOfCurrentColumn,
+};
 use crate::search::SearchPanel;
 
 use self::state::operator_key_context;
@@ -93,6 +99,11 @@ struct SearchInput {
     _text_subscription: Subscription,
 }
 
+struct RubyEditorState {
+    request: RubyEditRequest,
+    input: Entity<TextInput>,
+}
+
 pub struct VimController {
     editor: Entity<Editor>,
     _editor_subscription: Subscription,
@@ -105,6 +116,8 @@ pub struct VimController {
     pending_text_object_modifier: Option<TextObjectModifier>,
     visual_anchor_cell: Option<usize>,
     search_input: Option<SearchInput>,
+    ruby_editor: Option<RubyEditorState>,
+    page_break_menu: Option<PageBreakMenuRequest>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,8 +131,8 @@ enum CommandAction {
 impl VimController {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let editor = cx.new(Editor::new);
-        let _editor_subscription = cx.subscribe(&editor, |_, _editor, event: &Event, cx| {
-            cx.emit(event.clone())
+        let _editor_subscription = cx.subscribe(&editor, |this, _editor, event: &Event, cx| {
+            this.handle_editor_event(event.clone(), cx);
         });
         // テキストが変更されたとき検索マッチを再同期する
         let _search_sync_subscription = cx.observe(&editor, |this, _editor, cx| {
@@ -141,10 +154,14 @@ impl VimController {
             pending_text_object_modifier: None,
             visual_anchor_cell: None,
             search_input: None,
+            ruby_editor: None,
+            page_break_menu: None,
         }
     }
 
     pub fn load_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.ruby_editor = None;
+        self.page_break_menu = None;
         self.editor
             .update(cx, |editor, cx| editor.load_text(text, cx));
     }
@@ -159,20 +176,6 @@ impl VimController {
 
     pub fn selected_byte_range(&self, cx: &App) -> Range<usize> {
         self.editor.read(cx).selected_byte_range()
-    }
-
-    pub fn rows_per_column(&self, cx: &App) -> usize {
-        self.editor.read(cx).rows_per_column()
-    }
-
-    pub fn cursor_column(&self, cx: &App) -> usize {
-        self.editor.read(cx).cursor_column()
-    }
-
-    pub fn byte_offset_for_display_cell(&self, display_cell_index: usize, cx: &App) -> usize {
-        self.editor
-            .read(cx)
-            .byte_offset_for_display_cell(display_cell_index)
     }
 
     pub fn replace_byte_range(
@@ -196,40 +199,228 @@ impl VimController {
         });
     }
 
-    pub fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
+    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
         self.editor.update(cx, |editor, cx| {
             editor.apply_rich_text_kind(kind, cx);
         });
     }
 
-    pub fn set_ruby(&mut self, range: Range<usize>, text: String, cx: &mut Context<Self>) {
-        self.editor.update(cx, |editor, cx| {
-            editor.set_ruby(range, text, cx);
-        });
+    fn apply_rich_text_bold(
+        &mut self,
+        _: &ApplyRichTextBold,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Bold, cx);
     }
 
-    pub fn set_page_break_column(&mut self, column: usize, offset: usize, cx: &mut Context<Self>) {
+    fn apply_rich_text_emphasis(
+        &mut self,
+        _: &ApplyRichTextEmphasis,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Emphasis, cx);
+    }
+
+    fn apply_rich_text_heading(
+        &mut self,
+        _: &ApplyRichTextHeading,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Heading { level: 1 }, cx);
+    }
+
+    fn apply_rich_text_rotated(
+        &mut self,
+        _: &ApplyRichTextRotated,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_rich_text_kind(RichTextKind::Rotated, cx);
+    }
+
+    fn byte_offset_for_column(&self, column: usize, cx: &App) -> usize {
+        let editor = self.editor.read(cx);
+        let rows_per_column = editor.rows_per_column().max(1);
+        editor.byte_offset_for_display_cell(column * rows_per_column)
+    }
+
+    fn apply_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        let offset = self.byte_offset_for_column(column, cx);
         self.editor.update(cx, |editor, cx| {
             editor.set_page_break_column(column, offset, cx);
         });
+        self.page_break_menu = None;
+        cx.notify();
     }
 
-    pub fn move_page_break_column(
-        &mut self,
-        from_column: usize,
-        to_column: usize,
-        offset: usize,
-        cx: &mut Context<Self>,
-    ) {
-        self.editor.update(cx, |editor, cx| {
-            editor.move_page_break_column(from_column, to_column, offset, cx);
-        });
+    fn move_page_break_right_of_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        self.apply_page_break_column(column.saturating_sub(1), cx);
     }
 
-    pub fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
+    fn move_page_break_left_of_column(&mut self, column: usize, cx: &mut Context<Self>) {
+        self.apply_page_break_column(column, cx);
+    }
+
+    fn remove_page_break_at_column(&mut self, column: usize, cx: &mut Context<Self>) {
         self.editor.update(cx, |editor, cx| {
             editor.remove_page_break_column(column, cx);
         });
+        self.page_break_menu = None;
+        cx.notify();
+    }
+
+    fn move_page_break_between_columns(
+        &mut self,
+        from_column: usize,
+        to_column: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let offset = self.byte_offset_for_column(to_column, cx);
+        self.editor.update(cx, |editor, cx| {
+            editor.move_page_break_column(from_column, to_column, offset, cx);
+        });
+        self.page_break_menu = None;
+        cx.notify();
+    }
+
+    fn set_page_break_right_of_column_action(
+        &mut self,
+        action: &SetPageBreakRightOfColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_page_break_right_of_column(action.column, cx);
+    }
+
+    fn set_page_break_left_of_column_action(
+        &mut self,
+        action: &SetPageBreakLeftOfColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.move_page_break_left_of_column(action.column, cx);
+    }
+
+    fn remove_page_break_column_action(
+        &mut self,
+        action: &RemovePageBreakColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remove_page_break_at_column(action.column, cx);
+    }
+
+    fn target_page_break_column(&self, cx: &App) -> usize {
+        self.page_break_menu
+            .as_ref()
+            .map(|request| request.column)
+            .unwrap_or_else(|| self.editor.read(cx).cursor_column())
+    }
+
+    fn set_page_break_right_of_current_column_action(
+        &mut self,
+        _: &SetPageBreakRightOfCurrentColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let column = self.target_page_break_column(cx);
+        self.move_page_break_right_of_column(column, cx);
+    }
+
+    fn set_page_break_left_of_current_column_action(
+        &mut self,
+        _: &SetPageBreakLeftOfCurrentColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let column = self.target_page_break_column(cx);
+        self.move_page_break_left_of_column(column, cx);
+    }
+
+    fn remove_page_break_current_column_action(
+        &mut self,
+        _: &RemovePageBreakCurrentColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let column = self.target_page_break_column(cx);
+        self.remove_page_break_at_column(column, cx);
+    }
+
+    fn dismiss_page_break_menu_action(
+        &mut self,
+        _: &DismissPageBreakMenu,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.page_break_menu = None;
+        cx.notify();
+    }
+
+    fn open_page_break_menu(&mut self, request: PageBreakMenuRequest, cx: &mut Context<Self>) {
+        self.ruby_editor = None;
+        self.page_break_menu = Some(request);
+        cx.notify();
+    }
+
+    fn open_ruby_editor(&mut self, request: RubyEditRequest, cx: &mut Context<Self>) {
+        self.page_break_menu = None;
+        let input = cx.new(TextInput::new);
+        input.update(cx, |input, cx| {
+            input.set_placeholder("ルビ", cx);
+            input.set_text(request.text.as_str(), cx);
+            input.set_vertical(true, cx);
+        });
+        self.ruby_editor = Some(RubyEditorState { request, input });
+        cx.notify();
+    }
+
+    fn apply_ruby_editor(&mut self, cx: &mut Context<Self>) {
+        let Some(ruby_editor) = self.ruby_editor.take() else {
+            return;
+        };
+        let ruby_text = ruby_editor.input.read(cx).text();
+        self.editor.update(cx, |editor, cx| {
+            editor.set_ruby(ruby_editor.request.range, ruby_text, cx);
+        });
+        cx.notify();
+    }
+
+    fn apply_ruby_editor_action(
+        &mut self,
+        _: &ApplyRubyEdit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.apply_ruby_editor(cx);
+    }
+
+    fn cancel_ruby_editor(&mut self, cx: &mut Context<Self>) {
+        self.ruby_editor = None;
+        cx.notify();
+    }
+
+    fn cancel_ruby_edit_action(
+        &mut self,
+        _: &CancelRubyEdit,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.cancel_ruby_editor(cx);
+    }
+
+    fn handle_editor_event(&mut self, event: Event, cx: &mut Context<Self>) {
+        match event {
+            Event::RubyEditRequested(request) => self.open_ruby_editor(request, cx),
+            Event::PageBreakMenuRequested(request) => self.open_page_break_menu(request, cx),
+            Event::PageBreakMoved {
+                from_column,
+                to_column,
+            } => self.move_page_break_between_columns(from_column, to_column, cx),
+        }
     }
 
     pub fn selection_bounds(&self, cx: &App) -> Option<Bounds<Pixels>> {
@@ -1958,8 +2149,6 @@ impl VimController {
     }
 }
 
-impl EventEmitter<Event> for VimController {}
-
 fn parse_command_action(command_line: &str) -> Option<CommandAction> {
     let command_line = command_line.trim();
     match command_line {
@@ -1997,6 +2186,10 @@ impl Render for VimController {
         self.sync_text_input_enabled(window, cx);
 
         let is_search_active = self.search_input.is_some();
+        let page_break_menu = self.page_break_menu.clone();
+        let ruby_editor = self.ruby_editor.as_ref().map(|ruby_editor| {
+            RubyEditorPopover::new(ruby_editor.request.bounds, ruby_editor.input.clone())
+        });
         let search_panel = self.search_input.as_ref().map(|si| {
             let (match_count, current_match) = self.editor.read(cx).search_match_info();
             SearchPanel::new(si.entity.clone(), match_count, current_match)
@@ -2008,11 +2201,18 @@ impl Render for VimController {
             } else {
                 "Soukou vim_mode=disabled"
             };
-            if is_search_active {
+            let mut base = if is_search_active {
                 format!("{base} search_active")
             } else {
                 base.to_string()
+            };
+            if self.ruby_editor.is_some() {
+                base.push_str(" ruby_editor");
             }
+            if self.page_break_menu.is_some() {
+                base.push_str(" page_break_menu");
+            }
+            base
         };
 
         div()
@@ -2056,11 +2256,28 @@ impl Render for VimController {
             .on_action(cx.listener(Self::vim_undo))
             .on_action(cx.listener(Self::vim_redo))
             .on_action(cx.listener(Self::vim_repeat_last_change))
+            .on_action(cx.listener(Self::apply_rich_text_bold))
+            .on_action(cx.listener(Self::apply_rich_text_emphasis))
+            .on_action(cx.listener(Self::apply_rich_text_heading))
+            .on_action(cx.listener(Self::apply_rich_text_rotated))
+            .on_action(cx.listener(Self::set_page_break_right_of_column_action))
+            .on_action(cx.listener(Self::set_page_break_left_of_column_action))
+            .on_action(cx.listener(Self::remove_page_break_column_action))
+            .on_action(cx.listener(Self::set_page_break_right_of_current_column_action))
+            .on_action(cx.listener(Self::set_page_break_left_of_current_column_action))
+            .on_action(cx.listener(Self::remove_page_break_current_column_action))
+            .on_action(cx.listener(Self::dismiss_page_break_menu_action))
+            .on_action(cx.listener(Self::apply_ruby_editor_action))
+            .on_action(cx.listener(Self::cancel_ruby_edit_action))
             .on_action(cx.listener(Self::open_search))
             .on_action(cx.listener(Self::close_search))
             .on_action(cx.listener(Self::find_next))
             .on_action(cx.listener(Self::find_previous))
             .child(self.editor.clone())
+            .when_some(page_break_menu, |this, page_break_menu| {
+                this.child(PageBreakMenu::new(page_break_menu))
+            })
+            .when_some(ruby_editor, |this, ruby_editor| this.child(ruby_editor))
             .when_some(search_panel, |d: gpui::Div, panel| d.child(panel))
     }
 }

@@ -27,7 +27,7 @@
     "context": "SoukouTextInput && ruby_editor && !search_active",
     "bindings": {
       "enter": "editor::ApplyRubyEdit",
-      "escape": "soukou::CancelRubyEditor"
+      "escape": "editor::CancelRubyEdit"
     }
   },
   {
@@ -51,7 +51,7 @@
       "right": "editor::SetPageBreakRightOfCurrentColumn",
       "backspace": "editor::RemovePageBreakCurrentColumn",
       "delete": "editor::RemovePageBreakCurrentColumn",
-      "escape": "soukou::DismissPageBreakMenu"
+      "escape": "editor::DismissPageBreakMenu"
     }
   },
   {

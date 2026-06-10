@@ -19,6 +19,7 @@ actions!(
         ApplyRichTextRotated,
         ApplyRubyEdit,
         CancelRubyEdit,
+        DismissPageBreakMenu,
         SetPageBreakLeftOfCurrentColumn,
         SetPageBreakRightOfCurrentColumn,
         RemovePageBreakCurrentColumn,

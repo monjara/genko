@@ -256,7 +256,7 @@ mod tests {
                 .split("&&")
                 .any(|context| context.trim() == "SoukouTextInput")
                 && section.bindings.get("escape").map(String::as_str)
-                    == Some("soukou::CancelRubyEditor")
+                    == Some("editor::CancelRubyEdit")
         }));
     }
 }

@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::{
-    CancelRubyEditor, ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm,
-    DismissPageBreakMenu, OpenModalPrimary,
+    ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm, OpenModalPrimary,
     notification::{
         DismissErrorNotification, ErrorNotification, ErrorNotificationStack, ErrorPresentation,
     },
@@ -20,23 +19,16 @@ use document::{
         current_directory_or_fallback, suggested_file_name, suggested_save_directory,
     },
 };
-use editor::{
-    ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
-    ApplyRubyEdit, CancelRubyEdit, EditorController, Event as EditorEvent, PageBreakMenu,
-    PageBreakMenuRequest, RemovePageBreakColumn, RemovePageBreakCurrentColumn, RichTextToolbar,
-    RubyEditRequest, RubyEditorPopover, SetPageBreakLeftOfColumn, SetPageBreakLeftOfCurrentColumn,
-    SetPageBreakRightOfColumn, SetPageBreakRightOfCurrentColumn, VimCommandQuit, VimCommandWrite,
-};
+use editor::{EditorController, RichTextToolbar, VimCommandQuit, VimCommandWrite};
 use gpui::{
     AnyWindowHandle, App, AppContext, Context, Entity, ExternalPaths, FocusHandle, Focusable,
     FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderOnce, Styled,
     Subscription, Window, div, prelude::FluentBuilder, px, transparent_black,
 };
 use menu::{MenuActionHandler, RegisterAccount, SignOut};
-use rich_text::{EpubBookMeta, RichTextDocumentMeta, RichTextKind};
+use rich_text::{EpubBookMeta, RichTextDocumentMeta};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::TitleBar;
-use ui::TextInput;
 use workspace::{
     Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceState,
     scan_workspace_entries,
@@ -55,8 +47,6 @@ pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
     workspace: Entity<Workspace>,
     active_document: ActiveDocument,
-    ruby_editor: Option<RubyEditorState>,
-    page_break_menu: Option<PageBreakMenuState>,
     epub_meta_form: Option<EpubMetaFormState>,
     active_modal: Option<AppModal>,
     error_notifications: Vec<ErrorNotification>,
@@ -65,7 +55,6 @@ pub(super) struct SoukouApp {
     auth_state: auth::AuthState,
     account_control: Entity<auth::TitleBarAccountControl>,
     _workspace_subscription: Subscription,
-    _editor_subscription: Subscription,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
 }
@@ -73,16 +62,6 @@ pub(super) struct SoukouApp {
 struct EpubMetaFormState {
     title_input: Entity<ui::TextInput>,
     author_input: Entity<ui::TextInput>,
-}
-
-struct RubyEditorState {
-    request: RubyEditRequest,
-    input: Entity<TextInput>,
-}
-
-#[derive(Clone, Debug)]
-struct PageBreakMenuState {
-    request: PageBreakMenuRequest,
 }
 
 impl SoukouApp {
@@ -175,10 +154,6 @@ impl SoukouApp {
             .unwrap_or(0);
 
         let editor_controller = cx.new(EditorController::new);
-        let editor_subscription =
-            cx.subscribe(&editor_controller, |this, _editor_controller, event, cx| {
-                this.handle_editor_event(event.clone(), cx);
-            });
         let workspace = cx.new(Workspace::new);
         let workspace_subscription =
             cx.subscribe(&workspace, |this, _workspace, event, cx| match event {
@@ -212,8 +187,6 @@ impl SoukouApp {
             editor_controller,
             workspace,
             active_document: ActiveDocument::default(),
-            ruby_editor: None,
-            page_break_menu: None,
             epub_meta_form: None,
             active_modal: None,
             error_notifications,
@@ -222,7 +195,6 @@ impl SoukouApp {
             auth_state: auth::AuthState::Restoring,
             account_control,
             _workspace_subscription: workspace_subscription,
-            _editor_subscription: editor_subscription,
             title_bar,
             bottom_bar,
         };
@@ -270,16 +242,6 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.active_modal = None;
-        cx.notify();
-    }
-
-    fn dismiss_page_break_menu_action(
-        &mut self,
-        _: &DismissPageBreakMenu,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.page_break_menu = None;
         cx.notify();
     }
 
@@ -541,42 +503,6 @@ impl SoukouApp {
         cx.quit();
     }
 
-    fn editor_rich_text_bold_action(
-        &mut self,
-        _: &ApplyRichTextBold,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_kind(RichTextKind::Bold, cx);
-    }
-
-    fn editor_rich_text_emphasis_action(
-        &mut self,
-        _: &ApplyRichTextEmphasis,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_kind(RichTextKind::Emphasis, cx);
-    }
-
-    fn editor_rich_text_heading_action(
-        &mut self,
-        _: &ApplyRichTextHeading,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_kind(RichTextKind::Heading { level: 1 }, cx);
-    }
-
-    fn editor_rich_text_rotated_action(
-        &mut self,
-        _: &ApplyRichTextRotated,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_rich_text_kind(RichTextKind::Rotated, cx);
-    }
-
     fn drop_external_paths(
         &mut self,
         paths: &ExternalPaths,
@@ -620,13 +546,6 @@ impl SoukouApp {
         self.editor_controller.read(cx).selected_byte_range(cx)
     }
 
-    fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.apply_rich_text_kind(kind, cx);
-        });
-        cx.notify();
-    }
-
     fn workspace_pane_visible(&self, cx: &App) -> bool {
         WorkspaceState::global(cx).is_pane_visible()
     }
@@ -638,12 +557,6 @@ impl SoukouApp {
         }
         if self.epub_meta_form.is_some() {
             context.push_str(" epub_meta_form");
-        }
-        if self.ruby_editor.is_some() {
-            context.push_str(" ruby_editor");
-        }
-        if self.page_break_menu.is_some() {
-            context.push_str(" page_break_menu");
         }
         context
     }
@@ -660,8 +573,6 @@ impl SoukouApp {
             editor_controller.set_rich_text_meta(rich_text_meta, cx);
         });
         self.active_document.set_path(path);
-        self.ruby_editor = None;
-        self.page_break_menu = None;
     }
 
     fn notify_workspace(&self, cx: &mut Context<Self>) {
@@ -1108,7 +1019,6 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::sign_out_action))
                     .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .on_action(cx.listener(Self::dismiss_active_modal_action))
-                    .on_action(cx.listener(Self::dismiss_page_break_menu_action))
                     .on_action(cx.listener(Self::dismiss_error_notification_action))
                     .on_action(cx.listener(Self::open_modal_primary_action))
                     .on_action(cx.listener(Self::save_file_action))
@@ -1117,19 +1027,6 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::export_epub_action))
                     .on_action(cx.listener(Self::confirm_epub_meta_action))
                     .on_action(cx.listener(Self::dismiss_epub_meta_form_action))
-                    .on_action(cx.listener(Self::editor_rich_text_bold_action))
-                    .on_action(cx.listener(Self::editor_rich_text_emphasis_action))
-                    .on_action(cx.listener(Self::editor_rich_text_heading_action))
-                    .on_action(cx.listener(Self::editor_rich_text_rotated_action))
-                    .on_action(cx.listener(Self::cancel_ruby_editor_action))
-                    .on_action(cx.listener(Self::apply_ruby_editor_action))
-                    .on_action(cx.listener(Self::cancel_ruby_edit_action))
-                    .on_action(cx.listener(Self::set_page_break_right_of_column_action))
-                    .on_action(cx.listener(Self::set_page_break_left_of_column_action))
-                    .on_action(cx.listener(Self::remove_page_break_column_action))
-                    .on_action(cx.listener(Self::set_page_break_right_of_current_column_action))
-                    .on_action(cx.listener(Self::set_page_break_left_of_current_column_action))
-                    .on_action(cx.listener(Self::remove_page_break_current_column_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
@@ -1173,15 +1070,6 @@ impl Render for SoukouApp {
                     .when_some(self.rich_text_toolbar_bounds(cx), |this, bounds| {
                         this.child(RichTextToolbar::new(bounds))
                     })
-                    .when_some(self.page_break_menu.clone(), |this, page_break_menu| {
-                        this.child(PageBreakMenu::new(page_break_menu.request))
-                    })
-                    .when_some(self.ruby_editor.as_ref(), |this, ruby_editor| {
-                        this.child(RubyEditorPopover::new(
-                            ruby_editor.request.bounds,
-                            ruby_editor.input.clone(),
-                        ))
-                    })
                     .child(
                         div()
                             .flex_none()
@@ -1202,195 +1090,6 @@ impl SoukouApp {
         }
 
         self.editor_controller.read(cx).selection_bounds(cx)
-    }
-
-    fn handle_editor_event(&mut self, event: EditorEvent, cx: &mut Context<Self>) {
-        match event {
-            EditorEvent::RubyEditRequested(request) => self.open_ruby_editor(request, cx),
-            EditorEvent::PageBreakMenuRequested(request) => self.open_page_break_menu(request, cx),
-            EditorEvent::PageBreakMoved {
-                from_column,
-                to_column,
-            } => self.move_page_break_column(from_column, to_column, cx),
-        }
-    }
-
-    fn open_page_break_menu(&mut self, request: PageBreakMenuRequest, cx: &mut Context<Self>) {
-        if WorkspaceState::global(cx).unsupported_file().is_some() {
-            return;
-        }
-
-        self.ruby_editor = None;
-        self.page_break_menu = Some(PageBreakMenuState { request });
-        cx.notify();
-    }
-
-    fn target_page_break_column(&self, cx: &App) -> usize {
-        self.page_break_menu
-            .as_ref()
-            .map(|state| state.request.column)
-            .unwrap_or_else(|| self.editor_controller.read(cx).cursor_column(cx))
-    }
-
-    fn set_page_break_right_of_column(&mut self, column: usize, cx: &mut Context<Self>) {
-        self.set_page_break_column(column.saturating_sub(1), cx);
-    }
-
-    fn set_page_break_right_of_column_action(
-        &mut self,
-        action: &SetPageBreakRightOfColumn,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.set_page_break_right_of_column(action.column, cx);
-    }
-
-    fn set_page_break_left_of_column(&mut self, column: usize, cx: &mut Context<Self>) {
-        self.set_page_break_column(column, cx);
-    }
-
-    fn set_page_break_left_of_column_action(
-        &mut self,
-        action: &SetPageBreakLeftOfColumn,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.set_page_break_left_of_column(action.column, cx);
-    }
-
-    fn set_page_break_right_of_current_column_action(
-        &mut self,
-        _: &SetPageBreakRightOfCurrentColumn,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let column = self.target_page_break_column(cx);
-        self.set_page_break_right_of_column(column, cx);
-    }
-
-    fn set_page_break_left_of_current_column_action(
-        &mut self,
-        _: &SetPageBreakLeftOfCurrentColumn,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let column = self.target_page_break_column(cx);
-        self.set_page_break_left_of_column(column, cx);
-    }
-
-    fn set_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
-        let offset = self.byte_offset_for_column(column, cx);
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_page_break_column(column, offset, cx);
-        });
-        self.page_break_menu = None;
-        cx.notify();
-    }
-
-    fn move_page_break_column(
-        &mut self,
-        from_column: usize,
-        to_column: usize,
-        cx: &mut Context<Self>,
-    ) {
-        let offset = self.byte_offset_for_column(to_column, cx);
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.move_page_break_column(from_column, to_column, offset, cx);
-        });
-        self.page_break_menu = None;
-        cx.notify();
-    }
-
-    fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.remove_page_break_column(column, cx);
-        });
-        self.page_break_menu = None;
-        cx.notify();
-    }
-
-    fn remove_page_break_column_action(
-        &mut self,
-        action: &RemovePageBreakColumn,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.remove_page_break_column(action.column, cx);
-    }
-
-    fn remove_page_break_current_column_action(
-        &mut self,
-        _: &RemovePageBreakCurrentColumn,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let column = self.target_page_break_column(cx);
-        self.remove_page_break_column(column, cx);
-    }
-
-    fn byte_offset_for_column(&self, column: usize, cx: &App) -> usize {
-        let editor_controller = self.editor_controller.read(cx);
-        let rows_per_column = editor_controller.rows_per_column(cx).max(1);
-        editor_controller.byte_offset_for_display_cell(column * rows_per_column, cx)
-    }
-
-    fn open_ruby_editor(&mut self, request: RubyEditRequest, cx: &mut Context<Self>) {
-        if WorkspaceState::global(cx).unsupported_file().is_some() {
-            return;
-        }
-
-        self.page_break_menu = None;
-        let input = cx.new(TextInput::new);
-        input.update(cx, |input, cx| {
-            input.set_placeholder("ルビ", cx);
-            input.set_text(request.text.as_str(), cx);
-            input.set_vertical(true, cx);
-        });
-        self.ruby_editor = Some(RubyEditorState { request, input });
-        cx.notify();
-    }
-
-    fn apply_ruby_editor(&mut self, cx: &mut Context<Self>) {
-        let Some(ruby_editor) = self.ruby_editor.take() else {
-            return;
-        };
-        let ruby_text = ruby_editor.input.read(cx).text();
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_ruby(ruby_editor.request.range, ruby_text, cx);
-        });
-        cx.notify();
-    }
-
-    fn apply_ruby_editor_action(
-        &mut self,
-        _: &ApplyRubyEdit,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.apply_ruby_editor(cx);
-    }
-
-    fn cancel_ruby_editor(&mut self, cx: &mut Context<Self>) {
-        self.ruby_editor = None;
-        cx.notify();
-    }
-
-    fn cancel_ruby_edit_action(
-        &mut self,
-        _: &CancelRubyEdit,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.cancel_ruby_editor(cx);
-    }
-
-    fn cancel_ruby_editor_action(
-        &mut self,
-        _: &CancelRubyEditor,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.cancel_ruby_editor(cx);
     }
 
     fn show_epub_meta_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {

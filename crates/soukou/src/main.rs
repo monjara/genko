@@ -20,10 +20,8 @@ actions!(
     [
         DismissActiveModal,
         OpenModalPrimary,
-        CancelRubyEditor,
         ConfirmEpubMeta,
         DismissEpubMetaForm,
-        DismissPageBreakMenu,
     ]
 );
 
