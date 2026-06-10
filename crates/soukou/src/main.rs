@@ -23,6 +23,7 @@ actions!(
         CancelRubyEditor,
         ConfirmEpubMeta,
         DismissEpubMetaForm,
+        DismissPageBreakMenu,
     ]
 );
 

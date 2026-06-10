@@ -3,13 +3,31 @@ use std::{fs, path::Path, path::PathBuf};
 use gpui::{
     App, AppContext, Bounds, ClickEvent, Context, Entity, FontWeight, Global, InteractiveElement,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    WindowBounds, WindowControlArea, WindowDecorations, WindowOptions, div, prelude::FluentBuilder,
-    px, size, transparent_black,
+    WindowBounds, WindowControlArea, WindowDecorations, WindowOptions, actions, div,
+    prelude::FluentBuilder, px, size, transparent_black,
 };
 use serde::{Deserialize, Serialize};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::{self as app_title_bar, TitleBar};
 use ui::{selectable_chip, square_button, toggle_button};
+
+actions!(
+    settings,
+    [
+        ShowGeneralSettings,
+        ShowEditorSettings,
+        ToggleGridLines,
+        ToggleVimMode,
+        ToggleIndentOnEnter,
+        ToggleHangingPunctuation,
+        DecrementCellSize,
+        IncrementCellSize,
+        SetColumnNumberHidden,
+        SetColumnNumberEveryFive,
+        SetColumnNumberEveryTen,
+        SetColumnNumberAll,
+    ]
+);
 
 pub fn open_settings_window(cx: &mut App) {
     let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
@@ -65,6 +83,15 @@ impl SettingsWindow {
         self.select_section(SettingsSection::General, cx);
     }
 
+    fn show_general_section_action(
+        &mut self,
+        _: &ShowGeneralSettings,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_section(SettingsSection::General, cx);
+    }
+
     fn show_editor_section(
         &mut self,
         _: &ClickEvent,
@@ -74,15 +101,56 @@ impl SettingsWindow {
         self.select_section(SettingsSection::Editor, cx);
     }
 
-    fn toggle_grid_lines(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn show_editor_section_action(
+        &mut self,
+        _: &ShowEditorSettings,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_section(SettingsSection::Editor, cx);
+    }
+
+    fn toggle_grid_lines_value(&mut self, cx: &mut Context<Self>) {
         let current = AppSettings::global(cx).show_grid_lines;
         AppSettings::global_mut(cx).show_grid_lines = !current;
         self.persist_settings(cx);
     }
 
-    fn toggle_vim_mode(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_grid_lines(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_grid_lines_value(cx);
+    }
+
+    fn toggle_grid_lines_action(
+        &mut self,
+        _: &ToggleGridLines,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_grid_lines_value(cx);
+    }
+
+    fn toggle_vim_mode_value(&mut self, cx: &mut Context<Self>) {
         let current = AppSettings::global(cx).vim_mode;
         AppSettings::global_mut(cx).vim_mode = !current;
+        self.persist_settings(cx);
+    }
+
+    fn toggle_vim_mode(&mut self, _: &ClickEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_vim_mode_value(cx);
+    }
+
+    fn toggle_vim_mode_action(
+        &mut self,
+        _: &ToggleVimMode,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_vim_mode_value(cx);
+    }
+
+    fn toggle_indent_on_enter_value(&mut self, cx: &mut Context<Self>) {
+        let current = AppSettings::global(cx).indent_on_enter;
+        AppSettings::global_mut(cx).indent_on_enter = !current;
         self.persist_settings(cx);
     }
 
@@ -92,8 +160,21 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let current = AppSettings::global(cx).indent_on_enter;
-        AppSettings::global_mut(cx).indent_on_enter = !current;
+        self.toggle_indent_on_enter_value(cx);
+    }
+
+    fn toggle_indent_on_enter_action(
+        &mut self,
+        _: &ToggleIndentOnEnter,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_indent_on_enter_value(cx);
+    }
+
+    fn toggle_hanging_punctuation_value(&mut self, cx: &mut Context<Self>) {
+        let current = AppSettings::global(cx).hanging_punctuation;
+        AppSettings::global_mut(cx).hanging_punctuation = !current;
         self.persist_settings(cx);
     }
 
@@ -103,9 +184,16 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let current = AppSettings::global(cx).hanging_punctuation;
-        AppSettings::global_mut(cx).hanging_punctuation = !current;
-        self.persist_settings(cx);
+        self.toggle_hanging_punctuation_value(cx);
+    }
+
+    fn toggle_hanging_punctuation_action(
+        &mut self,
+        _: &ToggleHangingPunctuation,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_hanging_punctuation_value(cx);
     }
 
     fn set_column_number_mode(&mut self, mode: ColumnNumberMode, cx: &mut Context<Self>) {
@@ -122,9 +210,27 @@ impl SettingsWindow {
         self.set_column_number_mode(ColumnNumberMode::Hidden, cx);
     }
 
+    fn set_column_number_hidden_action(
+        &mut self,
+        _: &SetColumnNumberHidden,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_column_number_mode(ColumnNumberMode::Hidden, cx);
+    }
+
     fn set_column_number_every_five(
         &mut self,
         _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_column_number_mode(ColumnNumberMode::EveryFive, cx);
+    }
+
+    fn set_column_number_every_five_action(
+        &mut self,
+        _: &SetColumnNumberEveryFive,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -140,6 +246,15 @@ impl SettingsWindow {
         self.set_column_number_mode(ColumnNumberMode::EveryTen, cx);
     }
 
+    fn set_column_number_every_ten_action(
+        &mut self,
+        _: &SetColumnNumberEveryTen,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_column_number_mode(ColumnNumberMode::EveryTen, cx);
+    }
+
     fn set_column_number_all(
         &mut self,
         _: &ClickEvent,
@@ -149,16 +264,44 @@ impl SettingsWindow {
         self.set_column_number_mode(ColumnNumberMode::All, cx);
     }
 
+    fn set_column_number_all_action(
+        &mut self,
+        _: &SetColumnNumberAll,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_column_number_mode(ColumnNumberMode::All, cx);
+    }
+
+    fn decrement_cell_size_value(&mut self, cx: &mut Context<Self>) {
+        AppSettings::global_mut(cx).cell_size = AppSettings::global(cx)
+            .cell_size
+            .saturating_sub(1)
+            .max(AppSettings::min_cell_size());
+        self.persist_settings(cx);
+    }
+
     fn decrement_cell_size(
         &mut self,
         _: &ClickEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).cell_size = AppSettings::global(cx)
-            .cell_size
-            .saturating_sub(1)
-            .max(AppSettings::min_cell_size());
+        self.decrement_cell_size_value(cx);
+    }
+
+    fn decrement_cell_size_action(
+        &mut self,
+        _: &DecrementCellSize,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.decrement_cell_size_value(cx);
+    }
+
+    fn increment_cell_size_value(&mut self, cx: &mut Context<Self>) {
+        AppSettings::global_mut(cx).cell_size =
+            (AppSettings::global(cx).cell_size + 1).min(AppSettings::max_cell_size());
         self.persist_settings(cx);
     }
 
@@ -168,9 +311,16 @@ impl SettingsWindow {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).cell_size =
-            (AppSettings::global(cx).cell_size + 1).min(AppSettings::max_cell_size());
-        self.persist_settings(cx);
+        self.increment_cell_size_value(cx);
+    }
+
+    fn increment_cell_size_action(
+        &mut self,
+        _: &IncrementCellSize,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.increment_cell_size_value(cx);
     }
 
     fn persist_settings(&mut self, cx: &mut Context<Self>) {
@@ -570,6 +720,19 @@ impl Render for SettingsWindow {
                     .flex_col()
                     .text_color(Theme::global(cx).text_primary())
                     .overflow_hidden()
+                    .key_context("Settings")
+                    .on_action(cx.listener(Self::show_general_section_action))
+                    .on_action(cx.listener(Self::show_editor_section_action))
+                    .on_action(cx.listener(Self::toggle_grid_lines_action))
+                    .on_action(cx.listener(Self::toggle_vim_mode_action))
+                    .on_action(cx.listener(Self::toggle_indent_on_enter_action))
+                    .on_action(cx.listener(Self::toggle_hanging_punctuation_action))
+                    .on_action(cx.listener(Self::decrement_cell_size_action))
+                    .on_action(cx.listener(Self::increment_cell_size_action))
+                    .on_action(cx.listener(Self::set_column_number_hidden_action))
+                    .on_action(cx.listener(Self::set_column_number_every_five_action))
+                    .on_action(cx.listener(Self::set_column_number_every_ten_action))
+                    .on_action(cx.listener(Self::set_column_number_all_action))
                     .map(|this| app_title_bar::apply_client_side_window_frame(this, window))
                     .child(
                         div()

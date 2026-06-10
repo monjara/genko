@@ -10,8 +10,9 @@ pub use editor_controller::EditorController;
 pub use editor_ui::{
     ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
     ApplyRubyEdit, CancelRubyEdit, CloseSearch, FindNext, FindPrevious, OpenSearch, PageBreakMenu,
-    RemovePageBreakColumn, RichTextToolbar, RubyEditorPopover, SetPageBreakLeftOfColumn,
-    SetPageBreakRightOfColumn,
+    RemovePageBreakColumn, RemovePageBreakCurrentColumn, RichTextToolbar, RubyEditorPopover,
+    SetPageBreakLeftOfColumn, SetPageBreakLeftOfCurrentColumn, SetPageBreakRightOfColumn,
+    SetPageBreakRightOfCurrentColumn,
 };
 pub use vim::{VimCommandQuit, VimCommandWrite, VimController, VimMode, VimModeLabel, VimState};
 

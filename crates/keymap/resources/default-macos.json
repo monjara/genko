@@ -5,17 +5,70 @@
       "cmd-,": "menu::OpenSettings",
       "cmd-o": "menu::OpenFile",
       "cmd-s": "menu::SaveFile",
+      "cmd-shift-o": "workspace::OpenWorkspace",
       "cmd-shift-e": "workspace::ToggleWorkspacePane",
+      "cmd-alt-u": "menu::CheckForUpdates",
+      "cmd-alt-a": "menu::RegisterAccount",
+      "cmd-alt-shift-a": "menu::SignOut",
+      "cmd-shift-t": "menu::ExportTxt",
+      "cmd-shift-w": "menu::ExportWord",
+      "cmd-shift-p": "menu::ExportEpub",
       "cmd-b": "editor::ApplyRichTextBold",
       "cmd-alt-e": "editor::ApplyRichTextEmphasis",
       "cmd-alt-h": "editor::ApplyRichTextHeading",
-      "cmd-f": "editor::OpenSearch"
+      "cmd-alt-r": "editor::ApplyRichTextRotated",
+      "cmd-f": "editor::OpenSearch",
+      "cmd-alt-[": "editor::SetPageBreakLeftOfCurrentColumn",
+      "cmd-alt-]": "editor::SetPageBreakRightOfCurrentColumn",
+      "cmd-alt-backspace": "editor::RemovePageBreakCurrentColumn"
     }
   },
   {
-    "context": "SoukouTextInput && !search_active",
+    "context": "SoukouTextInput && ruby_editor && !search_active",
     "bindings": {
+      "enter": "editor::ApplyRubyEdit",
       "escape": "soukou::CancelRubyEditor"
+    }
+  },
+  {
+    "context": "active_modal",
+    "bindings": {
+      "enter": "soukou::OpenModalPrimary",
+      "escape": "soukou::DismissActiveModal"
+    }
+  },
+  {
+    "context": "epub_meta_form",
+    "bindings": {
+      "enter": "soukou::ConfirmEpubMeta",
+      "escape": "soukou::DismissEpubMetaForm"
+    }
+  },
+  {
+    "context": "page_break_menu",
+    "bindings": {
+      "left": "editor::SetPageBreakLeftOfCurrentColumn",
+      "right": "editor::SetPageBreakRightOfCurrentColumn",
+      "backspace": "editor::RemovePageBreakCurrentColumn",
+      "delete": "editor::RemovePageBreakCurrentColumn",
+      "escape": "soukou::DismissPageBreakMenu"
+    }
+  },
+  {
+    "context": "Settings",
+    "bindings": {
+      "1": "settings::ShowGeneralSettings",
+      "2": "settings::ShowEditorSettings",
+      "g": "settings::ToggleGridLines",
+      "v": "settings::ToggleVimMode",
+      "i": "settings::ToggleIndentOnEnter",
+      "h": "settings::ToggleHangingPunctuation",
+      "-": "settings::DecrementCellSize",
+      "=": "settings::IncrementCellSize",
+      "0": "settings::SetColumnNumberHidden",
+      "5": "settings::SetColumnNumberEveryFive",
+      "t": "settings::SetColumnNumberEveryTen",
+      "a": "settings::SetColumnNumberAll"
     }
   },
   {

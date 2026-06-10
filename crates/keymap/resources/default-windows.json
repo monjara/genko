@@ -5,17 +5,70 @@
       "ctrl-,": "menu::OpenSettings",
       "ctrl-o": "menu::OpenFile",
       "ctrl-s": "menu::SaveFile",
+      "ctrl-shift-o": "workspace::OpenWorkspace",
       "ctrl-shift-e": "workspace::ToggleWorkspacePane",
+      "ctrl-alt-u": "menu::CheckForUpdates",
+      "ctrl-alt-a": "menu::RegisterAccount",
+      "ctrl-alt-shift-a": "menu::SignOut",
+      "ctrl-shift-t": "menu::ExportTxt",
+      "ctrl-shift-w": "menu::ExportWord",
+      "ctrl-shift-p": "menu::ExportEpub",
       "ctrl-b": "editor::ApplyRichTextBold",
       "ctrl-alt-e": "editor::ApplyRichTextEmphasis",
       "ctrl-alt-h": "editor::ApplyRichTextHeading",
-      "ctrl-f": "editor::OpenSearch"
+      "ctrl-alt-r": "editor::ApplyRichTextRotated",
+      "ctrl-f": "editor::OpenSearch",
+      "ctrl-alt-[": "editor::SetPageBreakLeftOfCurrentColumn",
+      "ctrl-alt-]": "editor::SetPageBreakRightOfCurrentColumn",
+      "ctrl-alt-backspace": "editor::RemovePageBreakCurrentColumn"
     }
   },
   {
-    "context": "SoukouTextInput && !search_active",
+    "context": "SoukouTextInput && ruby_editor && !search_active",
     "bindings": {
+      "enter": "editor::ApplyRubyEdit",
       "escape": "soukou::CancelRubyEditor"
+    }
+  },
+  {
+    "context": "active_modal",
+    "bindings": {
+      "enter": "soukou::OpenModalPrimary",
+      "escape": "soukou::DismissActiveModal"
+    }
+  },
+  {
+    "context": "epub_meta_form",
+    "bindings": {
+      "enter": "soukou::ConfirmEpubMeta",
+      "escape": "soukou::DismissEpubMetaForm"
+    }
+  },
+  {
+    "context": "page_break_menu",
+    "bindings": {
+      "left": "editor::SetPageBreakLeftOfCurrentColumn",
+      "right": "editor::SetPageBreakRightOfCurrentColumn",
+      "backspace": "editor::RemovePageBreakCurrentColumn",
+      "delete": "editor::RemovePageBreakCurrentColumn",
+      "escape": "soukou::DismissPageBreakMenu"
+    }
+  },
+  {
+    "context": "Settings",
+    "bindings": {
+      "1": "settings::ShowGeneralSettings",
+      "2": "settings::ShowEditorSettings",
+      "g": "settings::ToggleGridLines",
+      "v": "settings::ToggleVimMode",
+      "i": "settings::ToggleIndentOnEnter",
+      "h": "settings::ToggleHangingPunctuation",
+      "-": "settings::DecrementCellSize",
+      "=": "settings::IncrementCellSize",
+      "0": "settings::SetColumnNumberHidden",
+      "5": "settings::SetColumnNumberEveryFive",
+      "t": "settings::SetColumnNumberEveryTen",
+      "a": "settings::SetColumnNumberAll"
     }
   },
   {
@@ -47,6 +100,7 @@
       "ctrl-x": "soukou::Cut",
       "ctrl-z": "soukou::Undo",
       "ctrl-u": "soukou::Redo",
+      "ctrl-y": "soukou::Redo",
       "enter": "soukou::Enter",
       "escape": "soukou::ClearSelection",
       "home": "soukou::Home",

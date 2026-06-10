@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::{
-    CancelRubyEditor, ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm, OpenModalPrimary,
+    CancelRubyEditor, ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm,
+    DismissPageBreakMenu, OpenModalPrimary,
     notification::{
         DismissErrorNotification, ErrorNotification, ErrorNotificationStack, ErrorPresentation,
     },
@@ -22,9 +23,9 @@ use document::{
 use editor::{
     ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
     ApplyRubyEdit, CancelRubyEdit, EditorController, Event as EditorEvent, PageBreakMenu,
-    PageBreakMenuRequest, RemovePageBreakColumn, RichTextToolbar, RubyEditRequest,
-    RubyEditorPopover, SetPageBreakLeftOfColumn, SetPageBreakRightOfColumn, VimCommandQuit,
-    VimCommandWrite,
+    PageBreakMenuRequest, RemovePageBreakColumn, RemovePageBreakCurrentColumn, RichTextToolbar,
+    RubyEditRequest, RubyEditorPopover, SetPageBreakLeftOfColumn, SetPageBreakLeftOfCurrentColumn,
+    SetPageBreakRightOfColumn, SetPageBreakRightOfCurrentColumn, VimCommandQuit, VimCommandWrite,
 };
 use gpui::{
     AnyWindowHandle, App, AppContext, Context, Entity, ExternalPaths, FocusHandle, Focusable,
@@ -269,6 +270,16 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.active_modal = None;
+        cx.notify();
+    }
+
+    fn dismiss_page_break_menu_action(
+        &mut self,
+        _: &DismissPageBreakMenu,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.page_break_menu = None;
         cx.notify();
     }
 
@@ -613,12 +624,28 @@ impl SoukouApp {
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.apply_rich_text_kind(kind, cx);
         });
-        self.save_rich_text_meta(cx);
         cx.notify();
     }
 
     fn workspace_pane_visible(&self, cx: &App) -> bool {
         WorkspaceState::global(cx).is_pane_visible()
+    }
+
+    fn key_context(&self) -> String {
+        let mut context = String::from("SoukouApp");
+        if self.active_modal.is_some() {
+            context.push_str(" active_modal");
+        }
+        if self.epub_meta_form.is_some() {
+            context.push_str(" epub_meta_form");
+        }
+        if self.ruby_editor.is_some() {
+            context.push_str(" ruby_editor");
+        }
+        if self.page_break_menu.is_some() {
+            context.push_str(" page_break_menu");
+        }
+        context
     }
 
     fn load_plain_document(
@@ -1030,6 +1057,7 @@ impl Render for SoukouApp {
         self.sync_window_title(window, cx);
         let title_bar_height = title_bar::platform_title_bar_height(window);
         let bottom_bar_height = bottom_bar::height(window);
+        let key_context = self.key_context();
         let client_shadow_padding = title_bar::client_side_shadow_padding_size(window);
         let occupied_workspace_width = if self.workspace_pane_visible(cx) {
             WorkspaceState::global(cx).pane_width()
@@ -1070,6 +1098,7 @@ impl Render for SoukouApp {
                     .flex_col()
                     .items_center()
                     .overflow_hidden()
+                    .key_context(key_context.as_str())
                     .map(|this| title_bar::apply_client_side_window_frame(this, window))
                     .can_drop(|value, _, _| value.is::<ExternalPaths>())
                     .on_drop(cx.listener(Self::drop_external_paths))
@@ -1079,6 +1108,7 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::sign_out_action))
                     .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .on_action(cx.listener(Self::dismiss_active_modal_action))
+                    .on_action(cx.listener(Self::dismiss_page_break_menu_action))
                     .on_action(cx.listener(Self::dismiss_error_notification_action))
                     .on_action(cx.listener(Self::open_modal_primary_action))
                     .on_action(cx.listener(Self::save_file_action))
@@ -1097,6 +1127,9 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::set_page_break_right_of_column_action))
                     .on_action(cx.listener(Self::set_page_break_left_of_column_action))
                     .on_action(cx.listener(Self::remove_page_break_column_action))
+                    .on_action(cx.listener(Self::set_page_break_right_of_current_column_action))
+                    .on_action(cx.listener(Self::set_page_break_left_of_current_column_action))
+                    .on_action(cx.listener(Self::remove_page_break_current_column_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
@@ -1192,6 +1225,13 @@ impl SoukouApp {
         cx.notify();
     }
 
+    fn target_page_break_column(&self, cx: &App) -> usize {
+        self.page_break_menu
+            .as_ref()
+            .map(|state| state.request.column)
+            .unwrap_or_else(|| self.editor_controller.read(cx).cursor_column(cx))
+    }
+
     fn set_page_break_right_of_column(&mut self, column: usize, cx: &mut Context<Self>) {
         self.set_page_break_column(column.saturating_sub(1), cx);
     }
@@ -1218,13 +1258,32 @@ impl SoukouApp {
         self.set_page_break_left_of_column(action.column, cx);
     }
 
+    fn set_page_break_right_of_current_column_action(
+        &mut self,
+        _: &SetPageBreakRightOfCurrentColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let column = self.target_page_break_column(cx);
+        self.set_page_break_right_of_column(column, cx);
+    }
+
+    fn set_page_break_left_of_current_column_action(
+        &mut self,
+        _: &SetPageBreakLeftOfCurrentColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let column = self.target_page_break_column(cx);
+        self.set_page_break_left_of_column(column, cx);
+    }
+
     fn set_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
         let offset = self.byte_offset_for_column(column, cx);
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.set_page_break_column(column, offset, cx);
         });
         self.page_break_menu = None;
-        self.save_rich_text_meta(cx);
         cx.notify();
     }
 
@@ -1239,7 +1298,6 @@ impl SoukouApp {
             editor_controller.move_page_break_column(from_column, to_column, offset, cx);
         });
         self.page_break_menu = None;
-        self.save_rich_text_meta(cx);
         cx.notify();
     }
 
@@ -1248,7 +1306,6 @@ impl SoukouApp {
             editor_controller.remove_page_break_column(column, cx);
         });
         self.page_break_menu = None;
-        self.save_rich_text_meta(cx);
         cx.notify();
     }
 
@@ -1259,6 +1316,16 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.remove_page_break_column(action.column, cx);
+    }
+
+    fn remove_page_break_current_column_action(
+        &mut self,
+        _: &RemovePageBreakCurrentColumn,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let column = self.target_page_break_column(cx);
+        self.remove_page_break_column(column, cx);
     }
 
     fn byte_offset_for_column(&self, column: usize, cx: &App) -> usize {
@@ -1291,7 +1358,6 @@ impl SoukouApp {
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.set_ruby(ruby_editor.request.range, ruby_text, cx);
         });
-        self.save_rich_text_meta(cx);
         cx.notify();
     }
 
@@ -1379,7 +1445,6 @@ impl SoukouApp {
             editor_controller.set_rich_text_meta(rich_text_meta, cx);
         });
 
-        self.save_rich_text_meta(cx);
         cx.notify();
 
         MenuActionHandler::export_epub(self, window, cx);
@@ -1406,23 +1471,6 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         self.dismiss_epub_meta_form(cx);
-    }
-
-    fn save_rich_text_meta(&self, cx: &mut Context<Self>) {
-        if !self.pro_features_available() {
-            return;
-        }
-
-        let Some(path) = self.active_document.path().map(Path::to_path_buf) else {
-            return;
-        };
-        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
-        cx.background_spawn(async move {
-            if let Err(error) = rich_text::save_meta_for_text_path(&path, &rich_text_meta) {
-                eprintln!("failed to save rich text metadata: {error}");
-            }
-        })
-        .detach();
     }
 }
 
@@ -1509,7 +1557,7 @@ fn write_plain_document_assets(
         path: path.clone(),
         source,
     })?;
-    if save_rich_text_meta && !rich_text_meta.is_empty() {
+    if save_rich_text_meta {
         rich_text::save_meta_for_text_path(path.as_path(), &rich_text_meta).map_err(|source| {
             DocumentError::MetadataSaveFailed {
                 path: path.clone(),
@@ -1518,4 +1566,93 @@ fn write_plain_document_assets(
         })?;
     }
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        error::Error,
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use rich_text::{RichTextDocumentMeta, RichTextKind};
+
+    use super::write_plain_document_assets;
+
+    fn unique_temp_dir(test_name: &str) -> Result<std::path::PathBuf, Box<dyn Error>> {
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let path = std::env::temp_dir().join(format!("soukou-{test_name}-{timestamp}"));
+        fs::create_dir_all(&path)?;
+        Ok(path)
+    }
+
+    fn cleanup_temp_dir(path: &std::path::Path) -> Result<(), Box<dyn Error>> {
+        match fs::remove_dir_all(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(Box::new(error)),
+        }
+    }
+
+    #[test]
+    fn saving_plain_document_writes_rich_text_meta_when_enabled() -> Result<(), Box<dyn Error>> {
+        let dir = unique_temp_dir("writes-meta")?;
+        let text_path = dir.join("draft.txt");
+        let meta_path = rich_text::meta_path_for_text_path(&text_path);
+        let mut rich_text_meta = RichTextDocumentMeta::default();
+        rich_text_meta.add_mark(0..2, RichTextKind::Bold);
+
+        write_plain_document_assets(text_path.clone(), "本文".to_string(), rich_text_meta, true)?;
+
+        assert_eq!(fs::read_to_string(&text_path)?, "本文");
+        assert!(meta_path.exists());
+
+        cleanup_temp_dir(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn saving_plain_document_does_not_write_meta_when_disabled() -> Result<(), Box<dyn Error>> {
+        let dir = unique_temp_dir("skips-meta")?;
+        let text_path = dir.join("draft.txt");
+        let meta_path = rich_text::meta_path_for_text_path(&text_path);
+
+        write_plain_document_assets(
+            text_path.clone(),
+            "本文".to_string(),
+            RichTextDocumentMeta::default(),
+            false,
+        )?;
+
+        assert_eq!(fs::read_to_string(&text_path)?, "本文");
+        assert!(!meta_path.exists());
+
+        cleanup_temp_dir(&dir)?;
+        Ok(())
+    }
+
+    #[test]
+    fn saving_plain_document_writes_empty_meta_when_enabled() -> Result<(), Box<dyn Error>> {
+        let dir = unique_temp_dir("writes-empty-meta")?;
+        let text_path = dir.join("draft.txt");
+        let meta_path = rich_text::meta_path_for_text_path(&text_path);
+
+        write_plain_document_assets(
+            text_path.clone(),
+            "本文".to_string(),
+            RichTextDocumentMeta::default(),
+            true,
+        )?;
+
+        assert_eq!(fs::read_to_string(&text_path)?, "本文");
+        assert!(meta_path.exists());
+        assert_eq!(
+            rich_text::load_meta_for_text_path(&text_path)?,
+            RichTextDocumentMeta::default()
+        );
+
+        cleanup_temp_dir(&dir)?;
+        Ok(())
+    }
 }

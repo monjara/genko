@@ -47,6 +47,10 @@ impl EditorController {
         self.vim_controller.read(cx).rows_per_column(cx)
     }
 
+    pub fn cursor_column(&self, cx: &App) -> usize {
+        self.vim_controller.read(cx).cursor_column(cx)
+    }
+
     pub fn byte_offset_for_display_cell(&self, display_cell_index: usize, cx: &App) -> usize {
         self.vim_controller
             .read(cx)
