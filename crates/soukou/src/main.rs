@@ -1,15 +1,17 @@
 mod app;
 mod font;
 mod notification;
+mod open_listener;
 
 use app::SoukouApp;
-use futures::StreamExt;
 use gpui::{
-    App, AppContext, AsyncApp, Bounds, Focusable, WindowBounds, WindowDecorations, WindowOptions,
-    actions, px, size,
+    App, AppContext, Bounds, Focusable, WindowBounds, WindowDecorations, WindowOptions, actions,
+    px, size,
 };
 use menu::{OpenSettings, Quit};
 use settings::open_settings_window;
+
+use crate::open_listener::{OpenUrlListener, spawn_open_url_handler};
 
 const APP_ID: &str = "dev.monj.soukou";
 const MAIN_WINDOW_WIDTH: f32 = 1200.0;
@@ -32,11 +34,10 @@ fn main() {
 
     let application = gpui_platform::application();
 
-    let (open_url_sender, open_url_receiver) = futures::channel::mpsc::unbounded::<Vec<String>>();
+    let (open_url_sender, open_url_receiver) = OpenUrlListener::new();
+
     application.on_open_urls(move |urls| {
-        if let Err(error) = open_url_sender.unbounded_send(urls) {
-            eprintln!("failed to receive auth callback url: {error}");
-        }
+        open_url_sender.open(urls);
     });
 
     application.run(move |cx: &mut App| {
@@ -89,19 +90,6 @@ fn main() {
             eprintln!("failed to handle startup auth callback url: {error}");
         }
 
-        let mut open_url_receiver = open_url_receiver;
-        cx.spawn(move |cx: &mut AsyncApp| {
-            let mut app = cx.clone();
-            async move {
-                while let Some(urls) = open_url_receiver.next().await {
-                    if let Err(error) = main_window.update(&mut app, |this, _, cx| {
-                        this.handle_open_urls(urls, cx);
-                    }) {
-                        eprintln!("failed to handle auth callback url: {error}");
-                    }
-                }
-            }
-        })
-        .detach();
+        spawn_open_url_handler(cx, main_window, open_url_receiver);
     })
 }
