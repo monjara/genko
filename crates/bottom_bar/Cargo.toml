@@ -16,3 +16,6 @@ settings = { workspace = true }
 theme = { workspace = true }
 title_bar = { workspace = true }
 workspace = { workspace = true }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }

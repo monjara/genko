@@ -310,6 +310,7 @@ fn is_supported_text_file(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::TestAppContext;
 
     fn test_workspace_dir(name: &str) -> PathBuf {
         let mut path = std::env::temp_dir();
@@ -373,5 +374,32 @@ mod tests {
         assert_eq!(entries[0].path(), dir.join("a.txt").as_path());
 
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[gpui::test]
+    fn toggle_workspace_pane_action_updates_global_visibility(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            theme::init(cx);
+            WorkspaceState::init(cx);
+        });
+        let (workspace, cx) = cx.add_window_view(|_, cx| Workspace::new(cx));
+
+        assert!(!cx.read_global::<WorkspaceState, _>(|workspace_state, _| {
+            workspace_state.is_pane_visible()
+        }));
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.toggle_workspace_pane(&ToggleWorkspacePane, window, cx);
+        });
+        assert!(cx.read_global::<WorkspaceState, _>(|workspace_state, _| {
+            workspace_state.is_pane_visible()
+        }));
+
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.toggle_workspace_pane(&ToggleWorkspacePane, window, cx);
+        });
+        assert!(!cx.read_global::<WorkspaceState, _>(|workspace_state, _| {
+            workspace_state.is_pane_visible()
+        }));
     }
 }

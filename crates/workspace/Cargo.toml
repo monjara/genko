@@ -12,3 +12,6 @@ path = "src/workspace.rs"
 gpui = { workspace = true }
 icons = { workspace = true }
 theme = { workspace = true }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }

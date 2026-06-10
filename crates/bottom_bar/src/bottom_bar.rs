@@ -59,6 +59,7 @@ impl Render for BottomBar {
                             .child(
                                 div()
                                     .id("workspace-bottom-bar-toggle")
+                                    .debug_selector(|| "workspace-bottom-bar-toggle".to_string())
                                     .w(px(22.0))
                                     .h(px(22.0))
                                     .flex()
@@ -133,5 +134,33 @@ fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {
         g: left.g * inv + right.g * ratio,
         b: left.b * inv + right.b * ratio,
         a: left.a * inv + right.a * ratio,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    fn init_test(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            theme::init(cx);
+            cx.set_global(AppSettings::default());
+            workspace::WorkspaceState::init(cx);
+            editor::init(cx);
+        });
+    }
+
+    #[gpui::test]
+    fn renders_workspace_toggle_button(cx: &mut TestAppContext) {
+        init_test(cx);
+        let (_bottom_bar, cx) = cx.add_window_view(|_, cx| BottomBar::new(cx));
+
+        let button_bounds = cx
+            .debug_bounds("workspace-bottom-bar-toggle")
+            .expect("workspace toggle button should be rendered");
+        assert!(button_bounds.size.width > px(0.0));
+        assert!(button_bounds.size.height > px(0.0));
     }
 }

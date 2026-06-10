@@ -29,6 +29,14 @@ alias = "format"
 
 [tasks.test]
 command = "cargo"
+args = ["test", "${@}"]
+
+[tasks.test-all]
+command = "cargo"
+args = ["test", "--all"]
+
+[tasks.test-offline]
+command = "cargo"
 args = ["test", "--offline", "--all"]
 
 [tasks.test-target]

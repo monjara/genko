@@ -485,17 +485,16 @@ pub struct ParsedRuby {
     pub ruby: String,
 }
 
-pub fn export_epub(
-    path: &Path,
-    plain_text: &str,
-    meta: &RichTextDocumentMeta,
-) -> io::Result<()> {
+pub fn export_epub(path: &Path, plain_text: &str, meta: &RichTextDocumentMeta) -> io::Result<()> {
     let title = meta.epub.title.as_str();
     let author = meta.epub.author.as_str();
     let mut writer = StoredZipWriter::new(File::create(path)?);
     writer.add_file("mimetype", b"application/epub+zip")?;
     writer.add_file("META-INF/container.xml", container_xml().as_bytes())?;
-    writer.add_file("OEBPS/content.opf", package_document(title, author).as_bytes())?;
+    writer.add_file(
+        "OEBPS/content.opf",
+        package_document(title, author).as_bytes(),
+    )?;
     writer.add_file("OEBPS/nav.xhtml", nav_document(title).as_bytes())?;
     writer.add_file(
         "OEBPS/text.xhtml",
@@ -1191,12 +1190,7 @@ mod tests {
             &mut meta,
             "前置テスト",
             "入力前置テスト",
-            &[RichTextEdit::new(
-                0,
-                String::new(),
-                "入力".to_string(),
-                true,
-            )],
+            &[RichTextEdit::new(0, "", "入力", true)],
         );
 
         assert_eq!(

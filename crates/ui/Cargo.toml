@@ -12,3 +12,6 @@ path = "src/ui.rs"
 gpui = { workspace = true }
 theme = { workspace = true }
 unicode-segmentation = { workspace = true }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }

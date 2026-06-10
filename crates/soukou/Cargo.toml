@@ -20,8 +20,8 @@ auth = { workspace = true }
 bottom_bar = { workspace = true }
 document = { workspace = true }
 dotenvy = { workspace = true }
-env = { workspace = true }
 editor = { workspace = true, features = ["embedded-ipadic"] }
+env = { workspace = true }
 futures = { workspace = true }
 gpui = { workspace = true }
 gpui_platform = { workspace = true }

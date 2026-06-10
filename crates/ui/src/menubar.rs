@@ -120,7 +120,8 @@ impl MenuBar {
         );
 
         div()
-            .id(("menu-bar-trigger", menu_index))
+            .id(format!("menu-bar-trigger-{menu_index}"))
+            .debug_selector(move || format!("menu-bar-trigger-{menu_index}"))
             .px_2()
             .h(MENU_TRIGGER_HEIGHT)
             .rounded_sm()
@@ -158,7 +159,8 @@ impl MenuBar {
                     .anchor(Anchor::TopLeft)
                     .child(
                         div()
-                            .id(("menu-bar-popup", menu_index))
+                            .id(format!("menu-bar-popup-{menu_index}"))
+                            .debug_selector(move || format!("menu-bar-popup-{menu_index}"))
                             .min_w(MENU_POPUP_MIN_WIDTH)
                             .py_1()
                             .bg(background)
@@ -184,7 +186,10 @@ impl MenuBar {
                             }))
                             .children(menu.items.iter().enumerate().map(|(item_index, item)| {
                                 div()
-                                    .id(("menu-bar-item", menu_index * 1_000 + item_index))
+                                    .id(format!("menu-bar-item-{menu_index}-{item_index}"))
+                                    .debug_selector(move || {
+                                        format!("menu-bar-item-{menu_index}-{item_index}")
+                                    })
                                     .w_full()
                                     .px_3()
                                     .py_1p5()
@@ -241,5 +246,60 @@ fn mix(left: Rgba, right: Rgba, ratio: f32) -> Rgba {
         g: left.g * inverse_ratio + right.g * ratio,
         b: left.b * inverse_ratio + right.b * ratio,
         a: left.a * inverse_ratio + right.a * ratio,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use gpui::{Modifiers, TestAppContext};
+
+    use super::*;
+
+    fn init_test(cx: &mut TestAppContext) {
+        cx.update(theme::init);
+    }
+
+    #[gpui::test]
+    fn opens_menu_and_selects_item(cx: &mut TestAppContext) {
+        init_test(cx);
+        let selected = Rc::new(Cell::new(false));
+        let selected_for_item = selected.clone();
+
+        let (menu_bar, cx) = cx.add_window_view(|_, cx| {
+            MenuBar::new(
+                vec![MenuBarMenu::new(
+                    "File",
+                    vec![MenuBarItem::new("Open", move |_, _| {
+                        selected_for_item.set(true);
+                    })],
+                )],
+                cx,
+            )
+        });
+
+        assert!(cx.debug_bounds("menu-bar-trigger-0").is_some());
+        assert!(cx.debug_bounds("menu-bar-popup-0").is_none());
+
+        let trigger_bounds = cx
+            .debug_bounds("menu-bar-trigger-0")
+            .expect("menu trigger should be rendered");
+        cx.simulate_click(trigger_bounds.center(), Modifiers::none());
+
+        menu_bar.read_with(cx, |menu_bar, _| {
+            assert_eq!(menu_bar.open_menu_index, Some(0));
+        });
+        assert!(cx.debug_bounds("menu-bar-popup-0").is_some());
+
+        let item_bounds = cx
+            .debug_bounds("menu-bar-item-0-0")
+            .expect("menu item should be rendered after opening menu");
+        cx.simulate_click(item_bounds.center(), Modifiers::none());
+
+        menu_bar.read_with(cx, |menu_bar, _| {
+            assert_eq!(menu_bar.open_menu_index, None);
+        });
+        assert!(selected.get());
     }
 }

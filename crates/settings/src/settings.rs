@@ -473,6 +473,7 @@ impl SettingsWindow {
         let active = self.selected_section == section;
         div()
             .id(id)
+            .debug_selector(move || id.to_string())
             .w_full()
             .px_3()
             .py_2()
@@ -900,8 +901,11 @@ impl From<&AppSettings> for PersistedAppSettings {
 mod tests {
     use std::{env, fs, path::PathBuf};
 
+    use gpui::{Modifiers, TestAppContext};
+
     use super::{
         AppSettings, ColumnNumberMode, DEFAULT_CELL_SIZE, DEFAULT_ROWS_PER_COLUMN, MAX_CELL_SIZE,
+        SettingsSection, SettingsWindow,
     };
 
     fn test_settings_dir(name: &str) -> PathBuf {
@@ -1065,5 +1069,36 @@ mod tests {
         assert_eq!(settings.cell_size, MAX_CELL_SIZE);
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[gpui::test]
+    fn sidebar_click_switches_selected_section(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            theme::init(cx);
+            cx.set_global(AppSettings::default());
+        });
+        let (settings_window, cx) = cx.add_window_view(|_, cx| SettingsWindow::new(cx));
+
+        settings_window.read_with(cx, |settings_window, _| {
+            assert_eq!(settings_window.selected_section, SettingsSection::General);
+        });
+
+        let editor_sidebar_bounds = cx
+            .debug_bounds("settings-sidebar-editor")
+            .expect("editor sidebar item should be rendered");
+        cx.simulate_click(editor_sidebar_bounds.center(), Modifiers::none());
+
+        settings_window.read_with(cx, |settings_window, _| {
+            assert_eq!(settings_window.selected_section, SettingsSection::Editor);
+        });
+
+        let general_sidebar_bounds = cx
+            .debug_bounds("settings-sidebar-general")
+            .expect("general sidebar item should be rendered");
+        cx.simulate_click(general_sidebar_bounds.center(), Modifiers::none());
+
+        settings_window.read_with(cx, |settings_window, _| {
+            assert_eq!(settings_window.selected_section, SettingsSection::General);
+        });
     }
 }
