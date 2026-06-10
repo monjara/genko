@@ -26,7 +26,7 @@ pub(super) enum AppModal {
     },
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ProFeature {
     ExportWord,
     ExportEpub,

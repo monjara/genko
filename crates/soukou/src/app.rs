@@ -4,6 +4,7 @@ use modal::{ActiveModal, AppModal, EpubMetaFormOverlay, ProFeature};
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::process::Command;
+use std::time::Duration;
 
 use crate::{
     ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm, OpenModalPrimary,
@@ -42,6 +43,7 @@ const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでし�
 const SUPPORTED_OPEN_ERROR_DETAIL: &str = "現在は .txt ファイルに対応しています";
 const UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL: &str = "サポートしていないファイルは保存できません";
 const BOTTOM_BAR_TOP_GAP: f32 = 4.0;
+const AUTH_REVALIDATION_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
 pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
@@ -53,6 +55,7 @@ pub(super) struct SoukouApp {
     next_error_notification_id: u64,
     auth_config: auth::AuthConfig,
     auth_state: auth::AuthState,
+    verified_pro_feature: Option<ProFeature>,
     account_control: Entity<auth::TitleBarAccountControl>,
     _workspace_subscription: Subscription,
     title_bar: Entity<TitleBar>,
@@ -127,6 +130,7 @@ impl SoukouApp {
     }
 
     fn set_auth_state(&mut self, auth_state: auth::AuthState, cx: &mut Context<Self>) {
+        self.verified_pro_feature = None;
         self.auth_state = auth_state.clone();
         self.account_control.update(cx, |account_control, cx| {
             account_control.set_state(auth_state, cx);
@@ -193,12 +197,14 @@ impl SoukouApp {
             next_error_notification_id,
             auth_config: auth::AuthConfig::from_env(),
             auth_state: auth::AuthState::Restoring,
+            verified_pro_feature: None,
             account_control,
             _workspace_subscription: workspace_subscription,
             title_bar,
             bottom_bar,
         };
         app.restore_auth_session(cx);
+        app.start_auth_revalidation_timer(cx);
         app
     }
 
@@ -311,6 +317,66 @@ impl SoukouApp {
                 }
             }) {
                 eprintln!("failed to show sign out result: {error}");
+            }
+        })
+        .detach();
+    }
+
+    fn start_auth_revalidation_timer(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(AUTH_REVALIDATION_INTERVAL)
+                    .await;
+
+                let session_input = match this.update(cx, |this, _cx| {
+                    let auth::AuthState::Authenticated(session) = &this.auth_state else {
+                        return None;
+                    };
+                    Some((
+                        this.auth_config.clone(),
+                        this.auth_config.credentials_key().to_string(),
+                        session.refresh_token.clone(),
+                    ))
+                }) {
+                    Ok(session_input) => session_input,
+                    Err(error) => {
+                        eprintln!("failed to read auth state for periodic revalidation: {error}");
+                        break;
+                    }
+                };
+
+                let Some((auth_config, credentials_key, refresh_token)) = session_input else {
+                    continue;
+                };
+
+                let revalidated_session = cx
+                    .background_spawn(async move {
+                        auth::restore_session(&auth_config, refresh_token.as_str())
+                    })
+                    .await;
+
+                let session = match revalidated_session {
+                    Ok(session) => session,
+                    Err(error) => {
+                        eprintln!("periodic auth revalidation failed: {error}");
+                        continue;
+                    }
+                };
+
+                if let Err(error) =
+                    auth::write_refresh_token(credentials_key, session.refresh_token.clone(), cx)
+                        .await
+                {
+                    eprintln!("failed to save periodically refreshed auth token: {error}");
+                }
+
+                if let Err(error) = this.update(cx, |this, cx| {
+                    this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                }) {
+                    eprintln!("failed to apply periodic auth revalidation: {error}");
+                    break;
+                }
             }
         })
         .detach();
@@ -528,18 +594,109 @@ impl SoukouApp {
         }
     }
 
-    fn require_pro_feature(
-        &mut self,
-        feature: ProFeature,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        if self.pro_features_available() {
+    fn consume_verified_pro_feature(&mut self, feature: ProFeature) -> bool {
+        if self.verified_pro_feature == Some(feature) {
+            self.verified_pro_feature = None;
             return true;
         }
-
-        self.show_pro_required_modal(feature, cx);
         false
+    }
+
+    fn verify_pro_feature_for_action(
+        &mut self,
+        feature: ProFeature,
+        window_handle: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        if env::development_mode() {
+            self.verified_pro_feature = Some(feature);
+            self.dispatch_pro_feature_action(feature, window_handle, cx);
+            return;
+        }
+
+        let auth::AuthState::Authenticated(session) = &self.auth_state else {
+            self.show_pro_required_modal(feature, cx);
+            return;
+        };
+
+        let auth_config = self.auth_config.clone();
+        let credentials_key = self.auth_config.credentials_key().to_string();
+        let refresh_token = session.refresh_token.clone();
+
+        cx.spawn(async move |this, cx| {
+            let verified_session = cx
+                .background_spawn(async move {
+                    auth::restore_session(&auth_config, refresh_token.as_str())
+                })
+                .await;
+
+            match verified_session {
+                Ok(session) => {
+                    if let Err(error) = auth::write_refresh_token(
+                        credentials_key,
+                        session.refresh_token.clone(),
+                        cx,
+                    )
+                    .await
+                    {
+                        eprintln!("failed to save verified auth token: {error}");
+                    }
+
+                    let supports_pro_features = session.user.plan.plan_key.supports_pro_features();
+                    if let Err(error) = this.update(cx, |this, cx| {
+                        this.set_auth_state(auth::AuthState::Authenticated(session), cx);
+                        if supports_pro_features {
+                            this.verified_pro_feature = Some(feature);
+                        } else {
+                            this.show_pro_required_modal(feature, cx);
+                        }
+                    }) {
+                        eprintln!("failed to apply pro feature verification: {error}");
+                        return;
+                    }
+
+                    if supports_pro_features
+                        && let Err(error) =
+                            window_handle.update(cx, |_, window, cx| match feature {
+                                ProFeature::ExportWord => {
+                                    window.dispatch_action(Box::new(menu::ExportWord), cx);
+                                }
+                                ProFeature::ExportEpub => {
+                                    window.dispatch_action(Box::new(menu::ExportEpub), cx);
+                                }
+                            })
+                    {
+                        eprintln!("failed to continue pro feature action: {error}");
+                    }
+                }
+                Err(error) => {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
+                        this.show_error_modal("会員情報を確認できませんでした", error, cx);
+                    }) {
+                        eprintln!("failed to show pro feature verification error: {update_error}");
+                    }
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn dispatch_pro_feature_action(
+        &self,
+        feature: ProFeature,
+        window_handle: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = window_handle.update(cx, |_, window, cx| match feature {
+            ProFeature::ExportWord => {
+                window.dispatch_action(Box::new(menu::ExportWord), cx);
+            }
+            ProFeature::ExportEpub => {
+                window.dispatch_action(Box::new(menu::ExportEpub), cx);
+            }
+        }) {
+            eprintln!("failed to dispatch verified pro feature action: {error}");
+        }
     }
 
     fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize> {
@@ -808,7 +965,8 @@ impl MenuActionHandler for SoukouApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.require_pro_feature(ProFeature::ExportEpub, window, cx) {
+        if !self.consume_verified_pro_feature(ProFeature::ExportEpub) {
+            self.verify_pro_feature_for_action(ProFeature::ExportEpub, window.window_handle(), cx);
             return;
         }
 
@@ -821,7 +979,8 @@ impl MenuActionHandler for SoukouApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.require_pro_feature(ProFeature::ExportWord, window, cx) {
+        if !self.consume_verified_pro_feature(ProFeature::ExportWord) {
+            self.verify_pro_feature_for_action(ProFeature::ExportWord, window.window_handle(), cx);
             return;
         }
 
