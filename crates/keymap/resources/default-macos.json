@@ -118,6 +118,8 @@
       "P": "vim::VimPasteBefore",
       "u": "vim::VimUndo",
       "ctrl-r": "vim::VimRedo",
+      "ctrl-d": "vim::VimMoveHalfPageDown",
+      "ctrl-u": "vim::VimMoveHalfPageUp",
       ".": "vim::VimRepeatLastChange",
       "b": "vim::VimMoveWordBackward",
       "B": "vim::VimMoveBigWordBackward",

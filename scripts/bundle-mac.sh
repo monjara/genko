@@ -6,11 +6,12 @@ build_flag="--release"
 target_dir="release"
 target_triple=""
 can_code_sign=false
-keychain_name="soukou-signing.keychain-db"
+keychain_name="soukou-signing-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-${target_triple:-host}-$$.keychain-db"
 keychain_password=""
 signing_identity=""
 signing_identity_hash=""
 notarization_key_file=""
+original_keychains=()
 app_icon_source="crates/soukou/resources/AppIcon.icns"
 app_icon_name="AppIcon.icns"
 
@@ -44,6 +45,10 @@ shift $((OPTIND - 1))
 cleanup() {
   if [[ -n "$notarization_key_file" && -f "$notarization_key_file" ]]; then
     rm -f "$notarization_key_file"
+  fi
+
+  if [[ ${#original_keychains[@]} -gt 0 ]]; then
+    security list-keychains -d user -s "${original_keychains[@]}" || true
   fi
 
   if security list-keychains | grep -q "$keychain_name"; then
@@ -88,6 +93,9 @@ setup_signing() {
   fi
 
   keychain_password="$(openssl rand -hex 24)"
+  while IFS= read -r keychain; do
+    original_keychains+=("$keychain")
+  done < <(security list-keychains -d user | sed -E 's/^[[:space:]]*"?(.*?)"?$/\1/')
 
   security create-keychain -p "$keychain_password" "$keychain_name"
   security set-keychain-settings -lut 21600 "$keychain_name"

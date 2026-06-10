@@ -177,14 +177,8 @@ impl SoukouApp {
         let account_control = cx.new(|_| {
             auth::TitleBarAccountControl::new(auth::AuthState::Restoring, account_actions)
         });
-        let title_bar = cx.new(|cx| {
-            TitleBar::new(
-                menu::APP_NAME,
-                menu::title_bar_menus(),
-                Some(account_control.clone()),
-                cx,
-            )
-        });
+        let title_bar =
+            cx.new(|cx| TitleBar::new(menu::title_bar_menus(), Some(account_control.clone()), cx));
         let bottom_bar = cx.new(BottomBar::new);
 
         let mut app = Self {
@@ -775,15 +769,10 @@ impl SoukouApp {
         cx.notify();
     }
 
-    fn save_document_to_path(
-        &mut self,
-        path: PathBuf,
-        contents: String,
-        _window_handle: AnyWindowHandle,
-        cx: &mut Context<Self>,
-    ) {
+    fn save_document_to_path(&mut self, path: PathBuf, contents: String, cx: &mut Context<Self>) {
         let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         let save_rich_text_meta = self.pro_features_available();
+        let is_new_file = !path.exists();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -799,7 +788,8 @@ impl SoukouApp {
                             WorkspaceState::global(cx).root_dir(),
                         ) {
                             SavedDocumentTarget::Workspace => {
-                                WorkspaceState::global_mut(cx).open_file(path.clone());
+                                WorkspaceState::global_mut(cx)
+                                    .open_saved_file(path.clone(), is_new_file);
                             }
                             SavedDocumentTarget::Standalone => {
                                 WorkspaceState::global_mut(cx).open_file_without_root(path.clone());
@@ -1087,14 +1077,8 @@ impl MenuActionHandler for SoukouApp {
         )
     }
 
-    fn save_path_from_menu(
-        &mut self,
-        path: PathBuf,
-        contents: String,
-        window_handle: AnyWindowHandle,
-        cx: &mut Context<Self>,
-    ) {
-        self.save_document_to_path(path, contents, window_handle, cx);
+    fn save_path_from_menu(&mut self, path: PathBuf, contents: String, cx: &mut Context<Self>) {
+        self.save_document_to_path(path, contents, cx);
     }
 
     fn show_menu_error(&mut self, title: &str, detail: String, cx: &mut Context<Self>) {

@@ -79,6 +79,8 @@ actions!(
         VimMoveDown,
         VimMoveUp,
         VimMoveRight,
+        VimMoveHalfPageDown,
+        VimMoveHalfPageUp,
         VimPasteAfter,
         VimPasteBefore,
         VimOpenNextColumn,
@@ -2073,6 +2075,30 @@ impl VimController {
         self.move_by_cells(-rows_per_column, window, cx);
     }
 
+    fn vim_move_half_page_down(
+        &mut self,
+        _: &VimMoveHalfPageDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let editor = self.editor.read(cx);
+        let columns = (editor.visible_columns() / 2).max(1) as isize;
+        let rows_per_column = editor.rows_per_column() as isize;
+        self.move_by_cells(columns * rows_per_column, window, cx);
+    }
+
+    fn vim_move_half_page_up(
+        &mut self,
+        _: &VimMoveHalfPageUp,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let editor = self.editor.read(cx);
+        let columns = (editor.visible_columns() / 2).max(1) as isize;
+        let rows_per_column = editor.rows_per_column() as isize;
+        self.move_by_cells(-(columns * rows_per_column), window, cx);
+    }
+
     fn vim_paste_after(&mut self, _: &VimPasteAfter, window: &mut Window, cx: &mut Context<Self>) {
         self.paste_after(window, cx);
     }
@@ -2250,6 +2276,8 @@ impl Render for VimController {
             .on_action(cx.listener(Self::vim_move_down))
             .on_action(cx.listener(Self::vim_move_up))
             .on_action(cx.listener(Self::vim_move_right))
+            .on_action(cx.listener(Self::vim_move_half_page_down))
+            .on_action(cx.listener(Self::vim_move_half_page_up))
             .on_action(cx.listener(Self::vim_paste_after))
             .on_action(cx.listener(Self::vim_paste_before))
             .on_action(cx.listener(Self::vim_open_next_column))

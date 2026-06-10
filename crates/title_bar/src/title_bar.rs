@@ -1,6 +1,6 @@
 use gpui::{
     AnyElement, App, AppContext, BoxShadow, ClickEvent, Context, Decorations, Div, Entity, Hsla,
-    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba, SharedString,
+    InteractiveElement, IntoElement, ParentElement, Pixels, Render, Rgba,
     StatefulInteractiveElement, Styled, TitlebarOptions, Window, WindowButton, WindowButtonLayout,
     WindowControlArea, WindowDecorations, div, point, prelude::FluentBuilder, px,
 };
@@ -152,14 +152,11 @@ impl PlatformStyle {
 pub struct TitleBar {
     account_control: Option<Entity<auth::TitleBarAccountControl>>,
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-    title: SharedString,
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     menu_bar: Entity<MenuBar>,
 }
 
 impl TitleBar {
     pub fn new(
-        title: &str,
         #[cfg(any(target_os = "linux", target_os = "freebsd"))] menus: Vec<TitleBarMenu>,
         #[cfg(not(any(target_os = "linux", target_os = "freebsd")))] _menus: Vec<TitleBarMenu>,
         account_control: Option<Entity<auth::TitleBarAccountControl>>,
@@ -171,8 +168,6 @@ impl TitleBar {
 
         Self {
             account_control,
-            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-            title: title.into(),
             #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             menu_bar: cx.new(|cx| MenuBar::new(menus, cx)),
         }
@@ -199,6 +194,14 @@ impl TitleBar {
             .bg(background)
             .border_b_1()
             .border_color(border_color(cx))
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+                window.start_window_move();
+            })
+            .on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
+                cx.stop_propagation();
+                window.show_window_menu(event.position);
+            })
             .child(
                 div()
                     .flex()
@@ -218,22 +221,6 @@ impl TitleBar {
                             .justify_start()
                             .children(left_controls)
                             .child(self.menu_bar.clone().into_element()),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .window_control_area(WindowControlArea::Drag)
-                            .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
-                                window.start_window_move();
-                            })
-                            .on_mouse_down(gpui::MouseButton::Right, |event, window, cx| {
-                                cx.stop_propagation();
-                                window.show_window_menu(event.position);
-                            })
-                            .text_center()
-                            .text_size(px(12.0))
-                            .text_color(text_color(cx))
-                            .child(self.title.clone()),
                     )
                     .child(
                         div()

@@ -61,7 +61,7 @@ struct SettingsWindow {
 
 impl SettingsWindow {
     fn new(cx: &mut Context<Self>) -> Self {
-        let title_bar = cx.new(|cx| TitleBar::new("設定", Vec::new(), None, cx));
+        let title_bar = cx.new(|cx| TitleBar::new(Vec::new(), None, cx));
         Self {
             title_bar,
             status: "".into(),

@@ -133,13 +133,7 @@ pub trait MenuActionHandler: Sized + 'static {
 
     fn suggested_file_name(&self, cx: &App) -> String;
 
-    fn save_path_from_menu(
-        &mut self,
-        path: PathBuf,
-        contents: String,
-        window_handle: AnyWindowHandle,
-        cx: &mut Context<Self>,
-    );
+    fn save_path_from_menu(&mut self, path: PathBuf, contents: String, cx: &mut Context<Self>);
 
     fn export_base_name(&self, cx: &App) -> String;
 
@@ -275,17 +269,16 @@ pub trait MenuActionHandler: Sized + 'static {
         .detach();
     }
 
-    fn save_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn save_file(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if let Some((title, detail)) = self.save_blocking_error(cx) {
             self.show_menu_error(title, detail, cx);
             return;
         }
 
-        let window_handle = window.window_handle();
         let contents = self.snapshot_text(cx);
 
         if let Some(path) = self.active_save_path(cx) {
-            self.save_path_from_menu(path, contents, window_handle, cx);
+            self.save_path_from_menu(path, contents, cx);
             return;
         }
 
@@ -313,7 +306,7 @@ pub trait MenuActionHandler: Sized + 'static {
             };
 
             if let Err(error) = this.update(cx, |this, cx| {
-                this.save_path_from_menu(path, contents, window_handle, cx);
+                this.save_path_from_menu(path, contents, cx);
             }) {
                 eprintln!("failed to save selected path: {error}");
             }

@@ -86,6 +86,13 @@ impl WorkspaceState {
         self.unsupported_file = None;
     }
 
+    pub fn open_saved_file(&mut self, path: PathBuf, is_new_file: bool) {
+        if self.entries.is_empty() && self.root_dir.is_none() {
+            self.add_saved_entry(path.as_path());
+        }
+        self.open_file(path);
+    }
+
     pub fn open_file_without_root(&mut self, path: PathBuf) {
         self.root_dir = None;
         self.entries.clear();
@@ -125,6 +132,28 @@ impl WorkspaceState {
 
     pub fn toggle_pane(&mut self) {
         self.pane_visible = !self.pane_visible;
+    }
+
+    fn add_saved_entry(&mut self, path: &Path) {
+        let Some(root_dir) = self.root_dir.as_deref() else {
+            return;
+        };
+        if path.parent() != Some(root_dir) || is_hidden(path) || !is_supported_text_file(path) {
+            return;
+        }
+        if self.entries.iter().any(|entry| entry.path == path) {
+            return;
+        }
+
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            return;
+        };
+        self.entries.push(WorkspaceEntry {
+            path: path.to_path_buf(),
+            name: name.to_string(),
+        });
+        self.entries
+            .sort_by(|left, right| left.name.cmp(&right.name));
     }
 }
 
@@ -356,6 +385,49 @@ mod tests {
         assert_eq!(
             workspace.active_file(),
             Some(Path::new("/tmp/standalone.txt"))
+        );
+    }
+
+    #[test]
+    fn open_saved_new_file_adds_workspace_entry() {
+        let root_dir = PathBuf::from("/tmp/project");
+        let mut workspace = WorkspaceState::new();
+        workspace.open_root(
+            root_dir.clone(),
+            vec![WorkspaceEntry {
+                path: root_dir.join("b.txt"),
+                name: "b.txt".to_string(),
+            }],
+        );
+
+        workspace.open_saved_file(root_dir.join("a.txt"), true);
+
+        assert_eq!(
+            workspace.active_file(),
+            Some(root_dir.join("a.txt").as_path())
+        );
+        assert_eq!(
+            workspace
+                .entries()
+                .iter()
+                .map(WorkspaceEntry::name)
+                .collect::<Vec<_>>(),
+            vec!["a.txt", "b.txt"]
+        );
+    }
+
+    #[test]
+    fn open_saved_existing_file_does_not_add_workspace_entry() {
+        let root_dir = PathBuf::from("/tmp/project");
+        let mut workspace = WorkspaceState::new();
+        workspace.open_root(root_dir.clone(), Vec::new());
+
+        workspace.open_saved_file(root_dir.join("a.txt"), false);
+
+        assert!(workspace.entries().is_empty());
+        assert_eq!(
+            workspace.active_file(),
+            Some(root_dir.join("a.txt").as_path())
         );
     }
 
