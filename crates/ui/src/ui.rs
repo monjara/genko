@@ -1,7 +1,9 @@
+mod button;
 mod menubar;
 mod text_input;
 mod tooltip;
 
+pub use button::*;
 use gpui::App;
 pub use menubar::*;
 pub use text_input::TextInput;

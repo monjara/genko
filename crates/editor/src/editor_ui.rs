@@ -1,10 +1,12 @@
 use gpui::{
-    App, BoxShadow, Entity, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Pixels, RenderOnce, StatefulInteractiveElement, Styled, Window, actions, div,
-    point, prelude::FluentBuilder, px, svg, white,
+    App, BoxShadow, Entity, Focusable, Hsla, InteractiveElement, IntoElement, ParentElement,
+    Pixels, RenderOnce, StatefulInteractiveElement, Styled, Window, actions, div, point,
+    prelude::FluentBuilder, px,
 };
 use theme::Theme;
-use ui::{TextInput, Tooltip};
+use ui::{
+    TextInput, Tooltip, menu_item, small_icon_button, toolbar_border_color, vertical_toolbar_button,
+};
 
 use crate::editor::{PageBreakMenuKind, PageBreakMenuRequest};
 
@@ -121,18 +123,10 @@ fn page_break_menu_item<Action>(
 where
     Action: gpui::Action + Clone + 'static,
 {
-    div()
-        .px_3()
-        .py_2()
-        .text_size(px(12.0))
-        .text_color(Theme::global(cx).text_primary())
-        .cursor_pointer()
-        .hover(|style| style.bg(white()))
-        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
-            window.dispatch_action(Box::new(action.clone()), cx);
-            cx.stop_propagation();
-        })
-        .child(label)
+    menu_item(label, cx).on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+        window.dispatch_action(Box::new(action.clone()), cx);
+        cx.stop_propagation();
+    })
 }
 
 #[derive(IntoElement)]
@@ -222,18 +216,7 @@ fn ruby_editor_button<Action>(
 where
     Action: gpui::Action + Clone + 'static,
 {
-    div()
-        .id(("ruby-editor-button", id_index))
-        .w(px(24.0))
-        .h(px(24.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_sm()
-        .text_color(Theme::global(cx).text_primary())
-        .bg(Theme::global(cx).bg_senodary())
-        .cursor_pointer()
-        .hover(|style| style.bg(white()))
+    small_icon_button(("ruby-editor-button", id_index), icon_path, cx)
         .tooltip(Tooltip::new(
             tooltip_title,
             shortcut.map(gpui::SharedString::from),
@@ -242,12 +225,6 @@ where
             window.dispatch_action(Box::new(action.clone()), cx);
             cx.stop_propagation();
         })
-        .child(
-            svg()
-                .external_path(icon_path)
-                .size_4()
-                .text_color(Theme::global(cx).text_primary()),
-        )
 }
 
 #[derive(IntoElement)]
@@ -310,38 +287,9 @@ where
     Action: gpui::Action + Clone + 'static,
 {
     let tooltip_action = action.clone();
-    div()
-        .id(("rich-text-toolbar-button", id_index))
-        .w(px(38.0))
-        .h(px(34.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(14.0))
-        .font_weight(FontWeight::BOLD)
-        .text_color(Theme::global(cx).black())
-        .border_b_1()
-        .border_color(toolbar_border_color(cx))
-        .cursor_pointer()
-        .hover(|style| style.bg(white()))
+    vertical_toolbar_button(("rich-text-toolbar-button", id_index), label, cx)
         .tooltip(Tooltip::for_action(tooltip_title, tooltip_action))
         .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
             window.dispatch_action(Box::new(action.clone()), cx);
         })
-        .child(label)
-}
-
-fn toolbar_border_color(cx: &App) -> gpui::Hsla {
-    mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.72).into()
-}
-
-fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {
-    let ratio = ratio.clamp(0.0, 1.0);
-    let inv = 1.0 - ratio;
-    gpui::Rgba {
-        r: left.r * inv + right.r * ratio,
-        g: left.g * inv + right.g * ratio,
-        b: left.b * inv + right.b * ratio,
-        a: left.a * inv + right.a * ratio,
-    }
 }

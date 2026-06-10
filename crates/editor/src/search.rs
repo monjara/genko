@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use gpui::{
-    App, BoxShadow, Entity, Focusable, IntoElement, InteractiveElement, ParentElement, RenderOnce,
+    App, BoxShadow, Entity, Focusable, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     Styled, Window, div, point, px, svg,
 };
 use theme::Theme;
@@ -86,7 +86,11 @@ impl SearchPanel {
         match_count: usize,
         current_match: Option<usize>,
     ) -> Self {
-        Self { input, match_count, current_match }
+        Self {
+            input,
+            match_count,
+            current_match,
+        }
     }
 }
 
@@ -116,7 +120,12 @@ impl RenderOnce for SearchPanel {
             .border_color(toolbar_border_color(cx))
             .rounded_md()
             .shadow(vec![BoxShadow {
-                color: gpui::Hsla { h: 0.0, s: 0.0, l: 0.0, a: 0.16 },
+                color: gpui::Hsla {
+                    h: 0.0,
+                    s: 0.0,
+                    l: 0.0,
+                    a: 0.16,
+                },
                 offset: point(px(0.0), px(8.0)),
                 blur_radius: px(18.0),
                 spread_radius: px(0.0),
@@ -124,11 +133,7 @@ impl RenderOnce for SearchPanel {
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
             })
-            .child(
-                div()
-                    .w(px(160.0))
-                    .child(self.input),
-            )
+            .child(div().w(px(160.0)).child(self.input))
             .child(
                 div()
                     .text_size(px(11.0))

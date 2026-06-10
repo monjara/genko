@@ -118,7 +118,11 @@ impl RopeNode {
         )
     }
 
-    pub(super) fn leaf(text: String, rows_per_column: usize, hanging_punctuation: bool) -> Box<Self> {
+    pub(super) fn leaf(
+        text: String,
+        rows_per_column: usize,
+        hanging_punctuation: bool,
+    ) -> Box<Self> {
         Self::leaf_text(
             RopeLeafText::Owned(text),
             rows_per_column,
@@ -265,7 +269,11 @@ impl RopeNode {
         }
     }
 
-    pub(super) fn refresh_cell_advances(&mut self, rows_per_column: usize, hanging_punctuation: bool) {
+    pub(super) fn refresh_cell_advances(
+        &mut self,
+        rows_per_column: usize,
+        hanging_punctuation: bool,
+    ) {
         match self {
             Self::Leaf {
                 text,

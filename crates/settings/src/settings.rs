@@ -9,6 +9,7 @@ use gpui::{
 use serde::{Deserialize, Serialize};
 use theme::{APP_FONT_FAMILY, Theme};
 use title_bar::{self as app_title_bar, TitleBar};
+use ui::{selectable_chip, square_button, toggle_button};
 
 pub fn open_settings_window(cx: &mut App) {
     let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
@@ -219,30 +220,7 @@ impl SettingsWindow {
         listener: fn(&mut SettingsWindow, &ClickEvent, &mut Window, &mut Context<Self>),
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        div()
-            .id(id)
-            .px_3()
-            .h(px(32.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_sm()
-            .border_1()
-            .border_color(Theme::global(cx).primary())
-            .bg(if active {
-                Theme::global(cx).primary()
-            } else {
-                Theme::global(cx).white()
-            })
-            .text_color(if active {
-                Theme::global(cx).white()
-            } else {
-                Theme::global(cx).text_primary()
-            })
-            .cursor_pointer()
-            .active(|this| this.opacity(0.85))
-            .child(label)
-            .on_click(cx.listener(listener))
+        selectable_chip(id, label, active, cx).on_click(cx.listener(listener))
     }
 
     fn render_toggle_row(
@@ -265,24 +243,7 @@ impl SettingsWindow {
         self.render_setting_row(
             title,
             description,
-            div()
-                .id(id)
-                .px_3()
-                .py_1()
-                .rounded_sm()
-                .bg(if enabled {
-                    Theme::global(cx).primary()
-                } else {
-                    Theme::global(cx).white()
-                })
-                .text_color(if enabled {
-                    Theme::global(cx).white()
-                } else {
-                    Theme::global(cx).primary()
-                })
-                .cursor_pointer()
-                .child(value_label)
-                .on_click(cx.listener(listener)),
+            toggle_button(id, value_label, enabled, cx).on_click(cx.listener(listener)),
             cx,
         )
     }
@@ -324,19 +285,7 @@ impl SettingsWindow {
                 .items_center()
                 .gap_2()
                 .child(
-                    div()
-                        .id("settings-cell-size-decrement")
-                        .w(px(32.0))
-                        .h(px(32.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_sm()
-                        .border_1()
-                        .border_color(Theme::global(cx).primary())
-                        .cursor_pointer()
-                        .active(|this| this.opacity(0.85))
-                        .child("-")
+                    square_button("settings-cell-size-decrement", "-", cx)
                         .on_click(cx.listener(Self::decrement_cell_size)),
                 )
                 .child(
@@ -351,19 +300,7 @@ impl SettingsWindow {
                         .child(format!("{}px", AppSettings::global(cx).cell_size)),
                 )
                 .child(
-                    div()
-                        .id("settings-cell-size-increment")
-                        .w(px(32.0))
-                        .h(px(32.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_sm()
-                        .border_1()
-                        .border_color(Theme::global(cx).primary())
-                        .cursor_pointer()
-                        .active(|this| this.opacity(0.85))
-                        .child("+")
+                    square_button("settings-cell-size-increment", "+", cx)
                         .on_click(cx.listener(Self::increment_cell_size)),
                 ),
             cx,

@@ -65,11 +65,10 @@ impl Theme {
         //       設定画面からテーマを選択できるようにする
         let json_str = include_str!("../themes/default.json");
 
-        let theme_json: ThemeJson = serde_json::from_str(json_str)
-            .unwrap_or_else(|err| {
-                eprintln!("Failed to parse default theme JSON: {err}");
-                ThemeJson::fallback()
-            });
+        let theme_json: ThemeJson = serde_json::from_str(json_str).unwrap_or_else(|err| {
+            eprintln!("Failed to parse default theme JSON: {err}");
+            ThemeJson::fallback()
+        });
 
         Self {
             primary: theme_json.primary,

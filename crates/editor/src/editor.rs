@@ -737,11 +737,16 @@ impl Editor {
         let new_matches = find_matches(&text, &query);
         let revision = self.draft_revision;
 
-        let Some(state) = &mut self.search_state else { return };
+        let Some(state) = &mut self.search_state else {
+            return;
+        };
         if let Some(idx) = state.current_match {
             if idx >= new_matches.len() {
-                state.current_match =
-                    if new_matches.is_empty() { None } else { Some(new_matches.len() - 1) };
+                state.current_match = if new_matches.is_empty() {
+                    None
+                } else {
+                    Some(new_matches.len() - 1)
+                };
             }
         }
         state.matches = new_matches;
@@ -751,8 +756,12 @@ impl Editor {
 
     pub fn find_next(&mut self, cx: &mut Context<Self>) {
         let (next_idx, range) = {
-            let Some(state) = &self.search_state else { return };
-            if state.matches.is_empty() { return; }
+            let Some(state) = &self.search_state else {
+                return;
+            };
+            if state.matches.is_empty() {
+                return;
+            }
             let next_idx = match state.current_match {
                 None => 0,
                 Some(idx) => (idx + 1) % state.matches.len(),
@@ -766,8 +775,12 @@ impl Editor {
 
     pub fn find_previous(&mut self, cx: &mut Context<Self>) {
         let (prev_idx, range) = {
-            let Some(state) = &self.search_state else { return };
-            if state.matches.is_empty() { return; }
+            let Some(state) = &self.search_state else {
+                return;
+            };
+            if state.matches.is_empty() {
+                return;
+            }
             let prev_idx = match state.current_match {
                 None | Some(0) => state.matches.len() - 1,
                 Some(idx) => idx - 1,

@@ -10,6 +10,7 @@ use gpui::{
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use theme::Theme;
+use ui::compact_menu_item;
 use url::{Url, form_urlencoded};
 
 const DEFAULT_SITE_URL: &str = match option_env!("SOUKOU_SITE_URL") {
@@ -440,40 +441,34 @@ impl TitleBarAccountControl {
                                 div()
                                     .mt_1()
                                     .child(
-                                        div()
-                                            .id("title-bar-account-settings")
-                                            .w_full()
-                                            .px_3()
-                                            .py_1p5()
-                                            .rounded_sm()
-                                            .text_size(px(12.0))
-                                            .text_color(text_color(cx))
-                                            .cursor_pointer()
-                                            .hover(move |style| style.bg(item_hover_background))
-                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                        compact_menu_item(
+                                            "title-bar-account-settings",
+                                            "アカウント設定",
+                                            item_hover_background,
+                                            cx,
+                                        )
+                                        .on_click(
+                                            cx.listener(move |this, _, window, cx| {
                                                 cx.stop_propagation();
                                                 this.close_menu(cx);
                                                 (actions.open_account_settings)(window, cx);
-                                            }))
-                                            .child("アカウント設定"),
+                                            }),
+                                        ),
                                     )
                                     .child(
-                                        div()
-                                            .id("title-bar-sign-out")
-                                            .w_full()
-                                            .px_3()
-                                            .py_1p5()
-                                            .rounded_sm()
-                                            .text_size(px(12.0))
-                                            .text_color(text_color(cx))
-                                            .cursor_pointer()
-                                            .hover(move |style| style.bg(item_hover_background))
-                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                        compact_menu_item(
+                                            "title-bar-sign-out",
+                                            "サインアウト",
+                                            item_hover_background,
+                                            cx,
+                                        )
+                                        .on_click(
+                                            cx.listener(move |this, _, window, cx| {
                                                 cx.stop_propagation();
                                                 this.close_menu(cx);
                                                 (actions.sign_out)(window, cx);
-                                            }))
-                                            .child("サインアウト"),
+                                            }),
+                                        ),
                                     ),
                             ),
                     ),

@@ -436,6 +436,7 @@ dependencies = [
  "serde",
  "serde_json",
  "theme",
+ "ui",
  "url",
 ]
 
@@ -5820,6 +5821,7 @@ dependencies = [
  "serde_json",
  "theme",
  "title_bar",
+ "ui",
  "xdg",
 ]
 

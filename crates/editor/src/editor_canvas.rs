@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, Element, ElementId, ElementInputHandler, Entity, Font, FontFeatures,
-    GlobalElementId, Hsla, IntoElement, LayoutId, Path, PathBuilder, Pixels, Radians,
-    ScaledPixels, Style, TextAlign, TextRun, TransformationMatrix, Window, fill, point, px, size,
+    GlobalElementId, Hsla, IntoElement, LayoutId, Path, PathBuilder, Pixels, Radians, ScaledPixels,
+    Style, TextAlign, TextRun, TransformationMatrix, Window, fill, point, px, size,
 };
 use rich_text::{RichTextDocumentMeta, RichTextKind, RichTextMark};
 use rope::CellText;
@@ -545,14 +545,17 @@ fn paint_search_matches(
     if all_matches.is_empty() {
         return;
     }
-    let Some(visible_start) = visible_text.first().map(|c| c.range.start) else { return };
-    let Some(visible_end) = visible_text.last().map(|c| c.range.end) else { return };
+    let Some(visible_start) = visible_text.first().map(|c| c.range.start) else {
+        return;
+    };
+    let Some(visible_end) = visible_text.last().map(|c| c.range.end) else {
+        return;
+    };
 
     // バイナリサーチで可視範囲に重なる最初のマッチを特定
     let first_relevant = all_matches.partition_point(|m| m.end <= visible_start);
     let visible_matches: &[Range<usize>] = {
-        let end =
-            all_matches[first_relevant..].partition_point(|m| m.start < visible_end);
+        let end = all_matches[first_relevant..].partition_point(|m| m.start < visible_end);
         &all_matches[first_relevant..first_relevant + end]
     };
 
@@ -561,13 +564,25 @@ fn paint_search_matches(
     }
 
     let primary = Theme::global(cx).primary();
-    let match_color: gpui::Hsla =
-        gpui::Rgba { r: primary.r, g: primary.g, b: primary.b, a: 0.35 }.into();
-    let current_color: gpui::Hsla =
-        gpui::Rgba { r: primary.r, g: primary.g, b: primary.b, a: 0.70 }.into();
+    let match_color: gpui::Hsla = gpui::Rgba {
+        r: primary.r,
+        g: primary.g,
+        b: primary.b,
+        a: 0.35,
+    }
+    .into();
+    let current_color: gpui::Hsla = gpui::Rgba {
+        r: primary.r,
+        g: primary.g,
+        b: primary.b,
+        a: 0.70,
+    }
+    .into();
 
     for cell_text in visible_text {
-        let is_any_match = visible_matches.iter().any(|m| ranges_overlap(&cell_text.range, m));
+        let is_any_match = visible_matches
+            .iter()
+            .any(|m| ranges_overlap(&cell_text.range, m));
         if !is_any_match {
             continue;
         }
@@ -586,9 +601,12 @@ fn paint_search_matches(
             continue;
         };
 
-        let is_current =
-            current_match.is_some_and(|mr| ranges_overlap(&cell_text.range, mr));
-        let color = if is_current { current_color } else { match_color };
+        let is_current = current_match.is_some_and(|mr| ranges_overlap(&cell_text.range, mr));
+        let color = if is_current {
+            current_color
+        } else {
+            match_color
+        };
         window.paint_quad(fill(cell_bounds, color));
     }
 }
@@ -884,8 +902,7 @@ fn paint_rotated_cell_text(
     let scale_factor = window.scale_factor();
     let cell_center_x =
         ScaledPixels((cell_bounds.left().as_f32() + cell_size / 2.0) * scale_factor);
-    let cell_center_y =
-        ScaledPixels((cell_bounds.top().as_f32() + cell_size / 2.0) * scale_factor);
+    let cell_center_y = ScaledPixels((cell_bounds.top().as_f32() + cell_size / 2.0) * scale_factor);
     let cell_center = gpui::Point::new(cell_center_x, cell_center_y);
     let neg_cell_center = gpui::Point::new(
         ScaledPixels(-cell_center_x.0),
@@ -1014,7 +1031,11 @@ fn partition_marks<'a>(
         }
     }
 
-    PartitionedMarks { style_marks, ruby_map, page_break_columns }
+    PartitionedMarks {
+        style_marks,
+        ruby_map,
+        page_break_columns,
+    }
 }
 
 fn prepare_cell_paint_data(

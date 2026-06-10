@@ -9,9 +9,9 @@ pub use editor::{Event, PageBreakMenuKind, PageBreakMenuRequest, RubyEditRequest
 pub use editor_controller::EditorController;
 pub use editor_ui::{
     ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
-    ApplyRubyEdit, CancelRubyEdit,
-    CloseSearch, FindNext, FindPrevious, OpenSearch, PageBreakMenu, RemovePageBreakColumn,
-    RichTextToolbar, RubyEditorPopover, SetPageBreakLeftOfColumn, SetPageBreakRightOfColumn,
+    ApplyRubyEdit, CancelRubyEdit, CloseSearch, FindNext, FindPrevious, OpenSearch, PageBreakMenu,
+    RemovePageBreakColumn, RichTextToolbar, RubyEditorPopover, SetPageBreakLeftOfColumn,
+    SetPageBreakRightOfColumn,
 };
 pub use vim::{VimCommandQuit, VimCommandWrite, VimController, VimMode, VimModeLabel, VimState};
 

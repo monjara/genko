@@ -3,10 +3,10 @@ use gpui::{
     RenderOnce, Styled, Window, div, point, prelude::FluentBuilder, px, svg,
 };
 use theme::Theme;
-use ui::TextInput;
+use ui::{TextInput, primary_button, secondary_button};
 
-use crate::{ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm, OpenModalPrimary};
 use super::{mix, toolbar_border_color};
+use crate::{ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm, OpenModalPrimary};
 
 const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
 
@@ -195,37 +195,20 @@ impl RenderOnce for ActiveModal {
                             .justify_end()
                             .gap_2()
                             .when_some(self.secondary_label, |this, label| {
-                                this.child(
-                                    div()
-                                        .px_4()
-                                        .py_2()
-                                        .rounded_sm()
-                                        .border_1()
-                                        .border_color(toolbar_border_color(cx))
-                                        .cursor_pointer()
-                                        .hover(|style| style.bg(gpui::rgb(0xf4f5f6)))
-                                        .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
-                                            window
-                                                .dispatch_action(Box::new(DismissActiveModal), cx);
-                                        })
-                                        .child(label),
-                                )
+                                this.child(secondary_button(label, cx).on_mouse_down(
+                                    gpui::MouseButton::Left,
+                                    |_, window, cx| {
+                                        window.dispatch_action(Box::new(DismissActiveModal), cx);
+                                    },
+                                ))
                             })
                             .when_some(self.primary_label, |this, label| {
-                                this.child(
-                                    div()
-                                        .px_4()
-                                        .py_2()
-                                        .rounded_sm()
-                                        .bg(Theme::global(cx).primary())
-                                        .text_color(Theme::global(cx).white())
-                                        .cursor_pointer()
-                                        .hover(|style| style.opacity(0.92))
-                                        .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
-                                            window.dispatch_action(Box::new(OpenModalPrimary), cx);
-                                        })
-                                        .child(label),
-                                )
+                                this.child(primary_button(label, cx).on_mouse_down(
+                                    gpui::MouseButton::Left,
+                                    |_, window, cx| {
+                                        window.dispatch_action(Box::new(OpenModalPrimary), cx);
+                                    },
+                                ))
                             }),
                     ),
             )
@@ -311,34 +294,18 @@ impl RenderOnce for EpubMetaFormOverlay {
                             .flex()
                             .justify_end()
                             .gap_2()
-                            .child(
-                                div()
-                                    .px_4()
-                                    .py_2()
-                                    .rounded_sm()
-                                    .border_1()
-                                    .border_color(toolbar_border_color(cx))
-                                    .cursor_pointer()
-                                    .hover(|style| style.bg(gpui::rgb(0xf4f5f6)))
-                                    .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
-                                        window.dispatch_action(Box::new(DismissEpubMetaForm), cx);
-                                    })
-                                    .child("キャンセル"),
-                            )
-                            .child(
-                                div()
-                                    .px_4()
-                                    .py_2()
-                                    .rounded_sm()
-                                    .bg(Theme::global(cx).primary())
-                                    .text_color(Theme::global(cx).white())
-                                    .cursor_pointer()
-                                    .hover(|style| style.opacity(0.92))
-                                    .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
-                                        window.dispatch_action(Box::new(ConfirmEpubMeta), cx);
-                                    })
-                                    .child("書き出し"),
-                            ),
+                            .child(secondary_button("キャンセル", cx).on_mouse_down(
+                                gpui::MouseButton::Left,
+                                |_, window, cx| {
+                                    window.dispatch_action(Box::new(DismissEpubMetaForm), cx);
+                                },
+                            ))
+                            .child(primary_button("書き出し", cx).on_mouse_down(
+                                gpui::MouseButton::Left,
+                                |_, window, cx| {
+                                    window.dispatch_action(Box::new(ConfirmEpubMeta), cx);
+                                },
+                            )),
                     ),
             )
     }

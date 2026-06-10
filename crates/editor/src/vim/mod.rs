@@ -8,10 +8,10 @@ use gpui::{
     InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Subscription, Window,
     actions, div, prelude::FluentBuilder,
 };
-use ui::TextInput;
 use rich_text::{RichTextDocumentMeta, RichTextKind};
 use rope::BLANK_CELL;
 use settings::AppSettings;
+use ui::TextInput;
 
 pub(crate) mod block;
 pub(crate) mod state;
@@ -894,7 +894,10 @@ impl VimController {
                 editor.update_search_query(&query, cx);
             });
         });
-        self.search_input = Some(SearchInput { entity: input, _text_subscription });
+        self.search_input = Some(SearchInput {
+            entity: input,
+            _text_subscription,
+        });
         self.editor.update(cx, |editor, cx| {
             editor.open_search(cx);
         });
