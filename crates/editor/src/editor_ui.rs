@@ -87,6 +87,7 @@ impl RenderOnce for PageBreakMenu {
                 offset: point(px(0.0), px(8.0)),
                 blur_radius: px(18.0),
                 spread_radius: px(0.0),
+                inset: false,
             }])
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
@@ -178,6 +179,7 @@ impl RenderOnce for RubyEditorPopover {
                 offset: point(px(0.0), px(8.0)),
                 blur_radius: px(20.0),
                 spread_radius: px(0.0),
+                inset: false,
             }])
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
@@ -269,6 +271,7 @@ impl RenderOnce for RichTextToolbar {
                 offset: point(px(0.0), px(8.0)),
                 blur_radius: px(22.0),
                 spread_radius: px(0.0),
+                inset: false,
             }])
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();

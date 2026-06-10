@@ -113,6 +113,7 @@ fn client_window_shadow() -> Vec<BoxShadow> {
         offset: point(px(0.0), px(0.0)),
         blur_radius: CLIENT_SIDE_SHADOW_SIZE / 2.0,
         spread_radius: px(0.0),
+        inset: false,
     }]
 }
 

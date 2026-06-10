@@ -138,6 +138,7 @@ impl RenderOnce for ActiveModal {
                         offset: point(px(0.0), px(18.0)),
                         blur_radius: px(42.0),
                         spread_radius: px(0.0),
+                        inset: false,
                     }])
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
@@ -271,6 +272,7 @@ impl RenderOnce for EpubMetaFormOverlay {
                         offset: point(px(0.0), px(18.0)),
                         blur_radius: px(42.0),
                         spread_radius: px(0.0),
+                        inset: false,
                     }])
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();

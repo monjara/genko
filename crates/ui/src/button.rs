@@ -1,6 +1,6 @@
 use gpui::{
-    div, px, svg, white, App, Div, ElementId, InteractiveElement, IntoElement, ParentElement,
-    Stateful, StatefulInteractiveElement, Styled,
+    App, Div, ElementId, InteractiveElement, IntoElement, ParentElement, Stateful,
+    StatefulInteractiveElement, Styled, div, px, svg, white,
 };
 use theme::Theme;
 

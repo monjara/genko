@@ -129,6 +129,7 @@ impl RenderOnce for SearchPanel {
                 offset: point(px(0.0), px(8.0)),
                 blur_radius: px(18.0),
                 spread_radius: px(0.0),
+                inset: false,
             }])
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                 cx.stop_propagation();
