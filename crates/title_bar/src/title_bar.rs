@@ -267,7 +267,6 @@ impl TitleBar {
             .bg(background)
             .border_b_1()
             .border_color(border_color(cx))
-            .window_control_area(WindowControlArea::Drag)
             .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
                 window.start_window_move();
             })

@@ -385,6 +385,7 @@ impl VimController {
         self.page_break_menu = None;
         let input = cx.new(TextInput::new);
         input.update(cx, |input, cx| {
+            input.set_key_context("SoukouTextInput ruby_editor", cx);
             input.set_placeholder("ルビ", cx);
             input.set_text(request.text.as_str(), cx);
             input.set_vertical(true, cx);
