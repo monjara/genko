@@ -163,9 +163,6 @@ impl TitleBar {
         #[cfg(any(target_os = "linux", target_os = "freebsd"))] cx: &mut Context<Self>,
         #[cfg(not(any(target_os = "linux", target_os = "freebsd")))] _cx: &mut Context<Self>,
     ) -> Self {
-        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
-        let _ = title;
-
         Self {
             account_control,
             #[cfg(any(target_os = "linux", target_os = "freebsd"))]
