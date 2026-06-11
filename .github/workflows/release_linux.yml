@@ -79,7 +79,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: soukou-${{ matrix.target }}.tar.gz
-          path: target/${{ matrix.target }}/release/草稿-linux-*.tar.gz
+          path: target/${{ matrix.target }}/release/soukou-linux-*.tar.gz
           if-no-files-found: error
 
       - name: Upload Linux archive to GitHub Release
@@ -90,4 +90,4 @@ jobs:
           token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           tag_name: ${{ github.ref_name }}
           target_commitish: main
-          files: target/${{ matrix.target }}/release/草稿-linux-*.tar.gz
+          files: target/${{ matrix.target }}/release/soukou-linux-*.tar.gz

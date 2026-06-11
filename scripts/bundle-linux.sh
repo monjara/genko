@@ -17,7 +17,7 @@ case "$target_triple" in
     ;;
 esac
 
-archive_root="草稿-linux-${archive_arch}"
+archive_root="soukou-linux-${archive_arch}"
 bundle_directory="target/${target_triple}/release/${archive_root}"
 archive_path="target/${target_triple}/release/${archive_root}.tar.gz"
 binary_path="target/${target_triple}/release/soukou"
