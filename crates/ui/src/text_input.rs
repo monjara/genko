@@ -66,6 +66,7 @@ pub fn init(cx: &mut App) {
 
 pub struct TextInput {
     focus_handle: FocusHandle,
+    key_context: SharedString,
     content: SharedString,
     placeholder: SharedString,
     selected_range: Range<usize>,
@@ -82,6 +83,7 @@ impl TextInput {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
+            key_context: "SoukouTextInput".into(),
             content: SharedString::new(""),
             placeholder: SharedString::new(""),
             selected_range: 0..0,
@@ -117,6 +119,15 @@ impl TextInput {
         self.vertical = vertical;
         self.last_layout = None;
         self.last_vertical_advance = None;
+        cx.notify();
+    }
+
+    pub fn set_key_context(
+        &mut self,
+        key_context: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        self.key_context = key_context.into();
         cx.notify();
     }
 
@@ -782,7 +793,7 @@ impl Render for TextInput {
         div()
             .flex()
             .w_full()
-            .key_context("SoukouTextInput")
+            .key_context(self.key_context.as_ref())
             .track_focus(&self.focus_handle(cx))
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::backspace))
