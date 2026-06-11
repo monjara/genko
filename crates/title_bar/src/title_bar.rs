@@ -268,6 +268,9 @@ impl TitleBar {
             .border_b_1()
             .border_color(border_color(cx))
             .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+                window.start_window_move();
+            })
             .on_click(|event: &ClickEvent, window, _| {
                 if event.click_count() == 2 {
                     window.titlebar_double_click();
