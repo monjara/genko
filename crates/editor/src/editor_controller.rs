@@ -6,6 +6,7 @@ use gpui::{
 };
 use rich_text::RichTextDocumentMeta;
 
+use crate::editor::{PlainTextLoadSettings, PreparedPlainText};
 use crate::vim::VimController;
 
 pub struct EditorController {
@@ -21,6 +22,20 @@ impl EditorController {
     pub fn load_plain_text(&mut self, text: &str, cx: &mut Context<Self>) {
         self.vim_controller
             .update(cx, |vim_controller, cx| vim_controller.load_text(text, cx));
+    }
+
+    pub fn plain_text_load_settings(&self, cx: &App) -> PlainTextLoadSettings {
+        self.vim_controller.read(cx).plain_text_load_settings(cx)
+    }
+
+    pub fn load_prepared_plain_text(
+        &mut self,
+        prepared: PreparedPlainText,
+        cx: &mut Context<Self>,
+    ) {
+        self.vim_controller.update(cx, |vim_controller, cx| {
+            vim_controller.load_prepared_text(prepared, cx);
+        });
     }
 
     pub fn snapshot_text(&self, cx: &App) -> String {

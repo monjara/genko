@@ -20,7 +20,9 @@ use document::{
         current_directory_or_fallback, suggested_file_name, suggested_save_directory,
     },
 };
-use editor::{EditorController, RichTextToolbar, VimCommandQuit, VimCommandWrite};
+use editor::{
+    EditorController, PreparedPlainText, RichTextToolbar, VimCommandQuit, VimCommandWrite,
+};
 use gpui::{
     AnyWindowHandle, App, AppContext, Context, Entity, ExternalPaths, FocusHandle, Focusable,
     FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderOnce, Styled,
@@ -715,12 +717,12 @@ impl SoukouApp {
     fn load_plain_document(
         &mut self,
         path: PathBuf,
-        text: &str,
+        prepared_text: PreparedPlainText,
         rich_text_meta: RichTextDocumentMeta,
         cx: &mut Context<Self>,
     ) {
         self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.load_plain_text(text, cx);
+            editor_controller.load_prepared_plain_text(prepared_text, cx);
             editor_controller.set_rich_text_meta(rich_text_meta, cx);
         });
         self.active_document.set_path(path);
@@ -733,24 +735,24 @@ impl SoukouApp {
     fn open_workspace_plain_document(
         &mut self,
         path: PathBuf,
-        text: &str,
+        prepared_text: PreparedPlainText,
         rich_text_meta: RichTextDocumentMeta,
         cx: &mut Context<Self>,
     ) {
         WorkspaceState::global_mut(cx).open_file(path.clone());
-        self.load_plain_document(path, text, rich_text_meta, cx);
+        self.load_plain_document(path, prepared_text, rich_text_meta, cx);
         self.notify_workspace(cx);
     }
 
     fn open_standalone_plain_document(
         &mut self,
         path: PathBuf,
-        text: &str,
+        prepared_text: PreparedPlainText,
         rich_text_meta: RichTextDocumentMeta,
         cx: &mut Context<Self>,
     ) {
         WorkspaceState::global_mut(cx).open_file_without_root(path.clone());
-        self.load_plain_document(path, text, rich_text_meta, cx);
+        self.load_plain_document(path, prepared_text, rich_text_meta, cx);
         self.notify_workspace(cx);
     }
 
@@ -821,22 +823,36 @@ impl SoukouApp {
         preserve_workspace: bool,
         cx: &mut Context<Self>,
     ) {
+        let plain_text_load_settings = self.editor_controller.read(cx).plain_text_load_settings(cx);
         cx.spawn(async move |this, cx| {
             let path_for_read = path.clone();
             let result = cx
-                .background_spawn(async move { read_plain_document_assets(path_for_read) })
+                .background_spawn(async move {
+                    read_plain_document_assets(path_for_read).map(|(path, text, rich_text_meta)| {
+                        (
+                            path,
+                            PreparedPlainText::new(text, plain_text_load_settings),
+                            rich_text_meta,
+                        )
+                    })
+                })
                 .await;
 
             match result {
-                Ok((path, text, rich_text_meta)) => {
+                Ok((path, prepared_text, rich_text_meta)) => {
                     if let Err(error) = this.update(cx, |this, cx| match document_kind {
                         DocumentKind::PlainText => {
                             if preserve_workspace {
-                                this.open_workspace_plain_document(path, &text, rich_text_meta, cx);
+                                this.open_workspace_plain_document(
+                                    path,
+                                    prepared_text,
+                                    rich_text_meta,
+                                    cx,
+                                );
                             } else {
                                 this.open_standalone_plain_document(
                                     path,
-                                    &text,
+                                    prepared_text,
                                     rich_text_meta,
                                     cx,
                                 );

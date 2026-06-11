@@ -5,7 +5,10 @@ mod editor_ui;
 mod search;
 pub mod vim;
 
-pub use editor::{Event, PageBreakMenuKind, PageBreakMenuRequest, RubyEditRequest};
+pub use editor::{
+    Event, PageBreakMenuKind, PageBreakMenuRequest, PlainTextLoadSettings, PreparedPlainText,
+    RubyEditRequest,
+};
 pub use editor_controller::EditorController;
 pub use editor_ui::{
     ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,

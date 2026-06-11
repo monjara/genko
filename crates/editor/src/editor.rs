@@ -180,6 +180,25 @@ struct VisibleTextCache {
     cells: Arc<[CellText]>,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct PlainTextLoadSettings {
+    rows_per_column: usize,
+    hanging_punctuation: bool,
+}
+
+pub struct PreparedPlainText {
+    text: String,
+    draft: TextRope,
+}
+
+impl PreparedPlainText {
+    pub fn new(text: String, settings: PlainTextLoadSettings) -> Self {
+        let mut draft = TextRope::from_str_with_rows(&text, settings.rows_per_column);
+        draft.set_hanging_punctuation(settings.hanging_punctuation);
+        Self { text, draft }
+    }
+}
+
 pub(crate) struct Editor {
     pub(crate) draft: TextRope,
     pub(crate) draft_revision: u64,
@@ -301,6 +320,13 @@ impl Editor {
 
     pub(crate) fn rich_text_meta(&self) -> &RichTextDocumentMeta {
         &self.rich_text_meta
+    }
+
+    pub fn plain_text_load_settings(&self) -> PlainTextLoadSettings {
+        PlainTextLoadSettings {
+            rows_per_column: self.rows_per_column,
+            hanging_punctuation: self.draft.hanging_punctuation(),
+        }
     }
 
     pub fn rich_text_meta_snapshot(&self) -> RichTextDocumentMeta {
@@ -812,17 +838,17 @@ impl Editor {
     }
 
     pub fn load_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        let rows_per_column = self.rows_per_column;
-        let hanging_punctuation = self.draft.hanging_punctuation();
-        let mut draft = TextRope::from_str_with_rows(text, rows_per_column);
-        draft.set_hanging_punctuation(hanging_punctuation);
+        let prepared = PreparedPlainText::new(text.to_string(), self.plain_text_load_settings());
+        self.load_prepared_text(prepared, cx);
+    }
 
-        self.draft = draft;
+    pub fn load_prepared_text(&mut self, prepared: PreparedPlainText, cx: &mut Context<Self>) {
+        self.draft = prepared.draft;
         self.bump_draft_revision();
         self.history = EditorHistory::default();
         self.last_applied_edit_batch = None;
         self.rich_text_synced_revision = self.draft_revision;
-        self.rich_text_synced_text = self.snapshot_text();
+        self.rich_text_synced_text = prepared.text;
         self.scroll_column = 0;
         self.scroll_row = 0;
         self.scroll_remainder_columns = 0.0;

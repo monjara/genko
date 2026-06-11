@@ -2,7 +2,9 @@ use std::ops::Range;
 
 use crate::editor::command_types::{MotionKind, PastePosition, TextObjectTarget};
 use crate::editor::motions::MotionRangeBehavior;
-use crate::editor::{Editor, Event, PageBreakMenuRequest, RubyEditRequest};
+use crate::editor::{
+    Editor, Event, PageBreakMenuRequest, PlainTextLoadSettings, PreparedPlainText, RubyEditRequest,
+};
 use gpui::{
     App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable,
     InteractiveElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Subscription, Window,
@@ -166,6 +168,17 @@ impl VimController {
         self.page_break_menu = None;
         self.editor
             .update(cx, |editor, cx| editor.load_text(text, cx));
+    }
+
+    pub fn load_prepared_text(&mut self, prepared: PreparedPlainText, cx: &mut Context<Self>) {
+        self.ruby_editor = None;
+        self.page_break_menu = None;
+        self.editor
+            .update(cx, |editor, cx| editor.load_prepared_text(prepared, cx));
+    }
+
+    pub fn plain_text_load_settings(&self, cx: &App) -> PlainTextLoadSettings {
+        self.editor.read(cx).plain_text_load_settings()
     }
 
     pub fn snapshot_text(&self, cx: &App) -> String {
