@@ -15,6 +15,7 @@ members = [
   "crates/settings",
   "crates/soukou",
   "crates/theme",
+  "crates/tiny_segmenter",
   "crates/title_bar",
   "crates/ui",
   "crates/workspace"
@@ -60,6 +61,7 @@ rich_text = { path = "crates/rich_text" }
 rope = { path = "crates/rope" }
 settings = { path = "crates/settings" }
 theme = { path = "crates/theme" }
+tiny_segmenter = { path = "crates/tiny_segmenter" }
 title_bar = { path = "crates/title_bar" }
 ui = { path = "crates/ui" }
 workspace = { path = "crates/workspace" }

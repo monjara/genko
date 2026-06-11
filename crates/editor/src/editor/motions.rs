@@ -1,16 +1,9 @@
 use std::ops::Range;
-use std::sync::OnceLock;
 
-use env::lindera_dictinary_path;
-use lindera::dictionary::{Dictionary, load_dictionary};
-use lindera::mode::Mode;
-use lindera::segmenter::Segmenter;
-use lindera::tokenizer::Tokenizer;
 use rope::TextRope;
+use tiny_segmenter::segment_ranges;
 
 use super::command_types::{MotionKind, TextObjectModifier, TextObjectTarget};
-
-static JAPANESE_TOKENIZER: OnceLock<Result<Tokenizer, String>> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MotionRangeBehavior {
@@ -26,7 +19,7 @@ pub(crate) fn resolve_text_object_range(
 ) -> Option<Range<usize>> {
     match target {
         TextObjectTarget::Word => {
-            let (start, end) = find_japanese_word_range(rope, cursor_byte_offset)
+            let (start, end) = find_tiny_segmenter_word_range(rope, cursor_byte_offset)
                 .or_else(|| find_word_range(rope, cursor_byte_offset, is_word_char))?;
             Some(match modifier {
                 TextObjectModifier::Inner => start..end,
@@ -87,11 +80,11 @@ pub(crate) fn resolve_motion_range(
         | MotionKind::BigWordBackward => {
             if behavior == MotionRangeBehavior::Change {
                 let target = match motion {
-                    MotionKind::WordForward => find_japanese_word_range(rope, start)
-                        .map(|(_, end)| end)
-                        .or_else(|| find_word_range(rope, start, is_word_char).map(|(_, end)| end)),
+                    MotionKind::WordForward => find_tiny_segmenter_word_range(rope, start)
+                        .or_else(|| find_near_word_range(rope, start, false))
+                        .map(|(_, end)| end),
                     MotionKind::BigWordForward => {
-                        find_word_range(rope, start, |ch| !ch.is_whitespace()).map(|(_, end)| end)
+                        find_near_word_range(rope, start, true).map(|(_, end)| end)
                     }
                     MotionKind::WordBackward | MotionKind::BigWordBackward => {
                         resolve_motion_target(rope, start, motion)
@@ -122,29 +115,28 @@ fn resolve_forward_word_start(
         return None;
     }
 
-    let ranges = token_ranges_for_target(
-        rope,
-        if cursor_byte_offset < rope.len_bytes() {
-            cursor_byte_offset
-        } else {
-            rope.previous_char_boundary(rope.len_bytes())
-        },
-        if big_word {
-            TextObjectTarget::BigWord
-        } else {
-            TextObjectTarget::Word
-        },
-    )?;
-
-    let current = current_token_index(&ranges, cursor_byte_offset);
-    if let Some(index) = current {
-        return ranges.get(index + 1).map(|range| range.start);
+    let mut offset = rope.floor_char_boundary(cursor_byte_offset.min(rope.len_bytes()));
+    if offset >= rope.len_bytes() {
+        offset = rope.previous_char_boundary(rope.len_bytes());
     }
 
-    ranges
-        .iter()
-        .find(|range| range.start >= cursor_byte_offset)
-        .map(|range| range.start)
+    if !big_word && let Some(target) = find_tiny_segmenter_forward_word_start(rope, offset) {
+        return Some(target);
+    }
+
+    let mut previous_character = rope.char_at(offset)?;
+    offset = rope.next_char_boundary(offset);
+
+    while offset < rope.len_bytes() {
+        let character = rope.char_at(offset)?;
+        if is_word_start_boundary(previous_character, character, big_word) {
+            return Some(offset);
+        }
+        previous_character = character;
+        offset = rope.next_char_boundary(offset);
+    }
+
+    None
 }
 
 fn resolve_forward_word_end(rope: &TextRope, cursor_byte_offset: usize) -> Option<usize> {
@@ -152,31 +144,30 @@ fn resolve_forward_word_end(rope: &TextRope, cursor_byte_offset: usize) -> Optio
         return None;
     }
 
-    let ranges = token_ranges_for_target(
-        rope,
-        if cursor_byte_offset < rope.len_bytes() {
-            cursor_byte_offset
-        } else {
-            rope.previous_char_boundary(rope.len_bytes())
-        },
-        TextObjectTarget::Word,
-    )?;
-
-    let current = current_token_index(&ranges, cursor_byte_offset);
-    if let Some(index) = current {
-        let range = &ranges[index];
-        if cursor_byte_offset < range.end.saturating_sub(1) {
-            return Some(rope.previous_char_boundary(range.end));
-        }
-        return ranges
-            .get(index + 1)
-            .map(|range| rope.previous_char_boundary(range.end));
+    let start = rope.floor_char_boundary(cursor_byte_offset.min(rope.len_bytes()));
+    if let Some(target) = find_tiny_segmenter_forward_word_end(rope, start) {
+        return Some(target);
     }
 
-    ranges
-        .iter()
-        .find(|range| range.start >= cursor_byte_offset)
-        .map(|range| rope.previous_char_boundary(range.end))
+    let mut offset = rope.next_char_boundary(start);
+    if offset >= rope.len_bytes() {
+        return Some(rope.previous_char_boundary(rope.len_bytes()));
+    }
+
+    let mut previous_offset = rope.previous_char_boundary(offset);
+    let mut previous_character = rope.char_at(previous_offset)?;
+
+    while offset < rope.len_bytes() {
+        let character = rope.char_at(offset)?;
+        if is_word_end_boundary(previous_character, character, false) {
+            return Some(previous_offset);
+        }
+        previous_offset = offset;
+        previous_character = character;
+        offset = rope.next_char_boundary(offset);
+    }
+
+    Some(rope.previous_char_boundary(rope.len_bytes()))
 }
 
 fn resolve_backward_word_start(
@@ -188,89 +179,272 @@ fn resolve_backward_word_start(
         return None;
     }
 
-    let ranges = token_ranges_for_target(
-        rope,
-        if cursor_byte_offset < rope.len_bytes() {
-            cursor_byte_offset
-        } else {
-            rope.previous_char_boundary(rope.len_bytes())
-        },
-        if big_word {
-            TextObjectTarget::BigWord
-        } else {
-            TextObjectTarget::Word
-        },
-    )?;
-
-    if let Some(index) = current_token_index(&ranges, cursor_byte_offset) {
-        let range = &ranges[index];
-        if cursor_byte_offset > range.start {
-            return Some(range.start);
-        }
-        return index
-            .checked_sub(1)
-            .map(|previous_index| ranges[previous_index].start);
+    let cursor = rope.floor_char_boundary(cursor_byte_offset.min(rope.len_bytes()));
+    if cursor == 0 {
+        return None;
     }
 
-    ranges
-        .iter()
-        .rev()
-        .find(|range| range.start < cursor_byte_offset)
-        .map(|range| range.start)
+    if !big_word && let Some(target) = find_tiny_segmenter_backward_word_start(rope, cursor) {
+        return Some(target);
+    }
+
+    let mut right_offset = rope.previous_char_boundary(cursor);
+    let mut right_character = rope.char_at(right_offset)?;
+
+    while right_offset > 0 {
+        let left_offset = rope.previous_char_boundary(right_offset);
+        let left_character = rope.char_at(left_offset)?;
+        if is_word_start_boundary(left_character, right_character, big_word) {
+            return Some(right_offset);
+        }
+        right_offset = left_offset;
+        right_character = left_character;
+    }
+
+    Some(0)
 }
 
-fn token_ranges_for_target(
+fn find_near_word_range(
     rope: &TextRope,
     cursor_byte_offset: usize,
-    target: TextObjectTarget,
-) -> Option<Vec<Range<usize>>> {
-    match target {
-        TextObjectTarget::Word => japanese_token_ranges(rope)
-            .or_else(|| word_ranges(rope, is_word_char))
-            .filter(|ranges| !ranges.is_empty())
-            .or_else(|| {
-                let _ = cursor_byte_offset;
-                None
-            }),
-        TextObjectTarget::BigWord => word_ranges(rope, |ch| !ch.is_whitespace()),
-        _ => None,
-    }
-}
-
-fn japanese_token_ranges(rope: &TextRope) -> Option<Vec<Range<usize>>> {
-    if !contains_non_ascii(rope) {
-        return None;
-    }
-
-    let tokenizer = japanese_tokenizer()?;
-    let text = rope.to_string();
-    let tokens = tokenizer.tokenize(&text).ok()?;
-    if tokens.is_empty() {
-        return None;
-    }
-
-    let mut ranges = Vec::with_capacity(tokens.len());
-    let mut offset = 0usize;
-    for token in tokens {
-        let surface = token.surface.as_ref();
-        let relative_start = text[offset..].find(surface)?;
-        let start = offset + relative_start;
-        let end = start + surface.len();
-        ranges.push(start..end);
-        offset = end;
-    }
-    Some(ranges)
-}
-
-fn contains_non_ascii(rope: &TextRope) -> bool {
-    let mut offset = 0;
-    while let Some(ch) = rope.char_at(offset) {
-        if !ch.is_ascii() {
-            return true;
+    ignore_punctuation: bool,
+) -> Option<(usize, usize)> {
+    let mut start = rope.floor_char_boundary(cursor_byte_offset.min(rope.len_bytes()));
+    while start < rope.len_bytes() {
+        let character = rope.char_at(start)?;
+        if character_kind(character, ignore_punctuation) != CharacterKind::Whitespace {
+            break;
         }
-        offset = rope.next_char_boundary(offset);
+        start = rope.next_char_boundary(start);
     }
-    false
+
+    if start >= rope.len_bytes() {
+        return None;
+    }
+
+    let target_kind = character_kind(rope.char_at(start)?, ignore_punctuation);
+    while start > 0 {
+        let previous = rope.previous_char_boundary(start);
+        let Some(character) = rope.char_at(previous) else {
+            break;
+        };
+        if character_kind(character, ignore_punctuation) != target_kind {
+            break;
+        }
+        start = previous;
+    }
+
+    let mut end = rope.next_char_boundary(start);
+    while end < rope.len_bytes() {
+        let Some(character) = rope.char_at(end) else {
+            break;
+        };
+        if character_kind(character, ignore_punctuation) != target_kind {
+            break;
+        }
+        end = rope.next_char_boundary(end);
+    }
+
+    Some((start, end))
+}
+
+const TINY_SEGMENTER_CONTEXT_CHARS: usize = 12;
+const TINY_SEGMENTER_TRUST_MARGIN_BYTES: usize = 4;
+const TINY_SEGMENTER_WINDOW_CHARS: [usize; 3] = [32, 96, 256];
+
+struct SegmentWindow {
+    start: usize,
+    cursor: usize,
+    end: usize,
+    text: String,
+}
+
+fn find_tiny_segmenter_forward_word_start(
+    rope: &TextRope,
+    cursor_byte_offset: usize,
+) -> Option<usize> {
+    for after_chars in TINY_SEGMENTER_WINDOW_CHARS {
+        let window = segment_window(
+            rope,
+            cursor_byte_offset,
+            TINY_SEGMENTER_CONTEXT_CHARS,
+            after_chars,
+        );
+        if !has_tiny_segmenter_context(&window.text) {
+            return None;
+        }
+
+        for range in segment_ranges(&window.text) {
+            if !is_tiny_segmenter_word(&window.text[range.clone()]) {
+                continue;
+            }
+            if range.start <= window.cursor {
+                continue;
+            }
+            if window.end < rope.len_bytes()
+                && window.text.len().saturating_sub(range.start)
+                    <= TINY_SEGMENTER_TRUST_MARGIN_BYTES
+            {
+                continue;
+            }
+            return Some(window.start + range.start);
+        }
+    }
+
+    None
+}
+
+fn find_tiny_segmenter_forward_word_end(
+    rope: &TextRope,
+    cursor_byte_offset: usize,
+) -> Option<usize> {
+    for after_chars in TINY_SEGMENTER_WINDOW_CHARS {
+        let window = segment_window(
+            rope,
+            cursor_byte_offset,
+            TINY_SEGMENTER_CONTEXT_CHARS,
+            after_chars,
+        );
+        if !has_tiny_segmenter_context(&window.text) {
+            return None;
+        }
+
+        for range in segment_ranges(&window.text) {
+            if !is_tiny_segmenter_word(&window.text[range.clone()]) {
+                continue;
+            }
+            let segment_end = window.start + range.end;
+            let target = rope.previous_char_boundary(segment_end);
+            if target <= cursor_byte_offset {
+                continue;
+            }
+            if window.end < rope.len_bytes()
+                && window.text.len().saturating_sub(range.end) <= TINY_SEGMENTER_TRUST_MARGIN_BYTES
+            {
+                continue;
+            }
+            return Some(target);
+        }
+    }
+
+    None
+}
+
+fn find_tiny_segmenter_backward_word_start(
+    rope: &TextRope,
+    cursor_byte_offset: usize,
+) -> Option<usize> {
+    for before_chars in TINY_SEGMENTER_WINDOW_CHARS {
+        let window = segment_window(
+            rope,
+            cursor_byte_offset,
+            before_chars,
+            TINY_SEGMENTER_CONTEXT_CHARS,
+        );
+        if !has_tiny_segmenter_context(&window.text) {
+            return None;
+        }
+
+        let mut candidate = None;
+        for range in segment_ranges(&window.text) {
+            if !is_tiny_segmenter_word(&window.text[range.clone()]) {
+                continue;
+            }
+            if range.start < window.cursor {
+                candidate = Some(range.start);
+            }
+        }
+
+        if let Some(start) = candidate {
+            if window.start > 0 && start <= TINY_SEGMENTER_TRUST_MARGIN_BYTES {
+                continue;
+            }
+            return Some(window.start + start);
+        }
+    }
+
+    None
+}
+
+fn find_tiny_segmenter_word_range(
+    rope: &TextRope,
+    cursor_byte_offset: usize,
+) -> Option<(usize, usize)> {
+    for window_chars in TINY_SEGMENTER_WINDOW_CHARS {
+        let window = segment_window(rope, cursor_byte_offset, window_chars, window_chars);
+        if !has_tiny_segmenter_context(&window.text) {
+            return None;
+        }
+
+        for range in segment_ranges(&window.text) {
+            if !is_tiny_segmenter_word(&window.text[range.clone()]) {
+                continue;
+            }
+            if range.start <= window.cursor && window.cursor < range.end
+                || range.start >= window.cursor
+            {
+                if window.start > 0 && range.start <= TINY_SEGMENTER_TRUST_MARGIN_BYTES {
+                    continue;
+                }
+                if window.end < rope.len_bytes()
+                    && window.text.len().saturating_sub(range.end)
+                        <= TINY_SEGMENTER_TRUST_MARGIN_BYTES
+                {
+                    continue;
+                }
+                return Some((window.start + range.start, window.start + range.end));
+            }
+        }
+    }
+
+    None
+}
+
+fn segment_window(
+    rope: &TextRope,
+    cursor_byte_offset: usize,
+    before_chars: usize,
+    after_chars: usize,
+) -> SegmentWindow {
+    let cursor = rope.floor_char_boundary(cursor_byte_offset.min(rope.len_bytes()));
+    let mut start = cursor;
+    for _ in 0..before_chars {
+        if start == 0 {
+            break;
+        }
+        start = rope.previous_char_boundary(start);
+    }
+
+    let mut end = cursor;
+    for _ in 0..after_chars {
+        if end >= rope.len_bytes() {
+            break;
+        }
+        end = rope.next_char_boundary(end);
+    }
+
+    SegmentWindow {
+        start,
+        cursor: cursor - start,
+        end,
+        text: rope.slice(start..end),
+    }
+}
+
+fn has_tiny_segmenter_context(text: &str) -> bool {
+    text.chars().any(is_tiny_segmenter_character)
+}
+
+fn is_tiny_segmenter_word(text: &str) -> bool {
+    text.chars()
+        .any(|character| is_word_char(character) || is_tiny_segmenter_character(character))
+}
+
+fn is_tiny_segmenter_character(character: char) -> bool {
+    matches!(
+        character,
+        '一'..='龠' | '々' | '〆' | 'ヵ' | 'ヶ' | 'ぁ'..='ん' | 'ァ'..='ヴ' | 'ー' | 'ｱ'..='ﾝ' | 'ﾞ'
+    )
 }
 
 fn word_ranges<F>(rope: &TextRope, predicate: F) -> Option<Vec<Range<usize>>>
@@ -295,51 +469,6 @@ where
     }
 
     (!ranges.is_empty()).then_some(ranges)
-}
-
-fn current_token_index(ranges: &[Range<usize>], cursor_byte_offset: usize) -> Option<usize> {
-    ranges
-        .iter()
-        .position(|range| range.start <= cursor_byte_offset && cursor_byte_offset < range.end)
-}
-
-fn find_japanese_word_range(rope: &TextRope, cursor_byte_offset: usize) -> Option<(usize, usize)> {
-    let ranges = japanese_token_ranges(rope)?;
-    find_token_range_at_or_near_cursor(rope, &ranges, cursor_byte_offset)
-}
-
-fn japanese_tokenizer() -> Option<&'static Tokenizer> {
-    JAPANESE_TOKENIZER
-        .get_or_init(|| {
-            let dictionary = load_japanese_dictionary()?;
-            let segmenter = Segmenter::new(Mode::Normal, dictionary, None);
-            Ok(Tokenizer::new(segmenter))
-        })
-        .as_ref()
-        .ok()
-}
-
-fn load_japanese_dictionary() -> Result<Dictionary, String> {
-    if let Some(path) = lindera_dictinary_path()
-        && !path.is_empty()
-    {
-        return load_dictionary(path.to_string_lossy().as_ref())
-            .map_err(|error| format!("failed to load lindera dictionary from {path:?}: {error}"));
-    }
-
-    #[cfg(feature = "embedded-ipadic")]
-    {
-        load_dictionary("embedded://ipadic")
-            .map_err(|error| format!("failed to load embedded lindera dictionary: {error}"))
-    }
-
-    #[cfg(not(feature = "embedded-ipadic"))]
-    {
-        Err(
-            "japanese tokenizer is disabled; enable the `embedded-ipadic` feature or set LINDERA_DICTIONARY_PATH"
-                .to_string(),
-        )
-    }
 }
 
 fn find_token_range_at_or_near_cursor(
@@ -540,6 +669,33 @@ fn consume_whitespace_backward(rope: &TextRope, offset: usize) -> usize {
         start = previous;
     }
     start
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CharacterKind {
+    Whitespace,
+    Punctuation,
+    Word,
+}
+
+fn character_kind(character: char, ignore_punctuation: bool) -> CharacterKind {
+    if character.is_whitespace() {
+        CharacterKind::Whitespace
+    } else if ignore_punctuation || is_word_char(character) {
+        CharacterKind::Word
+    } else {
+        CharacterKind::Punctuation
+    }
+}
+
+fn is_word_start_boundary(left: char, right: char, ignore_punctuation: bool) -> bool {
+    character_kind(left, ignore_punctuation) != character_kind(right, ignore_punctuation)
+        && !right.is_whitespace()
+}
+
+fn is_word_end_boundary(left: char, right: char, ignore_punctuation: bool) -> bool {
+    character_kind(left, ignore_punctuation) != character_kind(right, ignore_punctuation)
+        && !left.is_whitespace()
 }
 
 fn is_word_char(ch: char) -> bool {

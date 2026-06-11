@@ -1,0 +1,12 @@
+[package]
+name = "tiny_segmenter"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license = "BSD-3-Clause"
+
+[lib]
+name = "tiny_segmenter"
+path = "src/tiny_segmenter.rs"
+
+[dependencies]

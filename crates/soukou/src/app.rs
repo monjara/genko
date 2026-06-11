@@ -774,7 +774,6 @@ impl SoukouApp {
     fn save_document_to_path(&mut self, path: PathBuf, contents: String, cx: &mut Context<Self>) {
         let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         let save_rich_text_meta = self.pro_features_available();
-        let is_new_file = !path.exists();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
@@ -790,8 +789,7 @@ impl SoukouApp {
                             WorkspaceState::global(cx).root_dir(),
                         ) {
                             SavedDocumentTarget::Workspace => {
-                                WorkspaceState::global_mut(cx)
-                                    .open_saved_file(path.clone(), is_new_file);
+                                WorkspaceState::global_mut(cx).open_saved_file(path.clone());
                             }
                             SavedDocumentTarget::Standalone => {
                                 WorkspaceState::global_mut(cx).open_file_without_root(path.clone());

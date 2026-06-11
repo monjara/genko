@@ -86,7 +86,7 @@ impl WorkspaceState {
         self.unsupported_file = None;
     }
 
-    pub fn open_saved_file(&mut self, path: PathBuf, is_new_file: bool) {
+    pub fn open_saved_file(&mut self, path: PathBuf) {
         if self.entries.is_empty() && self.root_dir.is_none() {
             self.add_saved_entry(path.as_path());
         }
@@ -400,7 +400,7 @@ mod tests {
             }],
         );
 
-        workspace.open_saved_file(root_dir.join("a.txt"), true);
+        workspace.open_saved_file(root_dir.join("a.txt"));
 
         assert_eq!(
             workspace.active_file(),
@@ -422,7 +422,7 @@ mod tests {
         let mut workspace = WorkspaceState::new();
         workspace.open_root(root_dir.clone(), Vec::new());
 
-        workspace.open_saved_file(root_dir.join("a.txt"), false);
+        workspace.open_saved_file(root_dir.join("a.txt"));
 
         assert!(workspace.entries().is_empty());
         assert_eq!(

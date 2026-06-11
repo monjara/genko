@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use gpui::{
-    AnyWindowHandle, App, AppContext, Context, Menu, MenuItem, PathPromptOptions, Window, actions,
-};
+use gpui::{App, AppContext, Context, Menu, MenuItem, PathPromptOptions, Window, actions};
 use semver::Version;
 use serde::Deserialize;
 use title_bar::TitleBarMenu;

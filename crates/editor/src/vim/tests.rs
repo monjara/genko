@@ -1,8 +1,8 @@
 use super::*;
-use crate::vim::state::BlockRegister;
-use crate::vim::text_objects::{
-    resolve_motion_range, resolve_motion_target, resolve_text_object_range,
+use crate::editor::motions::{
+    MotionRangeBehavior, resolve_motion_range, resolve_motion_target, resolve_text_object_range,
 };
+use crate::vim::state::BlockRegister;
 use rope::TextRope;
 
 fn rope(text: &str) -> TextRope {
@@ -28,7 +28,16 @@ fn resolve_motion_edit_range(
     motion: MotionKind,
     operator: VimOperator,
 ) -> Option<std::ops::Range<usize>> {
-    resolve_motion_range(&rope(text), cursor_byte_offset, motion, operator)
+    resolve_motion_range(
+        &rope(text),
+        cursor_byte_offset,
+        motion,
+        if operator == VimOperator::Change {
+            MotionRangeBehavior::Change
+        } else {
+            MotionRangeBehavior::Default
+        },
+    )
 }
 
 fn resolve_repeat_range(
@@ -118,17 +127,17 @@ fn big_word_includes_punctuation_until_whitespace() {
     );
 }
 
-#[cfg(feature = "embedded-ipadic")]
 #[test]
-fn japanese_word_uses_lindera_boundaries() {
+fn japanese_word_uses_tiny_segmenter_boundaries() {
+    let text = "私の名前は中野です";
     assert_eq!(
         resolve_text_range(
-            "関西国際空港限定トートバッグ",
-            "関西国際空港".len() + 1,
+            text,
+            "私の".len(),
             TextObjectModifier::Inner,
             TextObjectTarget::Word,
         ),
-        Some("関西国際空港".len().."関西国際空港限定".len())
+        Some("私の".len().."私の名前".len())
     );
 }
 
@@ -282,13 +291,12 @@ fn word_end_moves_to_current_or_next_word_end() {
     );
 }
 
-#[cfg(feature = "embedded-ipadic")]
 #[test]
-fn japanese_word_forward_uses_lindera_boundaries() {
-    let text = "関西国際空港限定トートバッグ";
+fn japanese_word_forward_uses_tiny_segmenter_boundaries() {
+    let text = "私の名前は中野です";
     assert_eq!(
         resolve_motion(text, 0, MotionKind::WordForward),
-        Some("関西国際空港".len())
+        Some("私".len())
     );
 }
 
