@@ -175,12 +175,23 @@ notarize_and_staple() {
   notarization_key_file="$(mktemp /tmp/soukou-notary-key.XXXXXX)"
   decode_secret_to_file "$APPLE_NOTARIZATION_KEY" "$notarization_key_file"
 
-  xcrun notarytool submit \
-    --wait \
-    --key "$notarization_key_file" \
-    --key-id "$APPLE_NOTARIZATION_KEY_ID" \
-    --issuer "$APPLE_NOTARIZATION_ISSUER_ID" \
-    "$path_to_notarize"
+  local notarization_attempt=1
+  local maximum_notarization_attempts=3
+  until xcrun notarytool submit \
+      --wait \
+      --key "$notarization_key_file" \
+      --key-id "$APPLE_NOTARIZATION_KEY_ID" \
+      --issuer "$APPLE_NOTARIZATION_ISSUER_ID" \
+      "$path_to_notarize"; do
+    if [[ "$notarization_attempt" -ge "$maximum_notarization_attempts" ]]; then
+      echo "Notarization failed after ${maximum_notarization_attempts} attempts." >&2
+      exit 1
+    fi
+
+    echo "Notarization failed on attempt ${notarization_attempt}; retrying." >&2
+    sleep $((notarization_attempt * 30))
+    notarization_attempt=$((notarization_attempt + 1))
+  done
 
   xcrun stapler staple "$path_to_notarize"
 
