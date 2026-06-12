@@ -94,8 +94,11 @@ setup_signing() {
 
   keychain_password="$(openssl rand -hex 24)"
   while IFS= read -r keychain; do
+    keychain="${keychain#"${keychain%%[![:space:]]*}"}"
+    keychain="${keychain%\"}"
+    keychain="${keychain#\"}"
     original_keychains+=("$keychain")
-  done < <(security list-keychains -d user | sed -E 's/^[[:space:]]*"?(.*?)"?$/\1/')
+  done < <(security list-keychains -d user)
 
   security create-keychain -p "$keychain_password" "$keychain_name"
   security set-keychain-settings -lut 21600 "$keychain_name"
