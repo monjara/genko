@@ -25,7 +25,7 @@ concurrency:
 jobs:
   bundle_macos:
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -52,9 +52,15 @@ jobs:
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
 
       - name: Install cargo-bundle
         run: cargo install cargo-bundle --locked
+
+      - name: Build macOS binary
+        run: cargo build --release --package soukou --target ${{ matrix.target }} --timings
 
       - name: Build macOS release assets
         run: ./scripts/bundle-mac.sh ${{ matrix.target }}
