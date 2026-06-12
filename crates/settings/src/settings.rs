@@ -2,12 +2,12 @@ use std::{fs, path::Path, path::PathBuf};
 
 use gpui::{
     App, AppContext, Bounds, ClickEvent, Context, Entity, FontWeight, Global, InteractiveElement,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    WindowBounds, WindowControlArea, WindowDecorations, WindowOptions, actions, div,
-    prelude::FluentBuilder, px, size, transparent_black,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Window, WindowBounds, WindowControlArea, WindowDecorations, WindowOptions,
+    actions, div, prelude::FluentBuilder, px, size, transparent_black,
 };
 use serde::{Deserialize, Serialize};
-use theme::{APP_FONT_FAMILY, Theme};
+use theme::{APP_FONT_FAMILY, Theme, ThemeMode};
 use title_bar::{self as app_title_bar, TitleBar};
 use ui::{selectable_chip, square_button, toggle_button};
 
@@ -57,6 +57,7 @@ struct SettingsWindow {
     title_bar: Entity<TitleBar>,
     status: SharedString,
     selected_section: SettingsSection,
+    appearance_subscription: Option<Subscription>,
 }
 
 impl SettingsWindow {
@@ -66,6 +67,7 @@ impl SettingsWindow {
             title_bar,
             status: "".into(),
             selected_section: SettingsSection::General,
+            appearance_subscription: None,
         }
     }
 
@@ -273,6 +275,40 @@ impl SettingsWindow {
         self.set_column_number_mode(ColumnNumberMode::All, cx);
     }
 
+    fn set_theme_mode(&mut self, theme_mode: ThemeMode, cx: &mut Context<Self>) {
+        AppSettings::global_mut(cx).theme_mode = theme_mode;
+        theme::apply_mode(theme_mode, cx);
+        self.persist_settings(cx);
+        cx.refresh_windows();
+    }
+
+    fn set_theme_mode_system(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_theme_mode(ThemeMode::System, cx);
+    }
+
+    fn set_theme_mode_light(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_theme_mode(ThemeMode::Light, cx);
+    }
+
+    fn set_theme_mode_dark(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_theme_mode(ThemeMode::Dark, cx);
+    }
+
     fn decrement_cell_size_value(&mut self, cx: &mut Context<Self>) {
         AppSettings::global_mut(cx).cell_size = AppSettings::global(cx)
             .cell_size
@@ -466,6 +502,40 @@ impl SettingsWindow {
             "表示する",
             "表示しない",
             Self::toggle_grid_lines,
+            cx,
+        )
+    }
+
+    fn render_theme_mode(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let selected = AppSettings::global(cx).theme_mode;
+        self.render_setting_row(
+            "テーマ",
+            "アプリ全体の表示色を切り替えます",
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(self.render_selectable_chip(
+                    "settings-theme-mode-system",
+                    ThemeMode::System.label(),
+                    selected == ThemeMode::System,
+                    Self::set_theme_mode_system,
+                    cx,
+                ))
+                .child(self.render_selectable_chip(
+                    "settings-theme-mode-light",
+                    ThemeMode::Light.label(),
+                    selected == ThemeMode::Light,
+                    Self::set_theme_mode_light,
+                    cx,
+                ))
+                .child(self.render_selectable_chip(
+                    "settings-theme-mode-dark",
+                    ThemeMode::Dark.label(),
+                    selected == ThemeMode::Dark,
+                    Self::set_theme_mode_dark,
+                    cx,
+                )),
             cx,
         )
     }
@@ -673,6 +743,7 @@ impl SettingsWindow {
             "一般",
             "表示と原稿用紙の基本設定です",
             vec![
+                self.render_theme_mode(cx).into_any_element(),
                 self.render_grid_toggle(cx).into_any_element(),
                 self.render_cell_size(cx).into_any_element(),
                 self.render_hanging_punctuation_toggle(cx)
@@ -707,6 +778,19 @@ impl SettingsWindow {
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         app_title_bar::sync_client_window_inset(window);
+        if self.appearance_subscription.is_none() {
+            self.appearance_subscription =
+                Some(cx.observe_window_appearance(window, |_, window, cx| {
+                    if AppSettings::global(cx).theme_mode == ThemeMode::System {
+                        theme::apply_mode_for_window_appearance(
+                            ThemeMode::System,
+                            window.appearance(),
+                            cx,
+                        );
+                        cx.refresh_windows();
+                    }
+                }));
+        }
         div()
             .size_full()
             .bg(transparent_black())
@@ -841,6 +925,7 @@ impl ColumnNumberMode {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct AppSettings {
+    pub theme_mode: ThemeMode,
     pub show_grid_lines: bool,
     pub hanging_punctuation: bool,
     pub column_number_mode: ColumnNumberMode,
@@ -857,6 +942,7 @@ impl Global for AppSettings {}
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            theme_mode: ThemeMode::System,
             show_grid_lines: true,
             hanging_punctuation: true,
             column_number_mode: ColumnNumberMode::EveryFive,
@@ -870,6 +956,7 @@ impl Default for AppSettings {
 
 pub fn init(cx: &mut App) {
     let state = AppSettings::load();
+    theme::apply_mode(state.theme_mode, cx);
     cx.set_global::<AppSettings>(state);
 }
 
@@ -911,6 +998,7 @@ impl AppSettings {
 
     fn normalized(&self) -> Self {
         Self {
+            theme_mode: self.theme_mode,
             show_grid_lines: self.show_grid_lines,
             hanging_punctuation: self.hanging_punctuation,
             column_number_mode: self.column_number_mode,
@@ -972,6 +1060,7 @@ impl AppSettings {
 
 #[derive(Serialize)]
 struct PersistedAppSettings {
+    theme_mode: ThemeMode,
     show_grid_lines: bool,
     hanging_punctuation: bool,
     column_number_mode: ColumnNumberMode,
@@ -986,6 +1075,7 @@ struct PersistedAppSettings {
 impl From<&AppSettings> for PersistedAppSettings {
     fn from(settings: &AppSettings) -> Self {
         Self {
+            theme_mode: settings.theme_mode,
             show_grid_lines: settings.show_grid_lines,
             hanging_punctuation: settings.hanging_punctuation,
             column_number_mode: settings.column_number_mode,
@@ -1007,6 +1097,7 @@ mod tests {
         AppSettings, ColumnNumberMode, DEFAULT_CELL_SIZE, DEFAULT_ROWS_PER_COLUMN, MAX_CELL_SIZE,
         SettingsSection, SettingsWindow,
     };
+    use theme::ThemeMode;
 
     fn test_settings_dir(name: &str) -> PathBuf {
         let mut path = env::temp_dir();
@@ -1096,6 +1187,7 @@ mod tests {
         let dir = test_settings_dir("saves");
         let settings_path = dir.join("settings.json");
         let settings = AppSettings {
+            theme_mode: ThemeMode::Dark,
             show_grid_lines: false,
             hanging_punctuation: false,
             column_number_mode: ColumnNumberMode::EveryFive,
@@ -1112,6 +1204,7 @@ mod tests {
 
         let reloaded = AppSettings::load_from_config_file(Some(settings_path));
         assert!(!reloaded.show_grid_lines);
+        assert_eq!(reloaded.theme_mode, ThemeMode::Dark);
         assert!(!reloaded.hanging_punctuation);
         assert_eq!(reloaded.column_number_mode, ColumnNumberMode::EveryFive);
         assert_eq!(reloaded.cell_size, 32);
@@ -1137,6 +1230,22 @@ mod tests {
         assert!(settings.indent_on_enter);
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loads_theme_mode_from_settings_file() {
+        let dir = test_settings_dir("theme_mode");
+        fs::write(dir.join("settings.json"), r#"{"theme_mode": "dark"}"#).unwrap();
+
+        let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
+
+        assert_eq!(settings.theme_mode, ThemeMode::Dark);
+
+        let remove_result = fs::remove_dir_all(dir);
+        assert!(
+            remove_result.is_ok(),
+            "failed to remove test settings directory: {remove_result:?}"
+        );
     }
 
     #[test]

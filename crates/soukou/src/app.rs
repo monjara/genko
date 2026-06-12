@@ -30,7 +30,8 @@ use gpui::{
 };
 use menu::{MenuActionHandler, RegisterAccount, SignOut};
 use rich_text::{EpubBookMeta, RichTextDocumentMeta};
-use theme::{APP_FONT_FAMILY, Theme};
+use settings::AppSettings;
+use theme::{APP_FONT_FAMILY, Theme, ThemeMode};
 use title_bar::TitleBar;
 use workspace::{
     Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceState,
@@ -60,6 +61,7 @@ pub(super) struct SoukouApp {
     verified_pro_feature: Option<ProFeature>,
     account_control: Entity<auth::TitleBarAccountControl>,
     _workspace_subscription: Subscription,
+    appearance_subscription: Option<Subscription>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
 }
@@ -196,6 +198,7 @@ impl SoukouApp {
             verified_pro_feature: None,
             account_control,
             _workspace_subscription: workspace_subscription,
+            appearance_subscription: None,
             title_bar,
             bottom_bar,
         };
@@ -1122,6 +1125,19 @@ impl MenuActionHandler for SoukouApp {
 impl Render for SoukouApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         title_bar::sync_client_window_inset(window);
+        if self.appearance_subscription.is_none() {
+            self.appearance_subscription =
+                Some(cx.observe_window_appearance(window, |_, window, cx| {
+                    if AppSettings::global(cx).theme_mode == ThemeMode::System {
+                        theme::apply_mode_for_window_appearance(
+                            ThemeMode::System,
+                            window.appearance(),
+                            cx,
+                        );
+                        cx.refresh_windows();
+                    }
+                }));
+        }
         self.sync_window_title(window, cx);
         let title_bar_height = title_bar::platform_title_bar_height(window);
         let bottom_bar_height = bottom_bar::height(window);

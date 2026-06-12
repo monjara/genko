@@ -5573,7 +5573,7 @@ dependencies = [
 
 [[package]]
 name = "soukou"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "auth",
  "bottom_bar",

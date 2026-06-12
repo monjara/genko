@@ -1,5 +1,5 @@
-use gpui::{App, Global, Rgba};
-use serde::Deserialize;
+use gpui::{App, Global, Rgba, WindowAppearance};
+use serde::{Deserialize, Serialize};
 
 pub const APP_FONT_FAMILY: &str = "Zen Old Mincho";
 
@@ -18,8 +18,68 @@ pub struct Theme {
 impl Global for Theme {}
 
 pub fn init(cx: &mut App) {
-    let theme = Theme::load_default();
+    let theme = Theme::load(ThemeAppearance::Light);
     cx.set_global::<Theme>(theme);
+}
+
+pub fn apply_mode(mode: ThemeMode, cx: &mut App) {
+    let system_appearance = cx.window_appearance();
+    apply_mode_for_window_appearance(mode, system_appearance, cx);
+}
+
+pub fn apply_mode_for_window_appearance(
+    mode: ThemeMode,
+    system_appearance: WindowAppearance,
+    cx: &mut App,
+) {
+    *Theme::global_mut(cx) = Theme::load(mode.theme_appearance(system_appearance));
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeMode {
+    System,
+    Light,
+    Dark,
+}
+
+impl Default for ThemeMode {
+    fn default() -> Self {
+        Self::System
+    }
+}
+
+impl ThemeMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::System => "システムに合わせる",
+            Self::Light => "ライト",
+            Self::Dark => "ダーク",
+        }
+    }
+
+    fn theme_appearance(self, system_appearance: WindowAppearance) -> ThemeAppearance {
+        match self {
+            Self::System => ThemeAppearance::from_window_appearance(system_appearance),
+            Self::Light => ThemeAppearance::Light,
+            Self::Dark => ThemeAppearance::Dark,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ThemeAppearance {
+    Light,
+    Dark,
+}
+
+impl ThemeAppearance {
+    fn from_window_appearance(window_appearance: WindowAppearance) -> Self {
+        match window_appearance {
+            WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::Dark,
+            WindowAppearance::Light | WindowAppearance::VibrantLight => Self::Light,
+        }
+    }
 }
 
 impl Theme {
@@ -60,14 +120,15 @@ impl Theme {
         self.white
     }
 
-    fn load_default() -> Self {
-        // TODO: 複数のテーマを作成し、1テーマごとに1jsonファイルを作成する
-        //       設定画面からテーマを選択できるようにする
-        let json_str = include_str!("../themes/default.json");
+    fn load(appearance: ThemeAppearance) -> Self {
+        let json_str = match appearance {
+            ThemeAppearance::Light => include_str!("../themes/default.json"),
+            ThemeAppearance::Dark => include_str!("../themes/dark.json"),
+        };
 
         let theme_json: ThemeJson = serde_json::from_str(json_str).unwrap_or_else(|err| {
-            eprintln!("Failed to parse default theme JSON: {err}");
-            ThemeJson::fallback()
+            eprintln!("Failed to parse theme JSON: {err}");
+            ThemeJson::fallback(appearance)
         });
 
         Self {
@@ -78,18 +139,8 @@ impl Theme {
             bg_primary: theme_json.bg_primary,
             bg_senodary: theme_json.bg_senodary,
             selection_range: theme_json.selection_range,
-            black: Rgba {
-                r: 0.,
-                g: 0.,
-                b: 0.,
-                a: 255.,
-            },
-            white: Rgba {
-                r: 255.,
-                g: 255.,
-                b: 255.,
-                a: 255.,
-            },
+            black: theme_json.text_primary,
+            white: theme_json.bg_primary,
         }
     }
 }
@@ -106,16 +157,27 @@ struct ThemeJson {
 }
 
 impl ThemeJson {
-    fn fallback() -> Self {
+    fn fallback(appearance: ThemeAppearance) -> Self {
         let hex = |r: f32, g: f32, b: f32, a: f32| Rgba { r, g, b, a };
-        Self {
-            primary: hex(0.859, 0.718, 0.525, 1.),
-            senodary: hex(0.890, 0.796, 0.667, 1.),
-            text_primary: hex(0., 0., 0., 1.),
-            text_senodary: hex(0.439, 0.353, 0.290, 1.),
-            bg_primary: hex(1., 1., 1., 1.),
-            bg_senodary: hex(0.961, 0.961, 0.961, 1.),
-            selection_range: hex(0.541, 0.361, 0.965, 0.200),
+        match appearance {
+            ThemeAppearance::Light => Self {
+                primary: hex(0.859, 0.718, 0.525, 1.),
+                senodary: hex(0.890, 0.796, 0.667, 1.),
+                text_primary: hex(0., 0., 0., 1.),
+                text_senodary: hex(0.439, 0.353, 0.290, 1.),
+                bg_primary: hex(1., 1., 1., 1.),
+                bg_senodary: hex(0.961, 0.961, 0.961, 1.),
+                selection_range: hex(0.541, 0.361, 0.965, 0.200),
+            },
+            ThemeAppearance::Dark => Self {
+                primary: hex(0.784, 0.800, 0.824, 1.),
+                senodary: hex(0.561, 0.588, 0.624, 1.),
+                text_primary: hex(0.957, 0.957, 0.961, 1.),
+                text_senodary: hex(0.682, 0.706, 0.737, 1.),
+                bg_primary: hex(0.063, 0.067, 0.071, 1.),
+                bg_senodary: hex(0.125, 0.133, 0.149, 1.),
+                selection_range: hex(0.953, 0.831, 0.353, 0.350),
+            },
         }
     }
 }

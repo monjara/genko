@@ -1,0 +1,9 @@
+{
+    "primary": "#c8ccd2",
+    "senodary": "#8f969f",
+    "text_primary": "#f4f4f5",
+    "text_senodary": "#aeb4bc",
+    "bg_primary": "#101112",
+    "bg_senodary": "#202226",
+    "selection_range": "#f3d45a59"
+}
