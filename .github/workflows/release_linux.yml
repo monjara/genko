@@ -86,6 +86,13 @@ jobs:
         if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
+          files: target/${{ matrix.target }}/release/soukou-linux-*.tar.gz
+
+      - name: Upload Linux archive to public GitHub Release
+        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+        uses: softprops/action-gh-release@v2
+        with:
           repository: monjara/Soukou.app
           token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           tag_name: ${{ github.ref_name }}

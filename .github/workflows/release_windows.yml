@@ -24,10 +24,6 @@ concurrency:
 
 jobs:
   bundle_windows:
-    runs-on:
-      - self-hosted
-      - Windows
-      - X64
     timeout-minutes: 60
     strategy:
       matrix:
@@ -60,6 +56,13 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Windows archive to GitHub Release
+        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: target/${{ matrix.target }}-pc-windows-msvc/release/soukou-windows-${{ matrix.target }}.zip
+
+      - name: Upload Windows archive to public GitHub Release
         if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
         uses: softprops/action-gh-release@v2
         with:

@@ -24,9 +24,6 @@ concurrency:
 
 jobs:
   bundle_macos:
-    runs-on:
-      - self-hosted
-      - macOS
     timeout-minutes: 90
     env:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -76,6 +73,13 @@ jobs:
           if-no-files-found: error
 
       - name: Upload disk image to GitHub Release
+        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: target/${{ matrix.target }}/release/soukou-*.dmg
+
+      - name: Upload disk image to public GitHub Release
         if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
         uses: softprops/action-gh-release@v2
         with:
