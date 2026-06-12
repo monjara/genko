@@ -12,6 +12,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_HTTP_MULTIPLEXING: false
+  CARGO_HTTP_TIMEOUT: 120
+  CARGO_NET_RETRY: 10
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   SOUKOU_AUTH_CALLBACK_SCHEME: soukou
   SOUKOU_SITE_URL: https://soukou.dev
@@ -56,11 +59,44 @@ jobs:
           key: ${{ matrix.target }}
           cache-on-failure: true
 
+      - name: Fetch Rust dependencies
+        run: |
+          for attempt in 1 2 3; do
+            if cargo fetch --locked --target ${{ matrix.target }}; then
+              exit 0
+            fi
+
+            echo "cargo fetch failed on attempt ${attempt}; retrying." >&2
+            sleep $((attempt * 20))
+          done
+
+          cargo fetch --locked --target ${{ matrix.target }}
+
       - name: Install cargo-bundle
-        run: cargo install cargo-bundle --locked
+        run: |
+          for attempt in 1 2 3; do
+            if cargo install cargo-bundle --locked; then
+              exit 0
+            fi
+
+            echo "cargo install cargo-bundle failed on attempt ${attempt}; retrying." >&2
+            sleep $((attempt * 20))
+          done
+
+          cargo install cargo-bundle --locked
 
       - name: Build macOS binary
-        run: cargo build --release --package soukou --target ${{ matrix.target }} --timings
+        run: |
+          for attempt in 1 2; do
+            if cargo build --release --package soukou --target ${{ matrix.target }} --timings; then
+              exit 0
+            fi
+
+            echo "cargo build failed on attempt ${attempt}; retrying." >&2
+            sleep $((attempt * 20))
+          done
+
+          cargo build --release --package soukou --target ${{ matrix.target }} --timings
 
       - name: Build macOS release assets
         run: ./scripts/bundle-mac.sh ${{ matrix.target }}
