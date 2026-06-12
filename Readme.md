@@ -10,15 +10,6 @@
 nix develop
 ```
 
-Nix を使わない場合は、少なくとも以下を用意してください。
-
-- Rust toolchain
-- `cargo-make`
-- `cargo-watch`
-- `pkg-config`
-- C/C++ toolchain
-- Linux では GPUI 実行に必要な Wayland/X11、Vulkan、ALSA、fontconfig などの開発ライブラリ
-
 ## 起動
 
 ```sh
@@ -75,22 +66,3 @@ cargo make new <crate-name>
 
 新しい crate を手で追加する場合は、`lib.rs` ではなく `Cargo.toml` の `[lib] path = "...rs"` でライブラリファイル名を明示してください。
 
-## Nix
-
-通常の開発:
-
-```sh
-nix develop
-```
-
-ビルド確認:
-
-```sh
-nix build
-```
-
-実行:
-
-```sh
-nix run
-```
