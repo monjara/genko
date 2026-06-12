@@ -2,6 +2,7 @@
 name = "soukou"
 version = "0.3.5"
 edition = "2024"
+license.workspace = true
 
 [package.metadata.bundle]
 icon = ["resources/AppIcon.icns"]

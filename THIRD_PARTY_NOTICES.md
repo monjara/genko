@@ -2,7 +2,7 @@
 
 This product includes third-party open source components.
 
-The application source itself is proprietary and all rights are reserved by monjara.
+The application source itself is licensed under GPL-3.0-only. See `LICENSE`.
 Third-party components remain subject to their own license terms.
 
 This file is generated from Cargo.lock with `scripts/generate-third-party-notices.py`.
