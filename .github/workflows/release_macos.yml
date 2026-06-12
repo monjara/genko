@@ -24,6 +24,7 @@ concurrency:
 
 jobs:
   bundle_macos:
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     env:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
@@ -36,9 +37,9 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runner_arch: ARM64
+            runner: macos-15
           - target: x86_64-apple-darwin
-            runner_arch: X64
+            runner: macos-15-intel
 
     steps:
       - name: Checkout repository
