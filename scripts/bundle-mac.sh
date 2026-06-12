@@ -86,7 +86,8 @@ setup_signing() {
   certificate_file="$(mktemp /tmp/soukou-certificate.XXXXXX)"
   decode_secret_to_file "$MACOS_CERTIFICATE" "$certificate_file"
 
-  if ! openssl pkcs12 -in "$certificate_file" -passin "pass:$MACOS_CERTIFICATE_PASSWORD" -nokeys >/dev/null 2>&1; then
+  if ! openssl pkcs12 -in "$certificate_file" -passin "pass:$MACOS_CERTIFICATE_PASSWORD" -nokeys >/dev/null 2>&1 \
+      && ! openssl pkcs12 -legacy -in "$certificate_file" -passin "pass:$MACOS_CERTIFICATE_PASSWORD" -nokeys >/dev/null 2>&1; then
     echo "MACOS_CERTIFICATE is not a valid PKCS#12 archive, or MACOS_CERTIFICATE_PASSWORD does not match." >&2
     rm -f "$certificate_file"
     exit 1
