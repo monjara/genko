@@ -47,7 +47,7 @@ rm -rf "$appdir_path"
 mkdir -p "$appdir_path"
 mkdir -p "${appdir_path}/usr/share/doc/soukou"
 cp "$icon_source" "$icon_staging_path"
-cp LICENSE.md "${appdir_path}/usr/share/doc/soukou/LICENSE.md"
+cp LICENSE "${appdir_path}/usr/share/doc/soukou/LICENSE"
 cp THIRD_PARTY_NOTICES.md "${appdir_path}/usr/share/doc/soukou/THIRD_PARTY_NOTICES.md"
 cp THIRD_PARTY_LICENSES.json "${appdir_path}/usr/share/doc/soukou/THIRD_PARTY_LICENSES.json"
 

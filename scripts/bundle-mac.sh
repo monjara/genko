@@ -207,7 +207,7 @@ copy_license_documents_to_app_bundle() {
   local resources_path="${bundle_path}/Contents/Resources"
 
   mkdir -p "$resources_path"
-  cp LICENSE.md "${resources_path}/LICENSE.md"
+  cp LICENSE "${resources_path}/LICENSE"
   cp THIRD_PARTY_NOTICES.md "${resources_path}/THIRD_PARTY_NOTICES.md"
   cp THIRD_PARTY_LICENSES.json "${resources_path}/THIRD_PARTY_LICENSES.json"
 }
@@ -270,7 +270,7 @@ dmg_path="${bundle_directory}/soukou-${arch_suffix}.dmg"
 rm -rf "$dmg_staging_dir"
 mkdir -p "$dmg_staging_dir"
 cp -R "$app_path" "$dmg_staging_dir/"
-cp LICENSE.md "${dmg_staging_dir}/LICENSE.md"
+cp LICENSE "${dmg_staging_dir}/LICENSE"
 cp THIRD_PARTY_NOTICES.md "${dmg_staging_dir}/THIRD_PARTY_NOTICES.md"
 cp THIRD_PARTY_LICENSES.json "${dmg_staging_dir}/THIRD_PARTY_LICENSES.json"
 ln -s /Applications "${dmg_staging_dir}/Applications"

@@ -44,7 +44,7 @@ cp "$binary_path" "${bundle_directory}/bin/soukou"
 cp "$desktop_file_source" "${bundle_directory}/share/applications/dev.monj.soukou.desktop"
 cp "$icon_source" "${bundle_directory}/share/icons/hicolor/512x512/apps/soukou.png"
 cp Readme.md "${bundle_directory}/README.md"
-cp LICENSE.md "${bundle_directory}/LICENSE.md"
+cp LICENSE "${bundle_directory}/LICENSE"
 cp THIRD_PARTY_NOTICES.md "${bundle_directory}/THIRD_PARTY_NOTICES.md"
 cp THIRD_PARTY_LICENSES.json "${bundle_directory}/THIRD_PARTY_LICENSES.json"
 
