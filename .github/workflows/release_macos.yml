@@ -12,9 +12,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  CARGO_HTTP_MULTIPLEXING: false
-  CARGO_HTTP_TIMEOUT: 120
-  CARGO_NET_RETRY: 10
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   SOUKOU_AUTH_CALLBACK_SCHEME: soukou
   SOUKOU_SITE_URL: https://soukou.dev
@@ -26,44 +23,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  warm_macos_x86_cache:
-    runs-on: macos-26-intel
-    timeout-minutes: 120
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: x86_64-apple-darwin
-          cache-on-failure: true
-
-      - name: Fetch Rust dependencies
-        run: |
-          for attempt in 1 2 3; do
-            if cargo fetch --locked --target x86_64-apple-darwin; then
-              exit 0
-            fi
-
-            echo "cargo fetch failed on attempt ${attempt}; retrying." >&2
-            sleep $((attempt * 20))
-          done
-
-          cargo fetch --locked --target x86_64-apple-darwin
-
-      - name: Warm x86_64 Rust build cache
-        run: cargo build --package soukou --target x86_64-apple-darwin
-
   bundle_macos:
-    needs: warm_macos_x86_cache
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 360
+    timeout-minutes: 90
     env:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -94,56 +56,8 @@ jobs:
           key: ${{ matrix.target }}
           cache-on-failure: true
 
-      - name: Fetch Rust dependencies
-        run: |
-          for attempt in 1 2 3; do
-            if cargo fetch --locked --target ${{ matrix.target }}; then
-              exit 0
-            fi
-
-            echo "cargo fetch failed on attempt ${attempt}; retrying." >&2
-            sleep $((attempt * 20))
-          done
-
-          cargo fetch --locked --target ${{ matrix.target }}
-
       - name: Install cargo-bundle
-        run: |
-          for attempt in 1 2 3; do
-            if cargo install cargo-bundle --locked; then
-              exit 0
-            fi
-
-            echo "cargo install cargo-bundle failed on attempt ${attempt}; retrying." >&2
-            sleep $((attempt * 20))
-          done
-
-          cargo install cargo-bundle --locked
-
-      - name: Build macOS binary
-        run: |
-          if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-            (
-              while true; do
-                sleep 300
-                echo "::group::x86_64 build process snapshot $(date -u)"
-                ps -axo pid,ppid,etime,%cpu,%mem,command \
-                  | grep -E 'cargo|rustc|clang|ld|cc|codesign' \
-                  | grep -v grep \
-                  || true
-                echo "::endgroup::"
-              done
-            ) &
-            watchdog_pid=$!
-            trap 'kill "$watchdog_pid" 2>/dev/null || true' EXIT
-
-            cargo build --release --package soukou --target ${{ matrix.target }} --timings -vv
-            build_status=$?
-            kill "$watchdog_pid" 2>/dev/null || true
-            exit "$build_status"
-          fi
-
-          cargo build --release --package soukou --target ${{ matrix.target }} --timings
+        run: cargo install cargo-bundle --locked
 
       - name: Build macOS release assets
         run: ./scripts/bundle-mac.sh ${{ matrix.target }}
