@@ -122,14 +122,26 @@ jobs:
 
       - name: Build macOS binary
         run: |
-          for attempt in 1 2; do
-            if cargo build --release --package soukou --target ${{ matrix.target }} --timings; then
-              exit 0
-            fi
+          if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            (
+              while true; do
+                sleep 300
+                echo "::group::x86_64 build process snapshot $(date -u)"
+                ps -axo pid,ppid,etime,%cpu,%mem,command \
+                  | grep -E 'cargo|rustc|clang|ld|cc|codesign' \
+                  | grep -v grep \
+                  || true
+                echo "::endgroup::"
+              done
+            ) &
+            watchdog_pid=$!
+            trap 'kill "$watchdog_pid" 2>/dev/null || true' EXIT
 
-            echo "cargo build failed on attempt ${attempt}; retrying." >&2
-            sleep $((attempt * 20))
-          done
+            cargo build --release --package soukou --target ${{ matrix.target }} --timings -vv
+            build_status=$?
+            kill "$watchdog_pid" 2>/dev/null || true
+            exit "$build_status"
+          fi
 
           cargo build --release --package soukou --target ${{ matrix.target }} --timings
 
