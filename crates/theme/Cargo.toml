@@ -12,4 +12,3 @@ path = "src/theme.rs"
 [dependencies]
 gpui = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
