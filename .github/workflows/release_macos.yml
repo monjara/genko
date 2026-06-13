@@ -26,9 +26,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  warm_macos_x86_cache:
+    runs-on: macos-26-intel
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-apple-darwin
+          cache-on-failure: true
+
+      - name: Fetch Rust dependencies
+        run: |
+          for attempt in 1 2 3; do
+            if cargo fetch --locked --target x86_64-apple-darwin; then
+              exit 0
+            fi
+
+            echo "cargo fetch failed on attempt ${attempt}; retrying." >&2
+            sleep $((attempt * 20))
+          done
+
+          cargo fetch --locked --target x86_64-apple-darwin
+
+      - name: Warm x86_64 Rust build cache
+        run: cargo build --package soukou --target x86_64-apple-darwin
+
   bundle_macos:
+    needs: warm_macos_x86_cache
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 360
     env:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
