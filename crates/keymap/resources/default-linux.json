@@ -13,7 +13,7 @@
       "ctrl-alt-shift-a": "menu::SignOut",
       "ctrl-shift-t": "menu::ExportTxt",
       "ctrl-shift-w": "menu::ExportWord",
-      "ctrl-shift-p": "menu::ExportEpub",
+      "ctrl-shift-p": "soukou::OpenCommandPalette",
       "ctrl-b": "editor::ApplyRichTextBold",
       "ctrl-alt-e": "editor::ApplyRichTextEmphasis",
       "ctrl-alt-h": "editor::ApplyRichTextHeading",
@@ -43,6 +43,15 @@
     "bindings": {
       "enter": "soukou::ConfirmEpubMeta",
       "escape": "soukou::DismissEpubMetaForm"
+    }
+  },
+  {
+    "context": "command_palette",
+    "bindings": {
+      "enter": "soukou::ConfirmCommandPalette",
+      "escape": "soukou::DismissCommandPalette",
+      "up": "soukou::CommandPaletteSelectPrevious",
+      "down": "soukou::CommandPaletteSelectNext"
     }
   },
   {

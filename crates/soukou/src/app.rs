@@ -7,8 +7,10 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::{
-    ConfirmEpubMeta, ConfirmFilePicker, DismissActiveModal, DismissEpubMetaForm, DismissFilePicker,
-    FilePickerSelectNext, FilePickerSelectPrevious, OpenFilePicker, OpenFilePickerPath,
+    CommandPaletteSelectNext, CommandPaletteSelectPrevious, ConfirmCommandPalette, ConfirmEpubMeta,
+    ConfirmFilePicker, DismissActiveModal, DismissCommandPalette, DismissEpubMetaForm,
+    DismissFilePicker, ExecuteCommandPaletteCommand, FilePickerSelectNext,
+    FilePickerSelectPrevious, OpenCommandPalette, OpenFilePicker, OpenFilePickerPath,
     OpenModalPrimary,
     notification::{
         DismissErrorNotification, ErrorNotification, ErrorNotificationStack, ErrorPresentation,
@@ -23,7 +25,10 @@ use document::{
     },
 };
 use editor::{
-    EditorController, PreparedPlainText, RichTextToolbar, VimCommandQuit, VimCommandWrite,
+    ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
+    EditorController, OpenSearch, PreparedPlainText, RemovePageBreakCurrentColumn, RichTextToolbar,
+    SetPageBreakLeftOfCurrentColumn, SetPageBreakRightOfCurrentColumn, VimCommandQuit,
+    VimCommandWrite,
 };
 use gpui::{
     AnyWindowHandle, App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle,
@@ -51,6 +56,7 @@ const UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL: &str = "サポートしていな�
 const BOTTOM_BAR_TOP_GAP: f32 = 4.0;
 const AUTH_REVALIDATION_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const FILE_PICKER_LIMIT: usize = 12;
+const COMMAND_PALETTE_LIMIT: usize = 12;
 
 pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
@@ -58,6 +64,7 @@ pub(super) struct SoukouApp {
     active_document: ActiveDocument,
     epub_meta_form: Option<EpubMetaFormState>,
     file_picker: Option<FilePickerState>,
+    command_palette: Option<CommandPaletteState>,
     active_modal: Option<AppModal>,
     error_notifications: Vec<ErrorNotification>,
     next_error_notification_id: u64,
@@ -82,6 +89,22 @@ struct FilePickerState {
     matches: Vec<WorkspaceFileEntry>,
     selected_index: usize,
     _input_subscription: Subscription,
+}
+
+struct CommandPaletteState {
+    input: Entity<ui::TextInput>,
+    entries: Vec<CommandPaletteEntry>,
+    matches: Vec<CommandPaletteEntry>,
+    selected_index: usize,
+    _input_subscription: Subscription,
+}
+
+#[derive(Clone)]
+struct CommandPaletteEntry {
+    id: usize,
+    title: &'static str,
+    detail: &'static str,
+    dispatch: fn(&mut Window, &mut Context<SoukouApp>),
 }
 
 impl SoukouApp {
@@ -204,6 +227,7 @@ impl SoukouApp {
             active_document: ActiveDocument::default(),
             epub_meta_form: None,
             file_picker: None,
+            command_palette: None,
             active_modal: None,
             error_notifications,
             next_error_notification_id,
@@ -451,6 +475,144 @@ impl SoukouApp {
             return;
         }
         file_picker.selected_index = file_picker
+            .selected_index
+            .checked_sub(1)
+            .unwrap_or(selectable_len - 1);
+        cx.notify();
+    }
+
+    fn open_command_palette_action(
+        &mut self,
+        _: &OpenCommandPalette,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_command_palette(cx);
+    }
+
+    fn open_command_palette(&mut self, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| {
+            let mut input = ui::TextInput::new(cx);
+            input.set_key_context("SoukouTextInput command_palette", cx);
+            input.set_placeholder("コマンドを検索", cx);
+            input
+        });
+        let input_subscription = cx.observe(&input, |this, input, cx| {
+            let query = input.read(cx).text();
+            this.update_command_palette_matches(query.as_str(), cx);
+        });
+
+        let entries = command_palette_entries();
+        let matches = filter_command_palette_entries(entries.as_slice(), "");
+        self.command_palette = Some(CommandPaletteState {
+            input,
+            entries,
+            matches,
+            selected_index: 0,
+            _input_subscription: input_subscription,
+        });
+        cx.notify();
+    }
+
+    fn update_command_palette_matches(&mut self, query: &str, cx: &mut Context<Self>) {
+        let Some(command_palette) = self.command_palette.as_mut() else {
+            return;
+        };
+        command_palette.matches =
+            filter_command_palette_entries(command_palette.entries.as_slice(), query);
+        command_palette.selected_index = 0;
+        cx.notify();
+    }
+
+    fn dismiss_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.command_palette = None;
+        window.focus(&self.focus_handle(cx), cx);
+        cx.notify();
+    }
+
+    fn dismiss_command_palette_action(
+        &mut self,
+        _: &DismissCommandPalette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dismiss_command_palette(window, cx);
+    }
+
+    fn confirm_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let command = self.command_palette.as_ref().and_then(|command_palette| {
+            command_palette
+                .matches
+                .get(command_palette.selected_index)
+                .cloned()
+        });
+        self.dismiss_command_palette(window, cx);
+
+        if let Some(command) = command {
+            (command.dispatch)(window, cx);
+        }
+    }
+
+    fn confirm_command_palette_action(
+        &mut self,
+        _: &ConfirmCommandPalette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.confirm_command_palette(window, cx);
+    }
+
+    fn execute_command_palette_command_action(
+        &mut self,
+        action: &ExecuteCommandPaletteCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let command = self.command_palette.as_ref().and_then(|command_palette| {
+            command_palette
+                .entries
+                .iter()
+                .find(|entry| entry.id == action.command_id)
+                .cloned()
+        });
+        self.dismiss_command_palette(window, cx);
+
+        if let Some(command) = command {
+            (command.dispatch)(window, cx);
+        }
+    }
+
+    fn select_next_command_palette_entry(
+        &mut self,
+        _: &CommandPaletteSelectNext,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(command_palette) = self.command_palette.as_mut() else {
+            return;
+        };
+        let selectable_len = command_palette_selectable_len(command_palette.matches.len());
+        if selectable_len == 0 {
+            return;
+        }
+        command_palette.selected_index = (command_palette.selected_index + 1) % selectable_len;
+        cx.notify();
+    }
+
+    fn select_previous_command_palette_entry(
+        &mut self,
+        _: &CommandPaletteSelectPrevious,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(command_palette) = self.command_palette.as_mut() else {
+            return;
+        };
+        let selectable_len = command_palette_selectable_len(command_palette.matches.len());
+        if selectable_len == 0 {
+            return;
+        }
+        command_palette.selected_index = command_palette
             .selected_index
             .checked_sub(1)
             .unwrap_or(selectable_len - 1);
@@ -892,6 +1054,9 @@ impl SoukouApp {
         }
         if self.file_picker.is_some() {
             context.push_str(" file_picker");
+        }
+        if self.command_palette.is_some() {
+            context.push_str(" command_palette");
         }
         context
     }
@@ -1373,6 +1538,12 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::open_file_picker_path_action))
                     .on_action(cx.listener(Self::select_next_file_picker_entry))
                     .on_action(cx.listener(Self::select_previous_file_picker_entry))
+                    .on_action(cx.listener(Self::open_command_palette_action))
+                    .on_action(cx.listener(Self::dismiss_command_palette_action))
+                    .on_action(cx.listener(Self::confirm_command_palette_action))
+                    .on_action(cx.listener(Self::execute_command_palette_command_action))
+                    .on_action(cx.listener(Self::select_next_command_palette_entry))
+                    .on_action(cx.listener(Self::select_previous_command_palette_entry))
                     .on_action(cx.listener(Self::register_account_action))
                     .on_action(cx.listener(Self::sign_out_action))
                     .on_action(cx.listener(Self::toggle_workspace_pane_action))
@@ -1421,6 +1592,13 @@ impl Render for SoukouApp {
                             file_picker.input.clone(),
                             file_picker.matches.clone(),
                             file_picker.selected_index,
+                        ))
+                    })
+                    .when_some(self.command_palette.as_ref(), |this, command_palette| {
+                        this.child(CommandPaletteOverlay::new(
+                            command_palette.input.clone(),
+                            command_palette.matches.clone(),
+                            command_palette.selected_index,
                         ))
                     })
                     .when_some(self.active_modal.clone(), |this, modal| {
@@ -1685,6 +1863,435 @@ fn file_picker_score(display_name: &str, query: &str) -> usize {
         3
     } else {
         4
+    }
+}
+
+#[derive(IntoElement)]
+struct CommandPaletteOverlay {
+    input: Entity<ui::TextInput>,
+    matches: Vec<CommandPaletteEntry>,
+    selected_index: usize,
+}
+
+impl CommandPaletteOverlay {
+    fn new(
+        input: Entity<ui::TextInput>,
+        matches: Vec<CommandPaletteEntry>,
+        selected_index: usize,
+    ) -> Self {
+        Self {
+            input,
+            matches,
+            selected_index,
+        }
+    }
+}
+
+impl RenderOnce for CommandPaletteOverlay {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let focus_handle = self.input.focus_handle(cx);
+        window.focus(&focus_handle, cx);
+
+        let mut shown_matches = Vec::new();
+        for (index, entry) in self
+            .matches
+            .iter()
+            .take(COMMAND_PALETTE_LIMIT)
+            .cloned()
+            .enumerate()
+        {
+            shown_matches.push(
+                command_palette_row(index, entry, index == self.selected_index, cx)
+                    .into_any_element(),
+            );
+        }
+        let result_label = if self.matches.is_empty() {
+            "一致するコマンドはありません".to_string()
+        } else {
+            format!("{}件", self.matches.len())
+        };
+
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .bg(Hsla {
+                h: 0.61,
+                s: 0.32,
+                l: 0.08,
+                a: 0.42,
+            })
+            .flex()
+            .justify_center()
+            .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
+                window.dispatch_action(Box::new(DismissCommandPalette), cx);
+            })
+            .child(
+                div()
+                    .mt(px(92.0))
+                    .w(px(640.0))
+                    .max_w(px(640.0))
+                    .h_auto()
+                    .flex()
+                    .flex_col()
+                    .bg(Theme::global(cx).white())
+                    .border_1()
+                    .border_color(toolbar_border_color(cx))
+                    .rounded_lg()
+                    .shadow(vec![BoxShadow {
+                        color: Hsla {
+                            h: 0.0,
+                            s: 0.0,
+                            l: 0.0,
+                            a: 0.18,
+                        },
+                        offset: point(px(0.0), px(18.0)),
+                        blur_radius: px(42.0),
+                        spread_radius: px(0.0),
+                        inset: false,
+                    }])
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .child(
+                        div()
+                            .px_4()
+                            .py_3()
+                            .border_b_1()
+                            .border_color(toolbar_border_color(cx))
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(px(15.0))
+                                    .child(self.input),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(Theme::global(cx).text_senodary())
+                                    .child(result_label),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .py_2()
+                            .flex()
+                            .flex_col()
+                            .when(self.matches.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .px_4()
+                                        .py_3()
+                                        .text_sm()
+                                        .text_color(Theme::global(cx).text_senodary())
+                                        .child("一致するコマンドはありません"),
+                                )
+                            })
+                            .children(shown_matches),
+                    ),
+            )
+    }
+}
+
+fn command_palette_row(
+    index: usize,
+    entry: CommandPaletteEntry,
+    selected: bool,
+    cx: &mut App,
+) -> impl IntoElement {
+    let command_id = entry.id;
+    let background = if selected {
+        mix(Theme::global(cx).primary(), Theme::global(cx).white(), 0.88).into()
+    } else {
+        Theme::global(cx).white()
+    };
+    let title_color = if selected {
+        Theme::global(cx).primary()
+    } else {
+        Theme::global(cx).text_primary()
+    };
+
+    div()
+        .id(("command-palette-row", index))
+        .mx_2()
+        .px_3()
+        .py_2()
+        .rounded_sm()
+        .bg(background)
+        .cursor_pointer()
+        .hover(|style| style.bg(Theme::global(cx).bg_senodary()))
+        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(Box::new(ExecuteCommandPaletteCommand { command_id }), cx);
+            cx.stop_propagation();
+        })
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    div()
+                        .min_w_0()
+                        .text_sm()
+                        .text_color(title_color)
+                        .overflow_hidden()
+                        .child(entry.title),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(Theme::global(cx).text_senodary())
+                        .child(entry.detail),
+                ),
+        )
+}
+
+fn command_palette_entries() -> Vec<CommandPaletteEntry> {
+    vec![
+        command_palette_entry(0, "ファイルを開く", "menu::OpenFile", dispatch_open_file),
+        command_palette_entry(
+            1,
+            "ワークスペースを開く",
+            "workspace::OpenWorkspace",
+            dispatch_open_workspace,
+        ),
+        command_palette_entry(
+            2,
+            "ワークスペースからファイルを検索",
+            "soukou::OpenFilePicker",
+            dispatch_open_file_picker,
+        ),
+        command_palette_entry(3, "保存", "menu::SaveFile", dispatch_save_file),
+        command_palette_entry(4, "txtを書き出し", "menu::ExportTxt", dispatch_export_txt),
+        command_palette_entry(
+            5,
+            "Wordを書き出し",
+            "menu::ExportWord",
+            dispatch_export_word,
+        ),
+        command_palette_entry(
+            6,
+            "epubを書き出し",
+            "menu::ExportEpub",
+            dispatch_export_epub,
+        ),
+        command_palette_entry(7, "検索", "editor::OpenSearch", dispatch_open_search),
+        command_palette_entry(
+            8,
+            "ワークスペースペインを切り替え",
+            "workspace::ToggleWorkspacePane",
+            dispatch_toggle_workspace_pane,
+        ),
+        command_palette_entry(
+            9,
+            "太字を適用",
+            "editor::ApplyRichTextBold",
+            dispatch_apply_rich_text_bold,
+        ),
+        command_palette_entry(
+            10,
+            "強調を適用",
+            "editor::ApplyRichTextEmphasis",
+            dispatch_apply_rich_text_emphasis,
+        ),
+        command_palette_entry(
+            11,
+            "見出しを適用",
+            "editor::ApplyRichTextHeading",
+            dispatch_apply_rich_text_heading,
+        ),
+        command_palette_entry(
+            12,
+            "縦中横を適用",
+            "editor::ApplyRichTextRotated",
+            dispatch_apply_rich_text_rotated,
+        ),
+        command_palette_entry(
+            13,
+            "現在の列の左に改ページ",
+            "editor::SetPageBreakLeftOfCurrentColumn",
+            dispatch_set_page_break_left,
+        ),
+        command_palette_entry(
+            14,
+            "現在の列の右に改ページ",
+            "editor::SetPageBreakRightOfCurrentColumn",
+            dispatch_set_page_break_right,
+        ),
+        command_palette_entry(
+            15,
+            "現在の列の改ページを削除",
+            "editor::RemovePageBreakCurrentColumn",
+            dispatch_remove_page_break,
+        ),
+        command_palette_entry(
+            16,
+            "設定を開く",
+            "menu::OpenSettings",
+            dispatch_open_settings,
+        ),
+        command_palette_entry(
+            17,
+            "更新を確認",
+            "menu::CheckForUpdates",
+            dispatch_check_for_updates,
+        ),
+        command_palette_entry(
+            18,
+            "会員登録 / アカウント",
+            "menu::RegisterAccount",
+            dispatch_register_account,
+        ),
+        command_palette_entry(19, "サインアウト", "menu::SignOut", dispatch_sign_out),
+        command_palette_entry(20, "終了", "menu::Quit", dispatch_quit),
+    ]
+}
+
+fn command_palette_entry(
+    id: usize,
+    title: &'static str,
+    detail: &'static str,
+    dispatch: fn(&mut Window, &mut Context<SoukouApp>),
+) -> CommandPaletteEntry {
+    CommandPaletteEntry {
+        id,
+        title,
+        detail,
+        dispatch,
+    }
+}
+
+fn dispatch_open_file(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(menu::OpenFile), cx);
+}
+
+fn dispatch_open_workspace(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(OpenWorkspace), cx);
+}
+
+fn dispatch_open_file_picker(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(OpenFilePicker), cx);
+}
+
+fn dispatch_save_file(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(menu::SaveFile), cx);
+}
+
+fn dispatch_export_txt(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(menu::ExportTxt), cx);
+}
+
+fn dispatch_export_word(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(menu::ExportWord), cx);
+}
+
+fn dispatch_export_epub(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(menu::ExportEpub), cx);
+}
+
+fn dispatch_open_search(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(OpenSearch), cx);
+}
+
+fn dispatch_toggle_workspace_pane(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(ToggleWorkspacePane), cx);
+}
+
+fn dispatch_apply_rich_text_bold(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(ApplyRichTextBold), cx);
+}
+
+fn dispatch_apply_rich_text_emphasis(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(ApplyRichTextEmphasis), cx);
+}
+
+fn dispatch_apply_rich_text_heading(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(ApplyRichTextHeading), cx);
+}
+
+fn dispatch_apply_rich_text_rotated(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(ApplyRichTextRotated), cx);
+}
+
+fn dispatch_set_page_break_left(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(SetPageBreakLeftOfCurrentColumn), cx);
+}
+
+fn dispatch_set_page_break_right(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(SetPageBreakRightOfCurrentColumn), cx);
+}
+
+fn dispatch_remove_page_break(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(RemovePageBreakCurrentColumn), cx);
+}
+
+fn dispatch_open_settings(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(menu::OpenSettings), cx);
+}
+
+fn dispatch_check_for_updates(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(menu::CheckForUpdates), cx);
+}
+
+fn dispatch_register_account(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(RegisterAccount), cx);
+}
+
+fn dispatch_sign_out(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(SignOut), cx);
+}
+
+fn dispatch_quit(window: &mut Window, cx: &mut Context<SoukouApp>) {
+    window.dispatch_action(Box::new(menu::Quit), cx);
+}
+
+fn filter_command_palette_entries(
+    entries: &[CommandPaletteEntry],
+    query: &str,
+) -> Vec<CommandPaletteEntry> {
+    let query = query.trim().to_lowercase();
+    let mut matches = entries
+        .iter()
+        .filter(|entry| {
+            file_picker_entry_matches(entry.title, query.as_str())
+                || file_picker_entry_matches(entry.detail, query.as_str())
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    matches.sort_by(|left, right| {
+        command_palette_score(left, query.as_str())
+            .cmp(&command_palette_score(right, query.as_str()))
+            .then_with(|| left.title.cmp(right.title))
+    });
+    matches
+}
+
+fn command_palette_selectable_len(match_len: usize) -> usize {
+    match_len.min(COMMAND_PALETTE_LIMIT)
+}
+
+fn command_palette_score(entry: &CommandPaletteEntry, query: &str) -> usize {
+    if query.is_empty() {
+        return entry.id;
+    }
+
+    let title = entry.title.to_lowercase();
+    let detail = entry.detail.to_lowercase();
+    if title == query || detail == query {
+        0
+    } else if title.starts_with(query) || detail.starts_with(query) {
+        1
+    } else if title.contains(query) || detail.contains(query) {
+        2
+    } else {
+        3
     }
 }
 

@@ -30,6 +30,11 @@ actions!(
         ConfirmFilePicker,
         FilePickerSelectNext,
         FilePickerSelectPrevious,
+        OpenCommandPalette,
+        DismissCommandPalette,
+        ConfirmCommandPalette,
+        CommandPaletteSelectNext,
+        CommandPaletteSelectPrevious,
     ]
 );
 
@@ -37,6 +42,12 @@ actions!(
 #[action(namespace = soukou, no_json, no_register)]
 pub(crate) struct OpenFilePickerPath {
     path: PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, gpui::Action)]
+#[action(namespace = soukou, no_json, no_register)]
+pub(crate) struct ExecuteCommandPaletteCommand {
+    command_id: usize,
 }
 
 fn main() {
