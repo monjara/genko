@@ -87,7 +87,7 @@ impl WorkspaceState {
     }
 
     pub fn open_saved_file(&mut self, path: PathBuf) {
-        if self.entries.is_empty() && self.root_dir.is_none() {
+        if !self.entries.is_empty() {
             self.add_saved_entry(path.as_path());
         }
         self.open_file(path);
@@ -188,6 +188,22 @@ impl WorkspaceEntry {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkspaceFileEntry {
+    path: PathBuf,
+    display_name: String,
+}
+
+impl WorkspaceFileEntry {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn display_name(&self) -> &str {
+        &self.display_name
+    }
+}
+
 pub fn scan_workspace_entries(root_dir: &Path) -> io::Result<Vec<WorkspaceEntry>> {
     let mut entries = fs::read_dir(root_dir)?
         .collect::<Result<Vec<_>, _>>()?
@@ -205,6 +221,47 @@ pub fn scan_workspace_entries(root_dir: &Path) -> io::Result<Vec<WorkspaceEntry>
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(entries)
+}
+
+pub fn scan_workspace_file_entries(root_dir: &Path) -> io::Result<Vec<WorkspaceFileEntry>> {
+    let mut entries = Vec::new();
+    scan_workspace_file_entries_in(root_dir, root_dir, &mut entries)?;
+    entries.sort_by(|left, right| left.display_name.cmp(&right.display_name));
+    Ok(entries)
+}
+
+fn scan_workspace_file_entries_in(
+    root_dir: &Path,
+    current_dir: &Path,
+    entries: &mut Vec<WorkspaceFileEntry>,
+) -> io::Result<()> {
+    let mut dir_entries = fs::read_dir(current_dir)?.collect::<Result<Vec<_>, _>>()?;
+    dir_entries.sort_by_key(|entry| entry.path());
+
+    for dir_entry in dir_entries {
+        let path = dir_entry.path();
+        if is_hidden(path.as_path()) {
+            continue;
+        }
+
+        let file_type = dir_entry.file_type()?;
+        if file_type.is_dir() {
+            scan_workspace_file_entries_in(root_dir, path.as_path(), entries)?;
+            continue;
+        }
+
+        if !file_type.is_file() || !is_supported_text_file(path.as_path()) {
+            continue;
+        }
+
+        let Ok(relative_path) = path.strip_prefix(root_dir) else {
+            continue;
+        };
+        let display_name = relative_path.to_string_lossy().replace('\\', "/");
+        entries.push(WorkspaceFileEntry { path, display_name });
+    }
+
+    Ok(())
 }
 
 pub struct Workspace {}
@@ -358,7 +415,7 @@ mod tests {
                 );
             }
         }
-        fs::create_dir_all(&path).unwrap();
+        fs::create_dir_all(&path).expect("failed to create test directory");
         path
     }
 
@@ -434,18 +491,45 @@ mod tests {
     #[test]
     fn scan_workspace_entries_lists_only_direct_txt_files() {
         let dir = test_workspace_dir("direct_txt");
-        fs::write(dir.join("b.md"), "ignored").unwrap();
-        fs::write(dir.join("a.txt"), "shown").unwrap();
-        fs::create_dir_all(dir.join("nested")).unwrap();
-        fs::write(dir.join("nested").join("nested.txt"), "ignored").unwrap();
+        fs::write(dir.join("b.md"), "ignored").expect("failed to write b.md");
+        fs::write(dir.join("a.txt"), "shown").expect("failed to write a.txt");
+        fs::create_dir_all(dir.join("nested")).expect("failed to create nested dir");
+        fs::write(dir.join("nested").join("nested.txt"), "ignored")
+            .expect("failed to write nested.txt");
 
-        let entries = scan_workspace_entries(dir.as_path()).unwrap();
+        let entries = scan_workspace_entries(dir.as_path()).expect("failed to scan workspace");
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name(), "a.txt");
         assert_eq!(entries[0].path(), dir.join("a.txt").as_path());
 
-        fs::remove_dir_all(dir).unwrap();
+        fs::remove_dir_all(dir).expect("failed to remove test dir");
+    }
+
+    #[test]
+    fn scan_workspace_file_entries_lists_recursive_txt_files() {
+        let dir = test_workspace_dir("recursive_txt");
+        fs::write(dir.join("root.txt"), "root").expect("failed to write root.txt");
+        fs::write(dir.join("root.md"), "ignored").expect("failed to write root.md");
+        fs::create_dir_all(dir.join("src")).expect("failed to create src dir");
+        fs::write(dir.join("src").join("chapter.txt"), "chapter")
+            .expect("failed to write chapter.txt");
+        fs::create_dir_all(dir.join(".hidden")).expect("failed to create hidden dir");
+        fs::write(dir.join(".hidden").join("secret.txt"), "secret")
+            .expect("failed to write secret.txt");
+
+        let entries =
+            scan_workspace_file_entries(dir.as_path()).expect("failed to scan workspace files");
+
+        assert_eq!(
+            entries
+                .iter()
+                .map(WorkspaceFileEntry::display_name)
+                .collect::<Vec<_>>(),
+            vec!["root.txt", "src/chapter.txt"]
+        );
+
+        fs::remove_dir_all(dir).expect("failed to remove test dir");
     }
 
     #[gpui::test]

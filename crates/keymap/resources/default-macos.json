@@ -4,6 +4,7 @@
       "cmd-q": "menu::Quit",
       "cmd-,": "menu::OpenSettings",
       "cmd-o": "menu::OpenFile",
+      "cmd-p": "soukou::OpenFilePicker",
       "cmd-s": "menu::SaveFile",
       "cmd-shift-o": "workspace::OpenWorkspace",
       "cmd-shift-e": "workspace::ToggleWorkspacePane",
@@ -42,6 +43,15 @@
     "bindings": {
       "enter": "soukou::ConfirmEpubMeta",
       "escape": "soukou::DismissEpubMetaForm"
+    }
+  },
+  {
+    "context": "file_picker",
+    "bindings": {
+      "enter": "soukou::ConfirmFilePicker",
+      "escape": "soukou::DismissFilePicker",
+      "up": "soukou::FilePickerSelectPrevious",
+      "down": "soukou::FilePickerSelectNext"
     }
   },
   {

@@ -10,6 +10,7 @@ use gpui::{
 };
 use menu::{OpenSettings, Quit};
 use settings::open_settings_window;
+use std::path::PathBuf;
 
 use crate::open_listener::{OpenUrlListener, spawn_open_url_handler};
 
@@ -24,8 +25,19 @@ actions!(
         OpenModalPrimary,
         ConfirmEpubMeta,
         DismissEpubMetaForm,
+        OpenFilePicker,
+        DismissFilePicker,
+        ConfirmFilePicker,
+        FilePickerSelectNext,
+        FilePickerSelectPrevious,
     ]
 );
+
+#[derive(Clone, Debug, PartialEq, Eq, gpui::Action)]
+#[action(namespace = soukou, no_json, no_register)]
+pub(crate) struct OpenFilePickerPath {
+    path: PathBuf,
+}
 
 fn main() {
     if std::env::var("SOUKOU_DEVELOPMENT_MODE").is_ok() {

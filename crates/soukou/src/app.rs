@@ -7,7 +7,9 @@ use std::process::Command;
 use std::time::Duration;
 
 use crate::{
-    ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm, OpenModalPrimary,
+    ConfirmEpubMeta, ConfirmFilePicker, DismissActiveModal, DismissEpubMetaForm, DismissFilePicker,
+    FilePickerSelectNext, FilePickerSelectPrevious, OpenFilePicker, OpenFilePickerPath,
+    OpenModalPrimary,
     notification::{
         DismissErrorNotification, ErrorNotification, ErrorNotificationStack, ErrorPresentation,
     },
@@ -24,9 +26,10 @@ use editor::{
     EditorController, PreparedPlainText, RichTextToolbar, VimCommandQuit, VimCommandWrite,
 };
 use gpui::{
-    AnyWindowHandle, App, AppContext, Context, Entity, ExternalPaths, FocusHandle, Focusable,
-    FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderOnce, Styled,
-    Subscription, Window, div, prelude::FluentBuilder, px, transparent_black,
+    AnyWindowHandle, App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle,
+    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
+    RenderOnce, Styled, Subscription, Window, div, point, prelude::FluentBuilder, px,
+    transparent_black,
 };
 use menu::{MenuActionHandler, RegisterAccount, SignOut};
 use rich_text::{EpubBookMeta, RichTextDocumentMeta};
@@ -34,8 +37,8 @@ use settings::AppSettings;
 use theme::{APP_FONT_FAMILY, Theme, ThemeMode};
 use title_bar::TitleBar;
 use workspace::{
-    Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceState,
-    scan_workspace_entries,
+    Event as WorkspaceEvent, OpenWorkspace, ToggleWorkspacePane, Workspace, WorkspaceFileEntry,
+    WorkspaceState, scan_workspace_entries, scan_workspace_file_entries,
 };
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -47,12 +50,14 @@ const SUPPORTED_OPEN_ERROR_DETAIL: &str = "現在は .txt ファイルに対応�
 const UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL: &str = "サポートしていないファイルは保存できません";
 const BOTTOM_BAR_TOP_GAP: f32 = 4.0;
 const AUTH_REVALIDATION_INTERVAL: Duration = Duration::from_secs(30 * 60);
+const FILE_PICKER_LIMIT: usize = 12;
 
 pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
     workspace: Entity<Workspace>,
     active_document: ActiveDocument,
     epub_meta_form: Option<EpubMetaFormState>,
+    file_picker: Option<FilePickerState>,
     active_modal: Option<AppModal>,
     error_notifications: Vec<ErrorNotification>,
     next_error_notification_id: u64,
@@ -69,6 +74,14 @@ pub(super) struct SoukouApp {
 struct EpubMetaFormState {
     title_input: Entity<ui::TextInput>,
     author_input: Entity<ui::TextInput>,
+}
+
+struct FilePickerState {
+    input: Entity<ui::TextInput>,
+    entries: Vec<WorkspaceFileEntry>,
+    matches: Vec<WorkspaceFileEntry>,
+    selected_index: usize,
+    _input_subscription: Subscription,
 }
 
 impl SoukouApp {
@@ -190,6 +203,7 @@ impl SoukouApp {
             workspace,
             active_document: ActiveDocument::default(),
             epub_meta_form: None,
+            file_picker: None,
             active_modal: None,
             error_notifications,
             next_error_notification_id,
@@ -279,6 +293,168 @@ impl SoukouApp {
         cx: &mut Context<Self>,
     ) {
         MenuActionHandler::open_file(self, window, cx);
+    }
+
+    fn open_file_picker_action(
+        &mut self,
+        _: &OpenFilePicker,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_file_picker(cx);
+    }
+
+    fn open_file_picker(&mut self, cx: &mut Context<Self>) {
+        let Some(root_dir) = WorkspaceState::global(cx).root_dir().map(Path::to_path_buf) else {
+            self.show_error_modal(
+                "ワークスペースが開かれていません",
+                "フォルダを開いてからファイル検索を使ってください。".to_string(),
+                cx,
+            );
+            return;
+        };
+
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { scan_workspace_file_entries(root_dir.as_path()) })
+                .await;
+
+            match result {
+                Ok(entries) => {
+                    if let Err(error) = this.update(cx, |this, cx| {
+                        this.show_file_picker(entries, cx);
+                    }) {
+                        eprintln!("failed to show file picker: {error}");
+                    }
+                }
+                Err(error) => {
+                    if let Err(update_error) = this.update(cx, |this, cx| {
+                        this.show_error_modal(FILE_OPEN_ERROR_TITLE, error.to_string(), cx);
+                    }) {
+                        eprintln!("failed to show file picker error: {update_error}");
+                    }
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn show_file_picker(&mut self, entries: Vec<WorkspaceFileEntry>, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| {
+            let mut input = ui::TextInput::new(cx);
+            input.set_key_context("SoukouTextInput file_picker", cx);
+            input.set_placeholder("ファイルを検索", cx);
+            input
+        });
+        let input_subscription = cx.observe(&input, |this, input, cx| {
+            let query = input.read(cx).text();
+            this.update_file_picker_matches(query.as_str(), cx);
+        });
+
+        let matches = filter_file_picker_entries(entries.as_slice(), "");
+        self.file_picker = Some(FilePickerState {
+            input,
+            entries,
+            matches,
+            selected_index: 0,
+            _input_subscription: input_subscription,
+        });
+        cx.notify();
+    }
+
+    fn update_file_picker_matches(&mut self, query: &str, cx: &mut Context<Self>) {
+        let Some(file_picker) = self.file_picker.as_mut() else {
+            return;
+        };
+        file_picker.matches = filter_file_picker_entries(file_picker.entries.as_slice(), query);
+        file_picker.selected_index = 0;
+        cx.notify();
+    }
+
+    fn dismiss_file_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.file_picker = None;
+        window.focus(&self.focus_handle(cx), cx);
+        cx.notify();
+    }
+
+    fn dismiss_file_picker_action(
+        &mut self,
+        _: &DismissFilePicker,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dismiss_file_picker(window, cx);
+    }
+
+    fn confirm_file_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let path = self.file_picker.as_ref().and_then(|file_picker| {
+            file_picker
+                .matches
+                .get(file_picker.selected_index)
+                .map(|entry| entry.path().to_path_buf())
+        });
+        self.dismiss_file_picker(window, cx);
+
+        if let Some(path) = path {
+            self.open_workspace_path(path, cx);
+        }
+    }
+
+    fn confirm_file_picker_action(
+        &mut self,
+        _: &ConfirmFilePicker,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.confirm_file_picker(window, cx);
+    }
+
+    fn open_file_picker_path_action(
+        &mut self,
+        action: &OpenFilePickerPath,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let path = action.path.clone();
+        self.dismiss_file_picker(window, cx);
+        self.open_workspace_path(path, cx);
+    }
+
+    fn select_next_file_picker_entry(
+        &mut self,
+        _: &FilePickerSelectNext,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(file_picker) = self.file_picker.as_mut() else {
+            return;
+        };
+        let selectable_len = file_picker_selectable_len(file_picker.matches.len());
+        if selectable_len == 0 {
+            return;
+        }
+        file_picker.selected_index = (file_picker.selected_index + 1) % selectable_len;
+        cx.notify();
+    }
+
+    fn select_previous_file_picker_entry(
+        &mut self,
+        _: &FilePickerSelectPrevious,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(file_picker) = self.file_picker.as_mut() else {
+            return;
+        };
+        let selectable_len = file_picker_selectable_len(file_picker.matches.len());
+        if selectable_len == 0 {
+            return;
+        }
+        file_picker.selected_index = file_picker
+            .selected_index
+            .checked_sub(1)
+            .unwrap_or(selectable_len - 1);
+        cx.notify();
     }
 
     fn register_account_action(
@@ -713,6 +889,9 @@ impl SoukouApp {
         }
         if self.epub_meta_form.is_some() {
             context.push_str(" epub_meta_form");
+        }
+        if self.file_picker.is_some() {
+            context.push_str(" file_picker");
         }
         context
     }
@@ -1188,6 +1367,12 @@ impl Render for SoukouApp {
                     .on_drop(cx.listener(Self::drop_external_paths))
                     .on_action(cx.listener(Self::open_file_action))
                     .on_action(cx.listener(Self::open_workspace_action))
+                    .on_action(cx.listener(Self::open_file_picker_action))
+                    .on_action(cx.listener(Self::dismiss_file_picker_action))
+                    .on_action(cx.listener(Self::confirm_file_picker_action))
+                    .on_action(cx.listener(Self::open_file_picker_path_action))
+                    .on_action(cx.listener(Self::select_next_file_picker_entry))
+                    .on_action(cx.listener(Self::select_previous_file_picker_entry))
                     .on_action(cx.listener(Self::register_account_action))
                     .on_action(cx.listener(Self::sign_out_action))
                     .on_action(cx.listener(Self::toggle_workspace_pane_action))
@@ -1231,6 +1416,13 @@ impl Render for SoukouApp {
                             form.author_input.clone(),
                         ))
                     })
+                    .when_some(self.file_picker.as_ref(), |this, file_picker| {
+                        this.child(FilePickerOverlay::new(
+                            file_picker.input.clone(),
+                            file_picker.matches.clone(),
+                            file_picker.selected_index,
+                        ))
+                    })
                     .when_some(self.active_modal.clone(), |this, modal| {
                         this.child(ActiveModal::from_modal(modal))
                     })
@@ -1251,6 +1443,248 @@ impl Render for SoukouApp {
                             .child(self.bottom_bar.clone().into_element()),
                     ),
             )
+    }
+}
+
+#[derive(IntoElement)]
+struct FilePickerOverlay {
+    input: Entity<ui::TextInput>,
+    matches: Vec<WorkspaceFileEntry>,
+    selected_index: usize,
+}
+
+impl FilePickerOverlay {
+    fn new(
+        input: Entity<ui::TextInput>,
+        matches: Vec<WorkspaceFileEntry>,
+        selected_index: usize,
+    ) -> Self {
+        Self {
+            input,
+            matches,
+            selected_index,
+        }
+    }
+}
+
+impl RenderOnce for FilePickerOverlay {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let focus_handle = self.input.focus_handle(cx);
+        window.focus(&focus_handle, cx);
+
+        let mut shown_matches = Vec::new();
+        for (index, entry) in self
+            .matches
+            .iter()
+            .take(FILE_PICKER_LIMIT)
+            .cloned()
+            .enumerate()
+        {
+            shown_matches.push(
+                file_picker_row(index, entry, index == self.selected_index, cx).into_any_element(),
+            );
+        }
+        let result_label = if self.matches.is_empty() {
+            "一致するファイルはありません".to_string()
+        } else {
+            format!("{}件", self.matches.len())
+        };
+
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .bg(Hsla {
+                h: 0.61,
+                s: 0.32,
+                l: 0.08,
+                a: 0.42,
+            })
+            .flex()
+            .justify_center()
+            .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
+                window.dispatch_action(Box::new(DismissFilePicker), cx);
+            })
+            .child(
+                div()
+                    .mt(px(92.0))
+                    .w(px(640.0))
+                    .max_w(px(640.0))
+                    .h_auto()
+                    .flex()
+                    .flex_col()
+                    .bg(Theme::global(cx).white())
+                    .border_1()
+                    .border_color(toolbar_border_color(cx))
+                    .rounded_lg()
+                    .shadow(vec![BoxShadow {
+                        color: Hsla {
+                            h: 0.0,
+                            s: 0.0,
+                            l: 0.0,
+                            a: 0.18,
+                        },
+                        offset: point(px(0.0), px(18.0)),
+                        blur_radius: px(42.0),
+                        spread_radius: px(0.0),
+                        inset: false,
+                    }])
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
+                    .child(
+                        div()
+                            .px_4()
+                            .py_3()
+                            .border_b_1()
+                            .border_color(toolbar_border_color(cx))
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(px(15.0))
+                                    .child(self.input),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(Theme::global(cx).text_senodary())
+                                    .child(result_label),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .py_2()
+                            .flex()
+                            .flex_col()
+                            .when(self.matches.is_empty(), |this| {
+                                this.child(
+                                    div()
+                                        .px_4()
+                                        .py_3()
+                                        .text_sm()
+                                        .text_color(Theme::global(cx).text_senodary())
+                                        .child("一致するファイルはありません"),
+                                )
+                            })
+                            .children(shown_matches),
+                    ),
+            )
+    }
+}
+
+fn file_picker_row(
+    index: usize,
+    entry: WorkspaceFileEntry,
+    selected: bool,
+    cx: &mut App,
+) -> impl IntoElement {
+    let path = entry.path().to_path_buf();
+    let background = if selected {
+        mix(Theme::global(cx).primary(), Theme::global(cx).white(), 0.88).into()
+    } else {
+        Theme::global(cx).white()
+    };
+    let text_color = if selected {
+        Theme::global(cx).primary()
+    } else {
+        Theme::global(cx).text_primary()
+    };
+
+    div()
+        .id(("file-picker-row", index))
+        .mx_2()
+        .px_3()
+        .py_2()
+        .rounded_sm()
+        .bg(background)
+        .text_color(text_color)
+        .cursor_pointer()
+        .hover(|style| style.bg(Theme::global(cx).bg_senodary()))
+        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+            window.dispatch_action(Box::new(OpenFilePickerPath { path: path.clone() }), cx);
+            cx.stop_propagation();
+        })
+        .child(
+            div()
+                .text_sm()
+                .overflow_hidden()
+                .child(entry.display_name().to_string()),
+        )
+}
+
+fn filter_file_picker_entries(
+    entries: &[WorkspaceFileEntry],
+    query: &str,
+) -> Vec<WorkspaceFileEntry> {
+    let query = query.trim().to_lowercase();
+    let mut matches = entries
+        .iter()
+        .filter(|entry| file_picker_entry_matches(entry.display_name(), query.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    matches.sort_by(|left, right| {
+        file_picker_score(left.display_name(), query.as_str())
+            .cmp(&file_picker_score(right.display_name(), query.as_str()))
+            .then_with(|| left.display_name().cmp(right.display_name()))
+    });
+    matches
+}
+
+fn file_picker_selectable_len(match_len: usize) -> usize {
+    match_len.min(FILE_PICKER_LIMIT)
+}
+
+fn file_picker_entry_matches(display_name: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+
+    let display_name = display_name.to_lowercase();
+    if display_name.contains(query) {
+        return true;
+    }
+
+    let mut query_chars = query.chars();
+    let Some(mut current_query_char) = query_chars.next() else {
+        return true;
+    };
+    for display_char in display_name.chars() {
+        if display_char == current_query_char {
+            match query_chars.next() {
+                Some(next_query_char) => current_query_char = next_query_char,
+                None => return true,
+            }
+        }
+    }
+    false
+}
+
+fn file_picker_score(display_name: &str, query: &str) -> usize {
+    if query.is_empty() {
+        return display_name.len();
+    }
+
+    let display_name = display_name.to_lowercase();
+    if display_name == query {
+        0
+    } else if display_name
+        .rsplit('/')
+        .next()
+        .is_some_and(|file_name| file_name == query)
+    {
+        1
+    } else if display_name.starts_with(query) {
+        2
+    } else if display_name.contains(query) {
+        3
+    } else {
+        4
     }
 }
 
