@@ -536,11 +536,13 @@ fn package_document(title: &str, author: &str) -> String {
     };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
-<package version="3.0" unique-identifier="book-id" xmlns="http://www.idpf.org/2007/opf">
+<package version="3.0" unique-identifier="book-id" xmlns="http://www.idpf.org/2007/opf" prefix="rendition: http://www.idpf.org/vocab/rendition/#">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="book-id">urn:uuid:00000000-0000-0000-0000-000000000000</dc:identifier>
     <dc:title>{title}</dc:title>{author_element}
     <dc:language>ja</dc:language>
+    <meta property="rendition:layout">reflowable</meta>
+    <meta property="rendition:spread">none</meta>
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
@@ -578,8 +580,8 @@ fn text_document(title: &str, plain_text: &str, meta: &RichTextDocumentMeta) -> 
     <title>{}</title>
     <style>
       @page {{ margin: 0; }}
-      html {{ width: 100%; height: 100%; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }}
-      body {{ width: 100%; height: 100%; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }}
+      html {{ margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }}
+      body {{ position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }}
       .emphasis {{ text-emphasis: filled sesame; -webkit-text-emphasis: filled sesame; }}
       .rotated {{ text-orientation: sideways; }}
       .page-break {{ display: block; width: 0; height: 0; margin: 0; padding: 0; overflow: hidden; break-before: page; page-break-before: always; -epub-break-before: always; }}
@@ -1252,8 +1254,8 @@ mod tests {
         let document = text_document("題名", "本文です", &RichTextDocumentMeta::default());
 
         assert!(document.contains("@page { margin: 0; }"));
-        assert!(document.contains("html { width: 100%; height: 100%; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }"));
-        assert!(document.contains("body { width: 100%; height: 100%; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }"));
+        assert!(document.contains("html { margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }"));
+        assert!(document.contains("body { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: auto; height: auto; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }"));
     }
 
     #[test]
