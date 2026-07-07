@@ -108,6 +108,7 @@ pub(super) fn select_visual_range(
     editor.cursor_cell = cursor_cell;
     editor.block_selection = None;
     editor.ensure_cursor_visible();
+    theme::note_cursor_activity(cx);
     cx.notify();
 }
 
@@ -127,6 +128,7 @@ pub(super) fn set_block_selection(
         cursor_cell,
     });
     editor.ensure_cursor_visible();
+    theme::note_cursor_activity(cx);
     cx.notify();
 }
 
@@ -143,12 +145,14 @@ pub(super) fn collapse_selection_to_cursor_offset(editor: &mut Editor, cx: &mut 
     editor.marked_range = None;
     editor.block_selection = None;
     editor.ensure_cursor_visible();
+    theme::note_cursor_activity(cx);
     cx.notify();
 }
 
 pub(super) fn collapse_selection_to_cursor_cell(editor: &mut Editor, cx: &mut Context<Editor>) {
     let cursor_offset = editor.byte_offset_for_display_cell(editor.cursor_cell);
     set_cursor_from_offset(editor, cursor_offset);
+    theme::note_cursor_activity(cx);
     cx.notify();
 }
 
@@ -171,6 +175,7 @@ pub(super) fn move_to_display_cell(
     editor.cursor_cell = cell_index;
     editor.block_selection = None;
     editor.ensure_cursor_visible();
+    theme::note_cursor_activity(cx);
     cx.notify();
 }
 
@@ -201,6 +206,7 @@ pub(super) fn select_to_display_cell(
     {
         return;
     }
+    theme::note_cursor_activity(cx);
     cx.notify();
 }
 
@@ -233,6 +239,7 @@ pub(super) fn select_between_display_cells(
     {
         return;
     }
+    theme::note_cursor_activity(cx);
     cx.notify();
 }
 

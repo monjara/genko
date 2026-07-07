@@ -577,8 +577,9 @@ fn text_document(title: &str, plain_text: &str, meta: &RichTextDocumentMeta) -> 
   <head>
     <title>{}</title>
     <style>
-      html {{ margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }}
-      body {{ margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }}
+      @page {{ margin: 0; }}
+      html {{ width: 100%; height: 100%; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }}
+      body {{ width: 100%; height: 100%; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }}
       .emphasis {{ text-emphasis: filled sesame; -webkit-text-emphasis: filled sesame; }}
       .rotated {{ text-orientation: sideways; }}
       .page-break {{ display: block; width: 0; height: 0; margin: 0; padding: 0; overflow: hidden; break-before: page; page-break-before: always; -epub-break-before: always; }}
@@ -1250,8 +1251,9 @@ mod tests {
     fn epub_text_starts_from_right_edge() {
         let document = text_document("題名", "本文です", &RichTextDocumentMeta::default());
 
-        assert!(document.contains("html { margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }"));
-        assert!(document.contains("body { margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }"));
+        assert!(document.contains("@page { margin: 0; }"));
+        assert!(document.contains("html { width: 100%; height: 100%; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }"));
+        assert!(document.contains("body { width: 100%; height: 100%; margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }"));
     }
 
     #[test]

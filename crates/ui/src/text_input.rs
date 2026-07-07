@@ -252,6 +252,7 @@ impl TextInput {
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
         self.selected_range = offset..offset;
         self.selection_reversed = false;
+        theme::note_cursor_activity(cx);
         cx.notify();
     }
 
@@ -267,6 +268,7 @@ impl TextInput {
             self.selected_range = self.selected_range.end..self.selected_range.start;
         }
 
+        theme::note_cursor_activity(cx);
         cx.notify();
     }
 
@@ -421,6 +423,7 @@ impl EntityInputHandler for TextInput {
         self.selected_range = end..end;
         self.selection_reversed = false;
         self.marked_range = None;
+        theme::note_cursor_activity(cx);
         cx.notify();
     }
 
@@ -451,6 +454,7 @@ impl EntityInputHandler for TextInput {
                 end..end
             });
         self.selection_reversed = false;
+        theme::note_cursor_activity(cx);
         cx.notify();
     }
 
@@ -772,7 +776,8 @@ impl Element for TextElement {
             }
         }
 
-        if focus_handle.is_focused(window)
+        if theme::cursor_should_be_visible(cx)
+            && focus_handle.is_focused(window)
             && let Some(cursor) = prepaint.cursor.take()
         {
             window.paint_quad(cursor);

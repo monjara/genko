@@ -19,6 +19,7 @@ actions!(
         ToggleGridLines,
         ToggleVimMode,
         ToggleIndentOnEnter,
+        ToggleCursorBlink,
         ToggleHangingPunctuation,
         DecrementCellSize,
         IncrementCellSize,
@@ -172,6 +173,31 @@ impl SettingsWindow {
         cx: &mut Context<Self>,
     ) {
         self.toggle_indent_on_enter_value(cx);
+    }
+
+    fn toggle_cursor_blink_value(&mut self, cx: &mut Context<Self>) {
+        let current = AppSettings::global(cx).cursor_blink;
+        AppSettings::global_mut(cx).cursor_blink = !current;
+        theme::set_cursor_blink_enabled(!current, cx);
+        self.persist_settings(cx);
+    }
+
+    fn toggle_cursor_blink(
+        &mut self,
+        _: &ClickEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_cursor_blink_value(cx);
+    }
+
+    fn toggle_cursor_blink_action(
+        &mut self,
+        _: &ToggleCursorBlink,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_cursor_blink_value(cx);
     }
 
     fn toggle_hanging_punctuation_value(&mut self, cx: &mut Context<Self>) {
@@ -566,6 +592,19 @@ impl SettingsWindow {
         )
     }
 
+    fn render_cursor_blink_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.render_toggle_row(
+            "settings-cursor-blink-toggle",
+            "カーソル点滅",
+            "入力カーソルを点滅表示します",
+            AppSettings::global(cx).cursor_blink,
+            "点滅する",
+            "点滅しない",
+            Self::toggle_cursor_blink,
+            cx,
+        )
+    }
+
     fn render_hanging_punctuation_toggle(&self, cx: &mut Context<Self>) -> impl IntoElement {
         self.render_toggle_row(
             "settings-hanging-punctuation-toggle",
@@ -762,6 +801,7 @@ impl SettingsWindow {
             vec![
                 self.render_vim_mode_toggle(cx).into_any_element(),
                 self.render_indent_on_enter_toggle(cx).into_any_element(),
+                self.render_cursor_blink_toggle(cx).into_any_element(),
             ],
             cx,
         )
@@ -810,6 +850,7 @@ impl Render for SettingsWindow {
                     .on_action(cx.listener(Self::toggle_grid_lines_action))
                     .on_action(cx.listener(Self::toggle_vim_mode_action))
                     .on_action(cx.listener(Self::toggle_indent_on_enter_action))
+                    .on_action(cx.listener(Self::toggle_cursor_blink_action))
                     .on_action(cx.listener(Self::toggle_hanging_punctuation_action))
                     .on_action(cx.listener(Self::decrement_cell_size_action))
                     .on_action(cx.listener(Self::increment_cell_size_action))
@@ -935,6 +976,8 @@ pub struct AppSettings {
     pub vim_mode: bool,
     #[serde(rename = "indentOnEnter")]
     pub indent_on_enter: bool,
+    #[serde(rename = "cursorBlink")]
+    pub cursor_blink: bool,
 }
 
 impl Global for AppSettings {}
@@ -950,6 +993,7 @@ impl Default for AppSettings {
             rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: false,
             indent_on_enter: false,
+            cursor_blink: true,
         }
     }
 }
@@ -957,6 +1001,7 @@ impl Default for AppSettings {
 pub fn init(cx: &mut App) {
     let state = AppSettings::load();
     theme::apply_mode(state.theme_mode, cx);
+    theme::set_cursor_blink_enabled(state.cursor_blink, cx);
     cx.set_global::<AppSettings>(state);
 }
 
@@ -1006,6 +1051,7 @@ impl AppSettings {
             rows_per_column: Some(DEFAULT_ROWS_PER_COLUMN),
             vim_mode: self.vim_mode,
             indent_on_enter: self.indent_on_enter,
+            cursor_blink: self.cursor_blink,
         }
     }
 
@@ -1070,6 +1116,8 @@ struct PersistedAppSettings {
     vim_mode: bool,
     #[serde(rename = "indentOnEnter")]
     indent_on_enter: bool,
+    #[serde(rename = "cursorBlink")]
+    cursor_blink: bool,
 }
 
 impl From<&AppSettings> for PersistedAppSettings {
@@ -1083,6 +1131,7 @@ impl From<&AppSettings> for PersistedAppSettings {
             rows_per_column: settings.rows_per_column,
             vim_mode: settings.vim_mode,
             indent_on_enter: settings.indent_on_enter,
+            cursor_blink: settings.cursor_blink,
         }
     }
 }
@@ -1138,6 +1187,7 @@ mod tests {
         assert_eq!(settings.cell_size, DEFAULT_CELL_SIZE);
         assert_eq!(settings.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(!settings.vim_mode);
+        assert!(settings.cursor_blink);
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1195,6 +1245,7 @@ mod tests {
             rows_per_column: Some(24),
             vim_mode: true,
             indent_on_enter: true,
+            cursor_blink: false,
         };
 
         settings.save_to_file(&settings_path).unwrap();
@@ -1211,6 +1262,7 @@ mod tests {
         assert_eq!(reloaded.rows_per_column, Some(DEFAULT_ROWS_PER_COLUMN));
         assert!(reloaded.vim_mode);
         assert!(reloaded.indent_on_enter);
+        assert!(!reloaded.cursor_blink);
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1228,6 +1280,18 @@ mod tests {
 
         assert!(settings.vim_mode);
         assert!(settings.indent_on_enter);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loads_cursor_blink_from_settings_file() {
+        let dir = test_settings_dir("cursor_blink");
+        fs::write(dir.join("settings.json"), r#"{"cursorBlink": false}"#).unwrap();
+
+        let settings = AppSettings::load_from_config_file(Some(dir.join("settings.json")));
+
+        assert!(!settings.cursor_blink);
 
         let _ = fs::remove_dir_all(dir);
     }

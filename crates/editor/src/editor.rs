@@ -997,6 +997,7 @@ impl Editor {
         self.bump_draft_revision();
         let cursor = range.start + new_text.len();
         self.set_cursor_from_offset(cursor);
+        theme::note_cursor_activity(cx);
         if implicit_transaction {
             if !self.commit_transaction(cx) {
                 cx.notify();
@@ -1034,6 +1035,7 @@ impl Editor {
         self.draft.replace_range_owned(range, new_text);
         self.bump_draft_revision();
         self.set_cursor_from_offset(cursor);
+        theme::note_cursor_activity(cx);
         if implicit_transaction {
             let committed = self.commit_transaction(cx);
             if !committed {

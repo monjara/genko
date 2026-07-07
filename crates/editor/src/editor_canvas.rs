@@ -322,7 +322,7 @@ impl Element for EditorCanvas {
             window,
             cx,
         );
-        if focus_handle.is_focused(window) {
+        if theme::cursor_should_be_visible(cx) && focus_handle.is_focused(window) {
             paint_cursor(
                 cursor_index,
                 content_bounds,

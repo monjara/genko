@@ -1,7 +1,11 @@
-use gpui::{App, Global, Rgba, WindowAppearance};
+use std::time::{Duration, Instant};
+
+use gpui::{App, AsyncApp, Global, Rgba, WindowAppearance};
 use serde::{Deserialize, Serialize};
 
 pub const APP_FONT_FAMILY: &str = "Zen Old Mincho";
+const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(500);
+const CURSOR_ACTIVITY_GRACE_PERIOD: Duration = Duration::from_millis(700);
 
 pub struct Theme {
     primary: Rgba,
@@ -17,9 +21,71 @@ pub struct Theme {
 
 impl Global for Theme {}
 
+struct CursorBlinkState {
+    enabled: bool,
+    visible: bool,
+    activity_until: Option<Instant>,
+}
+
+impl Global for CursorBlinkState {}
+
 pub fn init(cx: &mut App) {
     let theme = Theme::load(ThemeAppearance::Light);
     cx.set_global::<Theme>(theme);
+    cx.set_global(CursorBlinkState {
+        enabled: true,
+        visible: true,
+        activity_until: None,
+    });
+    spawn_cursor_blink_timer(cx);
+}
+
+fn spawn_cursor_blink_timer(cx: &mut App) {
+    cx.spawn(|cx: &mut AsyncApp| {
+        let app = cx.clone();
+        async move {
+            loop {
+                app.background_executor().timer(CURSOR_BLINK_INTERVAL).await;
+                app.update(|cx| {
+                    let cursor_blink = cx.global_mut::<CursorBlinkState>();
+                    cursor_blink.visible = !cursor_blink.visible;
+                    if cursor_blink.enabled {
+                        cx.refresh_windows();
+                    }
+                });
+            }
+        }
+    })
+    .detach();
+}
+
+pub fn set_cursor_blink_enabled(enabled: bool, cx: &mut App) {
+    let cursor_blink = cx.global_mut::<CursorBlinkState>();
+    cursor_blink.enabled = enabled;
+    cursor_blink.visible = true;
+    cursor_blink.activity_until = None;
+    cx.refresh_windows();
+}
+
+pub fn note_cursor_activity(cx: &mut App) {
+    let cursor_blink = cx.global_mut::<CursorBlinkState>();
+    cursor_blink.visible = true;
+    cursor_blink.activity_until = Some(Instant::now() + CURSOR_ACTIVITY_GRACE_PERIOD);
+    cx.refresh_windows();
+}
+
+pub fn cursor_should_be_visible(cx: &App) -> bool {
+    let cursor_blink = cx.global::<CursorBlinkState>();
+    if !cursor_blink.enabled {
+        return true;
+    }
+    if cursor_blink
+        .activity_until
+        .is_some_and(|activity_until| Instant::now() < activity_until)
+    {
+        return true;
+    }
+    cursor_blink.visible
 }
 
 pub fn apply_mode(mode: ThemeMode, cx: &mut App) {
