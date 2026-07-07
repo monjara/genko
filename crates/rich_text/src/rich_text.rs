@@ -577,10 +577,11 @@ fn text_document(title: &str, plain_text: &str, meta: &RichTextDocumentMeta) -> 
   <head>
     <title>{}</title>
     <style>
-      body {{ writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; }}
+      html {{ margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }}
+      body {{ margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }}
       .emphasis {{ text-emphasis: filled sesame; -webkit-text-emphasis: filled sesame; }}
       .rotated {{ text-orientation: sideways; }}
-      .page-break {{ break-before: page; page-break-before: always; }}
+      .page-break {{ display: block; width: 0; height: 0; margin: 0; padding: 0; overflow: hidden; break-before: page; page-break-before: always; -epub-break-before: always; }}
     </style>
   </head>
   <body>{}</body>
@@ -1243,6 +1244,35 @@ mod tests {
                 .windows(b"application/epub+zip".len())
                 .any(|window| window == b"application/epub+zip")
         );
+    }
+
+    #[test]
+    fn epub_text_starts_from_right_edge() {
+        let document = text_document("題名", "本文です", &RichTextDocumentMeta::default());
+
+        assert!(document.contains("html { margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; }"));
+        assert!(document.contains("body { margin: 0; padding: 0; writing-mode: vertical-rl; -epub-writing-mode: vertical-rl; text-orientation: upright; line-height: 1.8; direction: ltr; }"));
+    }
+
+    #[test]
+    fn epub_page_break_starts_following_text_on_next_page() {
+        let mut meta = RichTextDocumentMeta::default();
+        let right_page_text = "右ページ";
+        meta.add_mark(
+            right_page_text.len()..right_page_text.len(),
+            RichTextKind::PageBreak { column: 1 },
+        );
+
+        let body = render_body("右ページ左ページ", &meta);
+
+        assert_eq!(body, r#"右ページ<div class="page-break"></div>左ページ"#);
+    }
+
+    #[test]
+    fn epub_page_break_marker_does_not_consume_a_vertical_line() {
+        let document = text_document("題名", "本文です", &RichTextDocumentMeta::default());
+
+        assert!(document.contains(".page-break { display: block; width: 0; height: 0; margin: 0; padding: 0; overflow: hidden; break-before: page; page-break-before: always; -epub-break-before: always; }"));
     }
 
     #[test]
