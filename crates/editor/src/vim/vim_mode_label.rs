@@ -30,7 +30,7 @@ impl Render for VimModeLabel {
         div()
             .right_auto()
             .py_1()
-            .text_color(Theme::global(cx).black())
+            .text_color(Theme::global(cx).text_primary())
             .border_1()
             .rounded_sm()
             .child(self.mode_label(window, cx))

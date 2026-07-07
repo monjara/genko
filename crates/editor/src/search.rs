@@ -60,14 +60,14 @@ pub(crate) fn nearest_match_index(matches: &[Range<usize>], cursor: usize) -> Op
 }
 
 fn toolbar_border_color(cx: &App) -> gpui::Hsla {
-    let black = Theme::global(cx).black();
-    let white = Theme::global(cx).white();
+    let text = Theme::global(cx).text_primary();
+    let surface = Theme::global(cx).surface();
     let ratio = 0.72_f32;
     let inv = 1.0 - ratio;
     gpui::Rgba {
-        r: black.r * inv + white.r * ratio,
-        g: black.g * inv + white.g * ratio,
-        b: black.b * inv + white.b * ratio,
+        r: text.r * inv + surface.r * ratio,
+        g: text.g * inv + surface.g * ratio,
+        b: text.b * inv + surface.b * ratio,
         a: 1.0,
     }
     .into()
@@ -115,7 +115,7 @@ impl RenderOnce for SearchPanel {
             .gap_1()
             .px_2()
             .py_1()
-            .bg(Theme::global(cx).white())
+            .bg(Theme::global(cx).surface())
             .border_1()
             .border_color(toolbar_border_color(cx))
             .rounded_md()

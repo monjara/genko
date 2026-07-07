@@ -10,7 +10,7 @@ pub fn primary_button(label: impl IntoElement, cx: &App) -> Div {
         .py_2()
         .rounded_sm()
         .bg(Theme::global(cx).primary())
-        .text_color(Theme::global(cx).white())
+        .text_color(Theme::global(cx).text_on_primary())
         .cursor_pointer()
         .hover(|style| style.opacity(0.92))
         .child(label)
@@ -23,6 +23,7 @@ pub fn secondary_button(label: impl IntoElement, cx: &App) -> Div {
         .rounded_sm()
         .border_1()
         .border_color(subtle_border_color(cx))
+        .text_color(Theme::global(cx).text_primary())
         .cursor_pointer()
         .hover(|style| style.bg(Theme::global(cx).bg_senodary()))
         .child(label)
@@ -47,10 +48,10 @@ pub fn selectable_chip(
         .bg(if active {
             Theme::global(cx).primary()
         } else {
-            Theme::global(cx).white()
+            Theme::global(cx).surface()
         })
         .text_color(if active {
-            Theme::global(cx).white()
+            Theme::global(cx).text_on_primary()
         } else {
             Theme::global(cx).text_primary()
         })
@@ -73,10 +74,10 @@ pub fn toggle_button(
         .bg(if enabled {
             Theme::global(cx).primary()
         } else {
-            Theme::global(cx).white()
+            Theme::global(cx).surface()
         })
         .text_color(if enabled {
-            Theme::global(cx).white()
+            Theme::global(cx).text_on_primary()
         } else {
             Theme::global(cx).primary()
         })
@@ -95,6 +96,7 @@ pub fn square_button(id: impl Into<ElementId>, label: impl IntoElement, cx: &App
         .rounded_sm()
         .border_1()
         .border_color(Theme::global(cx).primary())
+        .text_color(Theme::global(cx).text_primary())
         .cursor_pointer()
         .active(|this| this.opacity(0.85))
         .child(label)
@@ -146,7 +148,7 @@ pub fn small_icon_button(
         .text_color(Theme::global(cx).text_primary())
         .bg(Theme::global(cx).bg_senodary())
         .cursor_pointer()
-        .hover(|style| style.bg(Theme::global(cx).white()))
+        .hover(|style| style.bg(Theme::global(cx).surface()))
         .child(
             svg()
                 .external_path(icon_path)
@@ -169,7 +171,7 @@ pub fn vertical_toolbar_button(
         .justify_center()
         .text_size(px(14.0))
         .font_weight(gpui::FontWeight::BOLD)
-        .text_color(Theme::global(cx).black())
+        .text_color(Theme::global(cx).text_primary())
         .border_b_1()
         .border_color(toolbar_border_color(cx))
         .cursor_pointer()
@@ -178,11 +180,21 @@ pub fn vertical_toolbar_button(
 }
 
 pub fn toolbar_border_color(cx: &App) -> gpui::Hsla {
-    mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.72).into()
+    mix(
+        Theme::global(cx).text_primary(),
+        Theme::global(cx).surface(),
+        0.72,
+    )
+    .into()
 }
 
 fn subtle_border_color(cx: &App) -> gpui::Hsla {
-    mix(gpui::black().into(), Theme::global(cx).white(), 0.75).into()
+    mix(
+        Theme::global(cx).text_primary(),
+        Theme::global(cx).surface(),
+        0.75,
+    )
+    .into()
 }
 
 fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {

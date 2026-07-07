@@ -91,8 +91,8 @@ impl Render for Tooltip {
                 .gap_4()
                 .items_center()
                 .rounded_sm()
-                .bg(Theme::global(cx).black())
-                .text_color(Theme::global(cx).white())
+                .bg(Theme::global(cx).text_primary())
+                .text_color(Theme::global(cx).surface())
                 .font_family(APP_FONT_FAMILY)
                 .text_size(px(12.0))
                 .child(
@@ -106,7 +106,7 @@ impl Render for Tooltip {
                             .px_1()
                             .rounded_sm()
                             .bg(Theme::global(cx).text_primary())
-                            .text_color(Theme::global(cx).white())
+                            .text_color(Theme::global(cx).surface())
                             .child(shortcut),
                     )
                 }),

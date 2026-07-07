@@ -68,7 +68,7 @@ impl Render for BottomBar {
                                     .rounded_sm()
                                     .cursor_pointer()
                                     .text_color(workspace_icon_color)
-                                    .hover(|style| style.bg(Theme::global(cx).white()))
+                                    .hover(|style| style.bg(Theme::global(cx).surface()))
                                     .child(
                                         svg()
                                             .external_path(icons::PANEL_LEFT_OPEN)
@@ -114,7 +114,7 @@ impl Render for BottomBar {
 
 fn background_color(window: &Window, cx: &App) -> gpui::Hsla {
     let active = Theme::global(cx).bg_senodary();
-    let inactive = mix(active, Theme::global(cx).white(), 0.1);
+    let inactive = mix(active, Theme::global(cx).surface(), 0.1);
     if cfg!(any(target_os = "linux", target_os = "freebsd")) && !window.is_window_active() {
         inactive.into()
     } else {
@@ -123,7 +123,12 @@ fn background_color(window: &Window, cx: &App) -> gpui::Hsla {
 }
 
 fn border_color(cx: &App) -> gpui::Hsla {
-    mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.75).into()
+    mix(
+        Theme::global(cx).text_primary(),
+        Theme::global(cx).surface(),
+        0.75,
+    )
+    .into()
 }
 
 fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {

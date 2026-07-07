@@ -686,7 +686,7 @@ impl SettingsWindow {
             .bg(if active {
                 Theme::global(cx).bg_senodary()
             } else {
-                Theme::global(cx).white()
+                Theme::global(cx).surface()
             })
             .text_color(if active {
                 Theme::global(cx).primary()
@@ -838,7 +838,7 @@ impl Render for SettingsWindow {
             .child(
                 div()
                     .size_full()
-                    .bg(Theme::global(cx).white())
+                    .bg(Theme::global(cx).surface())
                     .font_family(APP_FONT_FAMILY)
                     .flex()
                     .flex_col()

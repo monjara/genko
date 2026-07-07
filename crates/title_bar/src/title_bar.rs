@@ -367,12 +367,12 @@ impl TitleBar {
         } else {
             mix(
                 Theme::global(cx).bg_senodary(),
-                Theme::global(cx).white(),
+                Theme::global(cx).surface(),
                 0.18,
             )
         };
         let hover_text = if matches!(button, WindowButton::Close) {
-            Hsla::from(Theme::global(cx).white())
+            Hsla::from(Theme::global(cx).surface())
         } else {
             text_color(cx)
         };
@@ -404,7 +404,7 @@ impl TitleBar {
 
     fn title_bar_background(&self, window: &Window, cx: &App) -> Hsla {
         let active = Theme::global(cx).bg_senodary();
-        let inactive = mix(active, Theme::global(cx).white(), 0.1);
+        let inactive = mix(active, Theme::global(cx).surface(), 0.1);
         let color = if cfg!(any(target_os = "linux", target_os = "freebsd"))
             && !window.is_window_active()
         {
@@ -417,7 +417,12 @@ impl TitleBar {
 }
 
 fn border_color(cx: &App) -> Hsla {
-    mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.75).into()
+    mix(
+        Theme::global(cx).text_primary(),
+        Theme::global(cx).surface(),
+        0.75,
+    )
+    .into()
 }
 
 fn text_color(cx: &App) -> Hsla {

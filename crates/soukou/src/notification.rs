@@ -108,7 +108,7 @@ impl RenderOnce for ErrorNotificationView {
             .flex()
             .flex_col()
             .gap_2()
-            .bg(Theme::global(cx).white())
+            .bg(Theme::global(cx).surface())
             .border_1()
             .border_color(toolbar_border_color(cx))
             .rounded_md()

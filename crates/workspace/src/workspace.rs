@@ -336,10 +336,10 @@ impl Render for Workspace {
                                 .rounded_sm()
                                 .border_1()
                                 .border_color(Theme::global(cx).primary())
-                                .bg(Theme::global(cx).white())
+                                .bg(Theme::global(cx).surface())
                                 .cursor_pointer()
                                 .text_color(Theme::global(cx).primary())
-                                .hover(|style| style.bg(Theme::global(cx).white()))
+                                .hover(|style| style.bg(Theme::global(cx).surface()))
                                 .child(
                                     svg()
                                         .external_path(icons::FOLDER_OPEN)

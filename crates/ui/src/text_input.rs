@@ -832,7 +832,7 @@ impl Render for TextInput {
                     .when(!self.vertical, |this| this.h(px(18.0 + 10.0)))
                     .px_2()
                     .py_1()
-                    .bg(Theme::global(cx).white())
+                    .bg(Theme::global(cx).surface())
                     .child(TextElement { input: cx.entity() }),
             )
     }

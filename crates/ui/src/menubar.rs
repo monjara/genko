@@ -110,12 +110,12 @@ impl MenuBar {
         let is_open = self.open_menu_index == Some(menu_index);
         let active_background = mix(
             Theme::global(cx).bg_senodary(),
-            Theme::global(cx).white(),
+            Theme::global(cx).surface(),
             0.24,
         );
         let hover_background = mix(
             Theme::global(cx).bg_senodary(),
-            Theme::global(cx).white(),
+            Theme::global(cx).surface(),
             0.18,
         );
 
@@ -144,11 +144,15 @@ impl MenuBar {
     fn render_menu_popup(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let menu_index = self.open_menu_index?;
         let menu = self.menus.get(menu_index)?;
-        let background = Theme::global(cx).white();
-        let border = mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.75);
+        let background = Theme::global(cx).surface();
+        let border = mix(
+            Theme::global(cx).text_primary(),
+            Theme::global(cx).surface(),
+            0.75,
+        );
         let item_hover_background = mix(
             Theme::global(cx).bg_senodary(),
-            Theme::global(cx).white(),
+            Theme::global(cx).surface(),
             0.12,
         );
 

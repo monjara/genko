@@ -268,12 +268,12 @@ impl TitleBarAccountControl {
             .text_color(text_color(cx))
             .border_1()
             .border_color(border_color(cx))
-            .bg(Theme::global(cx).white())
+            .bg(Theme::global(cx).surface())
             .cursor_pointer()
             .hover(|style| {
                 style.bg(mix(
                     Theme::global(cx).bg_senodary(),
-                    Theme::global(cx).white(),
+                    Theme::global(cx).surface(),
                     0.14,
                 ))
             })
@@ -300,7 +300,7 @@ impl TitleBarAccountControl {
             .border_color(border_color(cx))
             .bg(mix(
                 Theme::global(cx).primary(),
-                Theme::global(cx).white(),
+                Theme::global(cx).surface(),
                 0.78,
             ))
             .flex()
@@ -313,7 +313,7 @@ impl TitleBarAccountControl {
             .hover(|style| {
                 style.bg(mix(
                     Theme::global(cx).primary(),
-                    Theme::global(cx).white(),
+                    Theme::global(cx).surface(),
                     0.68,
                 ))
             })
@@ -345,7 +345,7 @@ impl TitleBarAccountControl {
         let initial = account_initial(display_name.as_str());
         let item_hover_background = mix(
             Theme::global(cx).bg_senodary(),
-            Theme::global(cx).white(),
+            Theme::global(cx).surface(),
             0.12,
         );
 
@@ -359,7 +359,7 @@ impl TitleBarAccountControl {
                             .id("title-bar-account-popup")
                             .min_w(ACCOUNT_MENU_MIN_WIDTH)
                             .py_2()
-                            .bg(Theme::global(cx).white())
+                            .bg(Theme::global(cx).surface())
                             .border_1()
                             .border_color(border_color(cx))
                             .rounded_md()
@@ -398,7 +398,7 @@ impl TitleBarAccountControl {
                                             .border_color(border_color(cx))
                                             .bg(mix(
                                                 Theme::global(cx).primary(),
-                                                Theme::global(cx).white(),
+                                                Theme::global(cx).surface(),
                                                 0.78,
                                             ))
                                             .flex()
@@ -508,7 +508,12 @@ fn plan_label(plan_key: PlanKey) -> &'static str {
 }
 
 fn border_color(cx: &App) -> Hsla {
-    mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.75).into()
+    mix(
+        Theme::global(cx).text_primary(),
+        Theme::global(cx).surface(),
+        0.75,
+    )
+    .into()
 }
 
 fn text_color(cx: &App) -> Hsla {

@@ -1401,7 +1401,7 @@ impl CellTextStyle {
         if self.bold {
             mix(
                 Theme::global(cx).text_primary(),
-                Theme::global(cx).black(),
+                Theme::global(cx).text_primary(),
                 0.12,
             )
         } else {

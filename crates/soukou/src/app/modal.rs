@@ -97,7 +97,11 @@ impl ActiveModal {
 
 impl RenderOnce for ActiveModal {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let accent = mix(Theme::global(cx).primary(), Theme::global(cx).white(), 0.84);
+        let accent = mix(
+            Theme::global(cx).primary(),
+            Theme::global(cx).surface(),
+            0.84,
+        );
 
         div()
             .absolute()
@@ -124,7 +128,7 @@ impl RenderOnce for ActiveModal {
                     .flex()
                     .flex_col()
                     .gap_5()
-                    .bg(Theme::global(cx).white())
+                    .bg(Theme::global(cx).surface())
                     .border_1()
                     .border_color(toolbar_border_color(cx))
                     .rounded_lg()
@@ -258,7 +262,7 @@ impl RenderOnce for EpubMetaFormOverlay {
                     .flex()
                     .flex_col()
                     .gap_5()
-                    .bg(Theme::global(cx).white())
+                    .bg(Theme::global(cx).surface())
                     .border_1()
                     .border_color(toolbar_border_color(cx))
                     .rounded_lg()

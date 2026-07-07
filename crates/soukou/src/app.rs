@@ -1520,7 +1520,7 @@ impl Render for SoukouApp {
             .child(
                 div()
                     .size_full()
-                    .bg(Theme::global(cx).white())
+                    .bg(Theme::global(cx).surface())
                     .font_family(APP_FONT_FAMILY)
                     .flex()
                     .flex_col()
@@ -1576,6 +1576,7 @@ impl Render for SoukouApp {
                                     .min_w_0()
                                     .h_full()
                                     .flex()
+                                    .bg(Theme::global(cx).bg_primary())
                                     .items_center()
                                     .justify_center()
                                     .child(content),
@@ -1693,7 +1694,7 @@ impl RenderOnce for FilePickerOverlay {
                     .h_auto()
                     .flex()
                     .flex_col()
-                    .bg(Theme::global(cx).white())
+                    .bg(Theme::global(cx).surface())
                     .border_1()
                     .border_color(toolbar_border_color(cx))
                     .rounded_lg()
@@ -1764,9 +1765,14 @@ fn file_picker_row(
 ) -> impl IntoElement {
     let path = entry.path().to_path_buf();
     let background = if selected {
-        mix(Theme::global(cx).primary(), Theme::global(cx).white(), 0.88).into()
+        mix(
+            Theme::global(cx).primary(),
+            Theme::global(cx).surface(),
+            0.88,
+        )
+        .into()
     } else {
-        Theme::global(cx).white()
+        Theme::global(cx).surface()
     };
     let text_color = if selected {
         Theme::global(cx).primary()
@@ -1936,7 +1942,7 @@ impl RenderOnce for CommandPaletteOverlay {
                     .h_auto()
                     .flex()
                     .flex_col()
-                    .bg(Theme::global(cx).white())
+                    .bg(Theme::global(cx).surface())
                     .border_1()
                     .border_color(toolbar_border_color(cx))
                     .rounded_lg()
@@ -2007,9 +2013,14 @@ fn command_palette_row(
 ) -> impl IntoElement {
     let command_id = entry.id;
     let background = if selected {
-        mix(Theme::global(cx).primary(), Theme::global(cx).white(), 0.88).into()
+        mix(
+            Theme::global(cx).primary(),
+            Theme::global(cx).surface(),
+            0.88,
+        )
+        .into()
     } else {
-        Theme::global(cx).white()
+        Theme::global(cx).surface()
     };
     let title_color = if selected {
         Theme::global(cx).primary()
@@ -2426,7 +2437,12 @@ impl RenderOnce for UnsupportedDocument {
 }
 
 pub(crate) fn toolbar_border_color(cx: &App) -> gpui::Hsla {
-    mix(Theme::global(cx).black(), Theme::global(cx).white(), 0.72).into()
+    mix(
+        Theme::global(cx).text_primary(),
+        Theme::global(cx).surface(),
+        0.72,
+    )
+    .into()
 }
 
 pub(super) fn mix(left: gpui::Rgba, right: gpui::Rgba, ratio: f32) -> gpui::Rgba {

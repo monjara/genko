@@ -15,8 +15,8 @@ pub struct Theme {
     bg_primary: Rgba,
     bg_senodary: Rgba,
     selection_range: Rgba,
-    black: Rgba,
-    white: Rgba,
+    surface: Rgba,
+    text_on_primary: Rgba,
 }
 
 impl Global for Theme {}
@@ -179,11 +179,11 @@ impl Theme {
     pub fn selection_range(&self) -> Rgba {
         self.selection_range
     }
-    pub fn black(&self) -> Rgba {
-        self.black
+    pub fn surface(&self) -> Rgba {
+        self.surface
     }
-    pub fn white(&self) -> Rgba {
-        self.white
+    pub fn text_on_primary(&self) -> Rgba {
+        self.text_on_primary
     }
 
     fn load(appearance: ThemeAppearance) -> Self {
@@ -203,8 +203,8 @@ impl Theme {
                 bg_primary: rgba(1., 1., 1., 1.),
                 bg_senodary: rgba(0.961, 0.961, 0.961, 1.),
                 selection_range: rgba(0.541, 0.361, 0.965, 0.200),
-                black: rgba(0., 0., 0., 1.),
-                white: rgba(1., 1., 1., 1.),
+                surface: rgba(1., 1., 1., 1.),
+                text_on_primary: rgba(1., 1., 1., 1.),
             },
             ThemeAppearance::Dark => Self {
                 primary: rgba(0.784, 0.800, 0.824, 1.),
@@ -214,8 +214,8 @@ impl Theme {
                 bg_primary: rgba(0.063, 0.067, 0.071, 1.),
                 bg_senodary: rgba(0.125, 0.133, 0.149, 1.),
                 selection_range: rgba(0.953, 0.831, 0.353, 0.350),
-                black: rgba(0.957, 0.957, 0.961, 1.),
-                white: rgba(0.063, 0.067, 0.071, 1.),
+                surface: rgba(0.169, 0.180, 0.204, 1.),
+                text_on_primary: rgba(0.063, 0.067, 0.071, 1.),
             },
         }
     }

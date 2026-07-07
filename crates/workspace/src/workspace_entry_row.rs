@@ -51,7 +51,7 @@ impl RenderOnce for WorkspaceEntryRow {
                 Theme::global(cx).bg_senodary()
             })
             .text_color(if self.is_active {
-                Theme::global(cx).white()
+                Theme::global(cx).text_on_primary()
             } else {
                 Theme::global(cx).text_primary()
             })
