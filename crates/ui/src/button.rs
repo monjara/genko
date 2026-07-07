@@ -1,6 +1,6 @@
 use gpui::{
     App, Div, ElementId, InteractiveElement, IntoElement, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, div, px, svg, white,
+    StatefulInteractiveElement, Styled, div, px, svg,
 };
 use theme::Theme;
 
@@ -24,7 +24,7 @@ pub fn secondary_button(label: impl IntoElement, cx: &App) -> Div {
         .border_1()
         .border_color(subtle_border_color(cx))
         .cursor_pointer()
-        .hover(|style| style.bg(gpui::rgb(0xf4f5f6)))
+        .hover(|style| style.bg(Theme::global(cx).bg_senodary()))
         .child(label)
 }
 
@@ -107,7 +107,7 @@ pub fn menu_item(label: impl IntoElement, cx: &App) -> Div {
         .text_size(px(12.0))
         .text_color(Theme::global(cx).text_primary())
         .cursor_pointer()
-        .hover(|style| style.bg(white()))
+        .hover(|style| style.bg(Theme::global(cx).bg_senodary()))
         .child(label)
 }
 
@@ -146,7 +146,7 @@ pub fn small_icon_button(
         .text_color(Theme::global(cx).text_primary())
         .bg(Theme::global(cx).bg_senodary())
         .cursor_pointer()
-        .hover(|style| style.bg(white()))
+        .hover(|style| style.bg(Theme::global(cx).white()))
         .child(
             svg()
                 .external_path(icon_path)
@@ -173,7 +173,7 @@ pub fn vertical_toolbar_button(
         .border_b_1()
         .border_color(toolbar_border_color(cx))
         .cursor_pointer()
-        .hover(|style| style.bg(white()))
+        .hover(|style| style.bg(Theme::global(cx).bg_senodary()))
         .child(label)
 }
 

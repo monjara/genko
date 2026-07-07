@@ -147,7 +147,7 @@ impl RenderOnce for ErrorNotificationView {
                             .justify_center()
                             .rounded_sm()
                             .cursor_pointer()
-                            .hover(|style| style.bg(gpui::rgb(0xf4f5f6)))
+                            .hover(|style| style.bg(Theme::global(cx).bg_senodary()))
                             .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
                                 window.dispatch_action(
                                     Box::new(DismissErrorNotification {

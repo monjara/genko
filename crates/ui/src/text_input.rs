@@ -6,8 +6,9 @@ use gpui::{
     InteractiveElement, IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement, Pixels, Point, Render, ShapedLine,
     SharedString, Style, Styled, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
-    fill, hsla, point, prelude::FluentBuilder, px, relative, rgba, size, white,
+    fill, point, prelude::FluentBuilder, px, relative, rgba, size,
 };
+use theme::Theme;
 use unicode_segmentation::UnicodeSegmentation;
 
 actions!(
@@ -568,9 +569,12 @@ impl Element for TextElement {
         let style = window.text_style();
 
         let (display_text, text_color) = if content.is_empty() {
-            (input.placeholder.clone(), hsla(0.0, 0.0, 0.0, 0.28))
+            (
+                input.placeholder.clone(),
+                Theme::global(cx).text_senodary().into(),
+            )
         } else {
-            (content, style.color)
+            (content, Theme::global(cx).text_primary().into())
         };
 
         let base_run = TextRun {
@@ -823,7 +827,7 @@ impl Render for TextInput {
                     .when(!self.vertical, |this| this.h(px(18.0 + 10.0)))
                     .px_2()
                     .py_1()
-                    .bg(white())
+                    .bg(Theme::global(cx).white())
                     .child(TextElement { input: cx.entity() }),
             )
     }

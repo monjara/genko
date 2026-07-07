@@ -154,7 +154,7 @@ impl RenderOnce for SearchPanel {
                     .justify_center()
                     .rounded_sm()
                     .cursor_pointer()
-                    .hover(|s| s.bg(gpui::white()))
+                    .hover(|style| style.bg(Theme::global(cx).bg_senodary()))
                     .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
                         window.dispatch_action(Box::new(CloseSearch), cx);
                         cx.stop_propagation();
@@ -190,7 +190,7 @@ where
         .text_size(px(14.0))
         .text_color(Theme::global(cx).text_primary())
         .cursor_pointer()
-        .hover(|s| s.bg(gpui::white()))
+        .hover(|style| style.bg(Theme::global(cx).bg_senodary()))
         .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
             window.dispatch_action(Box::new(action.clone()), cx);
             cx.stop_propagation();
