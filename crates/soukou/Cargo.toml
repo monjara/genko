@@ -17,7 +17,6 @@ name = "soukou"
 path = "src/main.rs"
 
 [dependencies]
-auth = { workspace = true }
 bottom_bar = { workspace = true }
 document = { workspace = true }
 dotenvy = { workspace = true }

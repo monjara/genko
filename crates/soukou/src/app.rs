@@ -1,10 +1,9 @@
 mod modal;
-use modal::{ActiveModal, AppModal, EpubMetaFormOverlay, ProFeature};
+use modal::{ActiveModal, AppModal, EpubMetaFormOverlay};
 
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::process::Command;
-use std::time::Duration;
 
 use crate::{
     CommandPaletteSelectNext, CommandPaletteSelectPrevious, ConfirmCommandPalette, ConfirmEpubMeta,
@@ -31,10 +30,9 @@ use editor::{
     VimCommandWrite,
 };
 use gpui::{
-    AnyWindowHandle, App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle,
-    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
-    RenderOnce, Styled, Subscription, Window, div, point, prelude::FluentBuilder, px,
-    transparent_black,
+    App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle, Focusable, FontWeight,
+    Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderOnce, Styled,
+    Subscription, Window, div, point, prelude::FluentBuilder, px, transparent_black,
 };
 use menu::{MenuActionHandler, RegisterAccount, SignOut};
 use rich_text::{EpubBookMeta, RichTextDocumentMeta};
@@ -54,7 +52,6 @@ const FILE_SAVE_ERROR_TITLE: &str = "ファイルを保存できませんでし�
 const SUPPORTED_OPEN_ERROR_DETAIL: &str = "現在は .txt ファイルに対応しています";
 const UNSUPPORTED_DOCUMENT_SAVE_ERROR_DETAIL: &str = "サポートしていないファイルは保存できません";
 const BOTTOM_BAR_TOP_GAP: f32 = 4.0;
-const AUTH_REVALIDATION_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const FILE_PICKER_LIMIT: usize = 12;
 const COMMAND_PALETTE_LIMIT: usize = 12;
 
@@ -68,10 +65,6 @@ pub(super) struct SoukouApp {
     active_modal: Option<AppModal>,
     error_notifications: Vec<ErrorNotification>,
     next_error_notification_id: u64,
-    auth_config: auth::AuthConfig,
-    auth_state: auth::AuthState,
-    verified_pro_feature: Option<ProFeature>,
-    account_control: Entity<auth::TitleBarAccountControl>,
     _workspace_subscription: Subscription,
     appearance_subscription: Option<Subscription>,
     title_bar: Entity<TitleBar>,
@@ -164,20 +157,6 @@ impl SoukouApp {
         cx.notify();
     }
 
-    fn show_pro_required_modal(&mut self, feature: ProFeature, cx: &mut Context<Self>) {
-        self.active_modal = Some(AppModal::ProRequired { feature });
-        cx.notify();
-    }
-
-    fn set_auth_state(&mut self, auth_state: auth::AuthState, cx: &mut Context<Self>) {
-        self.verified_pro_feature = None;
-        self.auth_state = auth_state.clone();
-        self.account_control.update(cx, |account_control, cx| {
-            account_control.set_state(auth_state, cx);
-        });
-        cx.notify();
-    }
-
     pub(super) fn new(cx: &mut Context<Self>) -> Self {
         let loaded_key_bindings = keymap::load_key_bindings(cx);
         cx.bind_keys(loaded_key_bindings.key_bindings);
@@ -203,25 +182,10 @@ impl SoukouApp {
             cx.subscribe(&workspace, |this, _workspace, event, cx| match event {
                 WorkspaceEvent::OpenPath(path) => this.open_workspace_path(path.clone(), cx),
             });
-        let account_actions = auth::TitleBarAccountActions::new(
-            |window, cx| {
-                window.dispatch_action(Box::new(RegisterAccount), cx);
-            },
-            |window, cx| {
-                window.dispatch_action(Box::new(RegisterAccount), cx);
-            },
-            |window, cx| {
-                window.dispatch_action(Box::new(SignOut), cx);
-            },
-        );
-        let account_control = cx.new(|_| {
-            auth::TitleBarAccountControl::new(auth::AuthState::Restoring, account_actions)
-        });
-        let title_bar =
-            cx.new(|cx| TitleBar::new(menu::title_bar_menus(), Some(account_control.clone()), cx));
+        let title_bar = cx.new(|cx| TitleBar::new(menu::title_bar_menus(), cx));
         let bottom_bar = cx.new(BottomBar::new);
 
-        let mut app = Self {
+        Self {
             editor_controller,
             workspace,
             active_document: ActiveDocument::default(),
@@ -231,18 +195,11 @@ impl SoukouApp {
             active_modal: None,
             error_notifications,
             next_error_notification_id,
-            auth_config: auth::AuthConfig::from_env(),
-            auth_state: auth::AuthState::Restoring,
-            verified_pro_feature: None,
-            account_control,
             _workspace_subscription: workspace_subscription,
             appearance_subscription: None,
             title_bar,
             bottom_bar,
-        };
-        app.restore_auth_session(cx);
-        app.start_auth_revalidation_timer(cx);
-        app
+        }
     }
 
     fn dismiss_error_notification(&mut self, id: u64, cx: &mut Context<Self>) {
@@ -302,10 +259,6 @@ impl SoukouApp {
             Some(AppModal::UpdateAvailable {
                 release_page_url, ..
             }) => self.open_external_url(release_page_url.as_str(), window, cx),
-            Some(AppModal::ProRequired { .. }) => {
-                let url = self.auth_config.registration_url();
-                self.open_external_url(url.as_str(), window, cx);
-            }
             Some(AppModal::Info { .. }) | None => {}
         }
     }
@@ -619,264 +572,6 @@ impl SoukouApp {
         cx.notify();
     }
 
-    fn register_account_action(
-        &mut self,
-        _: &RegisterAccount,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let url = match &self.auth_state {
-            auth::AuthState::Authenticated(_) => self.auth_config.account_url(),
-            auth::AuthState::Anonymous | auth::AuthState::Restoring => {
-                self.auth_config.registration_url()
-            }
-        };
-        self.open_external_url(url.as_str(), window, cx);
-    }
-
-    fn sign_out_action(&mut self, _: &SignOut, _window: &mut Window, cx: &mut Context<Self>) {
-        let credentials_key = self.auth_config.credentials_key().to_string();
-        self.set_auth_state(auth::AuthState::Anonymous, cx);
-
-        cx.spawn(async move |this, cx| {
-            let delete_result = auth::delete_refresh_token(credentials_key, cx).await;
-
-            if let Err(error) = this.update(cx, |this, cx| match delete_result {
-                Ok(()) => {
-                    this.show_info_modal(
-                        "サインアウトしました",
-                        "保存済みのログイン情報を削除しました。".to_string(),
-                        cx,
-                    );
-                }
-                Err(error) => {
-                    this.show_error_modal("サインアウトできませんでした", error, cx);
-                }
-            }) {
-                eprintln!("failed to show sign out result: {error}");
-            }
-        })
-        .detach();
-    }
-
-    fn start_auth_revalidation_timer(&mut self, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(AUTH_REVALIDATION_INTERVAL)
-                    .await;
-
-                let session_input = match this.update(cx, |this, _cx| {
-                    let auth::AuthState::Authenticated(session) = &this.auth_state else {
-                        return None;
-                    };
-                    Some((
-                        this.auth_config.clone(),
-                        this.auth_config.credentials_key().to_string(),
-                        session.refresh_token.clone(),
-                    ))
-                }) {
-                    Ok(session_input) => session_input,
-                    Err(error) => {
-                        eprintln!("failed to read auth state for periodic revalidation: {error}");
-                        break;
-                    }
-                };
-
-                let Some((auth_config, credentials_key, refresh_token)) = session_input else {
-                    continue;
-                };
-
-                let revalidated_session = cx
-                    .background_spawn(async move {
-                        auth::restore_session(&auth_config, refresh_token.as_str())
-                    })
-                    .await;
-
-                let session = match revalidated_session {
-                    Ok(session) => session,
-                    Err(error) => {
-                        eprintln!("periodic auth revalidation failed: {error}");
-                        continue;
-                    }
-                };
-
-                if let Err(error) =
-                    auth::write_refresh_token(credentials_key, session.refresh_token.clone(), cx)
-                        .await
-                {
-                    eprintln!("failed to save periodically refreshed auth token: {error}");
-                }
-
-                if let Err(error) = this.update(cx, |this, cx| {
-                    this.set_auth_state(auth::AuthState::Authenticated(session), cx);
-                }) {
-                    eprintln!("failed to apply periodic auth revalidation: {error}");
-                    break;
-                }
-            }
-        })
-        .detach();
-    }
-
-    fn restore_auth_session(&mut self, cx: &mut Context<Self>) {
-        let auth_config = self.auth_config.clone();
-        let credentials_key = self.auth_config.credentials_key().to_string();
-
-        cx.spawn(async move |this, cx| {
-            let stored_refresh_token = auth::read_refresh_token(credentials_key.clone(), cx).await;
-            let refresh_token = match stored_refresh_token {
-                Ok(Some(refresh_token)) => refresh_token,
-                Ok(None) => {
-                    if let Err(error) = this.update(cx, |this, cx| {
-                        this.set_auth_state(auth::AuthState::Anonymous, cx);
-                    }) {
-                        eprintln!("failed to clear auth state: {error}");
-                    }
-                    return;
-                }
-                Err(error) => {
-                    if let Err(update_error) = this.update(cx, |this, cx| {
-                        this.set_auth_state(auth::AuthState::Anonymous, cx);
-                        this.show_error_modal("ログイン情報を読み込めませんでした", error, cx);
-                    }) {
-                        eprintln!("failed to show auth restore error: {update_error}");
-                    }
-                    return;
-                }
-            };
-
-            let restored_session = cx
-                .background_spawn(async move {
-                    auth::restore_session(&auth_config, refresh_token.as_str())
-                })
-                .await;
-
-            match restored_session {
-                Ok(session) => {
-                    if let Err(error) = auth::write_refresh_token(
-                        credentials_key.clone(),
-                        session.refresh_token.clone(),
-                        cx,
-                    )
-                    .await
-                    {
-                        eprintln!("failed to save refreshed auth token: {error}");
-                    }
-                    if let Err(error) = this.update(cx, |this, cx| {
-                        this.set_auth_state(auth::AuthState::Authenticated(session), cx);
-                    }) {
-                        eprintln!("failed to restore auth state: {error}");
-                    }
-                }
-                Err(error) => {
-                    if let Err(delete_error) =
-                        auth::delete_refresh_token(credentials_key.clone(), cx).await
-                    {
-                        eprintln!("failed to delete invalid auth token: {delete_error}");
-                    }
-                    if let Err(update_error) = this.update(cx, |this, cx| {
-                        this.set_auth_state(auth::AuthState::Anonymous, cx);
-                        this.show_error_modal("ログイン情報を更新できませんでした", error, cx);
-                    }) {
-                        eprintln!("failed to show auth restore failure: {update_error}");
-                    }
-                }
-            }
-        })
-        .detach();
-    }
-
-    pub(crate) fn handle_open_urls(&mut self, urls: Vec<String>, cx: &mut Context<Self>) {
-        let credentials_key = self.auth_config.credentials_key().to_string();
-
-        for url in urls {
-            let callback =
-                match auth::parse_callback(url.as_str(), self.auth_config.callback_scheme()) {
-                    Ok(Some(callback)) => callback,
-                    Ok(None) => continue,
-                    Err(error) => {
-                        self.show_error_modal("ログイン情報を処理できませんでした", error, cx);
-                        continue;
-                    }
-                };
-
-            self.apply_auth_callback(callback, credentials_key.clone(), cx);
-        }
-    }
-
-    fn apply_auth_callback(
-        &mut self,
-        callback: auth::AuthCallback,
-        credentials_key: String,
-        cx: &mut Context<Self>,
-    ) {
-        match callback {
-            auth::AuthCallback::SignedOut => {
-                self.set_auth_state(auth::AuthState::Anonymous, cx);
-                cx.spawn(async move |_, cx| {
-                    if let Err(error) = auth::delete_refresh_token(credentials_key, cx).await {
-                        eprintln!("failed to delete auth token after sign out callback: {error}");
-                    }
-                })
-                .detach();
-            }
-            auth::AuthCallback::SignedIn { refresh_token } => {
-                let auth_config = self.auth_config.clone();
-                self.set_auth_state(auth::AuthState::Restoring, cx);
-
-                cx.spawn(async move |this, cx| {
-                    let restored_session = cx
-                        .background_spawn(async move {
-                            auth::restore_session(&auth_config, refresh_token.as_str())
-                        })
-                        .await;
-
-                    match restored_session {
-                        Ok(session) => {
-                            if let Err(error) = auth::write_refresh_token(
-                                credentials_key.clone(),
-                                session.refresh_token.clone(),
-                                cx,
-                            )
-                            .await
-                                && let Err(update_error) = this.update(cx, |this, cx| {
-                                    this.show_error_modal(
-                                        "認証情報を保存できませんでした",
-                                        error,
-                                        cx,
-                                    );
-                                })
-                            {
-                                eprintln!("failed to show auth save error: {update_error}");
-                            }
-
-                            if let Err(error) = this.update(cx, |this, cx| {
-                                this.set_auth_state(auth::AuthState::Authenticated(session), cx);
-                            }) {
-                                eprintln!("failed to apply auth callback: {error}");
-                            }
-                        }
-                        Err(error) => {
-                            if let Err(delete_error) =
-                                auth::delete_refresh_token(credentials_key.clone(), cx).await
-                            {
-                                eprintln!("failed to delete failed auth token: {delete_error}");
-                            }
-                            if let Err(update_error) = this.update(cx, |this, cx| {
-                                this.set_auth_state(auth::AuthState::Anonymous, cx);
-                                this.show_error_modal("ログインに失敗しました", error, cx);
-                            }) {
-                                eprintln!("failed to show auth callback failure: {update_error}");
-                            }
-                        }
-                    }
-                })
-                .detach();
-            }
-        }
-    }
-
     fn toggle_workspace_pane_action(
         &mut self,
         _: &ToggleWorkspacePane,
@@ -917,123 +612,6 @@ impl SoukouApp {
 
     fn current_document_kind(&self, _cx: &App) -> DocumentKind {
         DocumentKind::PlainText
-    }
-
-    fn pro_features_available(&self) -> bool {
-        if env::development_mode() {
-            return true;
-        }
-        match &self.auth_state {
-            auth::AuthState::Authenticated(session) => {
-                session.user.plan.plan_key.supports_pro_features()
-            }
-            auth::AuthState::Anonymous | auth::AuthState::Restoring => false,
-        }
-    }
-
-    fn consume_verified_pro_feature(&mut self, feature: ProFeature) -> bool {
-        if self.verified_pro_feature == Some(feature) {
-            self.verified_pro_feature = None;
-            return true;
-        }
-        false
-    }
-
-    fn verify_pro_feature_for_action(
-        &mut self,
-        feature: ProFeature,
-        window_handle: AnyWindowHandle,
-        cx: &mut Context<Self>,
-    ) {
-        if env::development_mode() {
-            self.verified_pro_feature = Some(feature);
-            self.dispatch_pro_feature_action(feature, window_handle, cx);
-            return;
-        }
-
-        let auth::AuthState::Authenticated(session) = &self.auth_state else {
-            self.show_pro_required_modal(feature, cx);
-            return;
-        };
-
-        let auth_config = self.auth_config.clone();
-        let credentials_key = self.auth_config.credentials_key().to_string();
-        let refresh_token = session.refresh_token.clone();
-
-        cx.spawn(async move |this, cx| {
-            let verified_session = cx
-                .background_spawn(async move {
-                    auth::restore_session(&auth_config, refresh_token.as_str())
-                })
-                .await;
-
-            match verified_session {
-                Ok(session) => {
-                    if let Err(error) = auth::write_refresh_token(
-                        credentials_key,
-                        session.refresh_token.clone(),
-                        cx,
-                    )
-                    .await
-                    {
-                        eprintln!("failed to save verified auth token: {error}");
-                    }
-
-                    let supports_pro_features = session.user.plan.plan_key.supports_pro_features();
-                    if let Err(error) = this.update(cx, |this, cx| {
-                        this.set_auth_state(auth::AuthState::Authenticated(session), cx);
-                        if supports_pro_features {
-                            this.verified_pro_feature = Some(feature);
-                        } else {
-                            this.show_pro_required_modal(feature, cx);
-                        }
-                    }) {
-                        eprintln!("failed to apply pro feature verification: {error}");
-                        return;
-                    }
-
-                    if supports_pro_features
-                        && let Err(error) =
-                            window_handle.update(cx, |_, window, cx| match feature {
-                                ProFeature::ExportWord => {
-                                    window.dispatch_action(Box::new(menu::ExportWord), cx);
-                                }
-                                ProFeature::ExportEpub => {
-                                    window.dispatch_action(Box::new(menu::ExportEpub), cx);
-                                }
-                            })
-                    {
-                        eprintln!("failed to continue pro feature action: {error}");
-                    }
-                }
-                Err(error) => {
-                    if let Err(update_error) = this.update(cx, |this, cx| {
-                        this.show_error_modal("会員情報を確認できませんでした", error, cx);
-                    }) {
-                        eprintln!("failed to show pro feature verification error: {update_error}");
-                    }
-                }
-            }
-        })
-        .detach();
-    }
-
-    fn dispatch_pro_feature_action(
-        &self,
-        feature: ProFeature,
-        window_handle: AnyWindowHandle,
-        cx: &mut Context<Self>,
-    ) {
-        if let Err(error) = window_handle.update(cx, |_, window, cx| match feature {
-            ProFeature::ExportWord => {
-                window.dispatch_action(Box::new(menu::ExportWord), cx);
-            }
-            ProFeature::ExportEpub => {
-                window.dispatch_action(Box::new(menu::ExportEpub), cx);
-            }
-        }) {
-            eprintln!("failed to dispatch verified pro feature action: {error}");
-        }
     }
 
     fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize> {
@@ -1120,11 +698,10 @@ impl SoukouApp {
 
     fn save_document_to_path(&mut self, path: PathBuf, contents: String, cx: &mut Context<Self>) {
         let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
-        let save_rich_text_meta = self.pro_features_available();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    write_plain_document_assets(path, contents, rich_text_meta, save_rich_text_meta)
+                    write_plain_document_assets(path, contents, rich_text_meta, true)
                 })
                 .await;
 
@@ -1316,11 +893,6 @@ impl MenuActionHandler for SoukouApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.consume_verified_pro_feature(ProFeature::ExportEpub) {
-            self.verify_pro_feature_for_action(ProFeature::ExportEpub, window.window_handle(), cx);
-            return;
-        }
-
         self.show_epub_meta_form(window, cx);
     }
 
@@ -1330,11 +902,6 @@ impl MenuActionHandler for SoukouApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.consume_verified_pro_feature(ProFeature::ExportWord) {
-            self.verify_pro_feature_for_action(ProFeature::ExportWord, window.window_handle(), cx);
-            return;
-        }
-
         self.export_word(window, cx);
     }
 
@@ -1544,8 +1111,6 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::execute_command_palette_command_action))
                     .on_action(cx.listener(Self::select_next_command_palette_entry))
                     .on_action(cx.listener(Self::select_previous_command_palette_entry))
-                    .on_action(cx.listener(Self::register_account_action))
-                    .on_action(cx.listener(Self::sign_out_action))
                     .on_action(cx.listener(Self::toggle_workspace_pane_action))
                     .on_action(cx.listener(Self::dismiss_active_modal_action))
                     .on_action(cx.listener(Self::dismiss_error_notification_action))
@@ -1770,7 +1335,6 @@ fn file_picker_row(
             Theme::global(cx).surface(),
             0.88,
         )
-        .into()
     } else {
         Theme::global(cx).surface()
     };
@@ -2018,7 +1582,6 @@ fn command_palette_row(
             Theme::global(cx).surface(),
             0.88,
         )
-        .into()
     } else {
         Theme::global(cx).surface()
     };
@@ -2476,6 +2039,7 @@ fn read_plain_document_assets(
     Ok((path, text, rich_text_meta))
 }
 
+// TODO 設定の値で rich_text_meta を保存するかどうかを決めるようにする
 fn write_plain_document_assets(
     path: PathBuf,
     contents: String,

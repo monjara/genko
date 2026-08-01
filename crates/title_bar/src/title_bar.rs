@@ -150,7 +150,6 @@ impl PlatformStyle {
 }
 
 pub struct TitleBar {
-    account_control: Option<Entity<auth::TitleBarAccountControl>>,
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     menu_bar: Entity<MenuBar>,
 }
@@ -159,12 +158,10 @@ impl TitleBar {
     pub fn new(
         #[cfg(any(target_os = "linux", target_os = "freebsd"))] menus: Vec<TitleBarMenu>,
         #[cfg(not(any(target_os = "linux", target_os = "freebsd")))] _menus: Vec<TitleBarMenu>,
-        account_control: Option<Entity<auth::TitleBarAccountControl>>,
         #[cfg(any(target_os = "linux", target_os = "freebsd"))] cx: &mut Context<Self>,
         #[cfg(not(any(target_os = "linux", target_os = "freebsd")))] _cx: &mut Context<Self>,
     ) -> Self {
         Self {
-            account_control,
             #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             menu_bar: cx.new(|cx| MenuBar::new(menus, cx)),
         }
@@ -229,9 +226,6 @@ impl TitleBar {
                             .items_center()
                             .gap_2()
                             .px_3()
-                            .when_some(self.account_control.clone(), |this, account_control| {
-                                this.child(account_control.into_element())
-                            })
                             .children(right_controls),
                     ),
             );
@@ -292,21 +286,6 @@ impl TitleBar {
                             .text_color(text_color(cx)),
                     ),
             )
-            .when_some(self.account_control.clone(), |this, account_control| {
-                this.child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .right_0()
-                        .h_full()
-                        .px_3()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_end()
-                        .child(account_control.into_element()),
-                )
-            })
             .into_any_element()
     }
 
