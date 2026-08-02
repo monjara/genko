@@ -16,20 +16,11 @@ pub(super) enum AppModal {
         title: String,
         detail: String,
     },
-    ProRequired {
-        feature: ProFeature,
-    },
     UpdateAvailable {
         current_version: String,
         latest_version: String,
         release_page_url: String,
     },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ProFeature {
-    ExportWord,
-    ExportEpub,
 }
 
 #[derive(IntoElement)]
@@ -52,21 +43,6 @@ impl ActiveModal {
                 detail,
                 None,
                 Some("閉じる".to_string()),
-            ),
-            AppModal::ProRequired { feature } => (
-                icons::MODAL_INFO,
-                "Proプラン限定機能です".to_string(),
-                match feature {
-                    ProFeature::ExportWord => {
-                        "Wordエクスポートは Pro プランで利用できます。".to_string()
-                    }
-                    ProFeature::ExportEpub => {
-                        "epubエクスポートは Pro プランで利用できます。".to_string()
-                    }
-                },
-                "会員登録ページを開いて、利用できるプランを確認してください。".to_string(),
-                Some("あとで".to_string()),
-                Some("会員登録".to_string()),
             ),
             AppModal::UpdateAvailable {
                 current_version,

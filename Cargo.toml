@@ -2,7 +2,6 @@
 resolver = "3"
 members = [
   ".",
-  "crates/auth",
   "crates/bottom_bar",
   "crates/document",
   "crates/editor",
@@ -50,7 +49,6 @@ url = "2"
 xdg = "3.0.0"
 xmlwriter = "0.1"
 
-auth = { path = "crates/auth" }
 bottom_bar = { path = "crates/bottom_bar" }
 document = { path = "crates/document" }
 editor = { path = "crates/editor" }

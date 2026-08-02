@@ -474,19 +474,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "auth"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "reqwest",
- "serde",
- "serde_json",
- "theme",
- "ui",
- "url",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5322,7 +5309,6 @@ dependencies = [
 name = "soukou"
 version = "0.3.6"
 dependencies = [
- "auth",
  "bottom_bar",
  "document",
  "dotenvy",
@@ -5800,7 +5786,6 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 name = "title_bar"
 version = "0.1.0"
 dependencies = [
- "auth",
  "gpui",
  "theme",
  "ui",

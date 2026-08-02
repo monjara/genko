@@ -1,7 +1,6 @@
 mod app;
 mod font;
 mod notification;
-mod open_listener;
 
 use app::SoukouApp;
 use gpui::{
@@ -11,8 +10,6 @@ use gpui::{
 use menu::{OpenSettings, Quit};
 use settings::open_settings_window;
 use std::path::PathBuf;
-
-use crate::open_listener::{OpenUrlListener, spawn_open_url_handler};
 
 const APP_ID: &str = "dev.monj.soukou";
 const MAIN_WINDOW_WIDTH: f32 = 1200.0;
@@ -57,12 +54,6 @@ fn main() {
 
     let application = gpui_platform::application();
 
-    let (open_url_sender, open_url_receiver) = OpenUrlListener::new();
-
-    application.on_open_urls(move |urls| {
-        open_url_sender.open(urls);
-    });
-
     application.run(move |cx: &mut App| {
         font::init(cx);
         theme::init(cx);
@@ -99,20 +90,5 @@ fn main() {
                 cx.activate(true);
             })
             .expect("Failed to focus main window");
-
-        let callback_prefix = format!("{}://", auth::AuthConfig::from_env().callback_scheme());
-        let startup_urls = std::env::args()
-            .skip(1)
-            .filter(|argument| argument.starts_with(callback_prefix.as_str()))
-            .collect::<Vec<_>>();
-        if !startup_urls.is_empty()
-            && let Err(error) = main_window.update(cx, |this, _, cx| {
-                this.handle_open_urls(startup_urls, cx);
-            })
-        {
-            eprintln!("failed to handle startup auth callback url: {error}");
-        }
-
-        spawn_open_url_handler(cx, main_window, open_url_receiver);
     })
 }

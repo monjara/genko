@@ -10,8 +10,6 @@ actions!(
     menu,
     [
         OpenSettings,
-        RegisterAccount,
-        SignOut,
         CheckForUpdates,
         OpenFile,
         SaveFile,
