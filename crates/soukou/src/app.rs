@@ -34,7 +34,7 @@ use gpui::{
     Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderOnce, Styled,
     Subscription, Window, div, point, prelude::FluentBuilder, px, transparent_black,
 };
-use menu::{MenuActionHandler, RegisterAccount, SignOut};
+use menu::MenuActionHandler;
 use rich_text::{EpubBookMeta, RichTextDocumentMeta};
 use settings::AppSettings;
 use theme::{APP_FONT_FAMILY, Theme, ThemeMode};
@@ -699,9 +699,10 @@ impl SoukouApp {
     fn save_document_to_path(&mut self, path: PathBuf, contents: String, cx: &mut Context<Self>) {
         let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         cx.spawn(async move |this, cx| {
+            let save_rich_text_meta = true;
             let result = cx
                 .background_spawn(async move {
-                    write_plain_document_assets(path, contents, rich_text_meta, true)
+                    write_plain_document_assets(path, contents, rich_text_meta, save_rich_text_meta)
                 })
                 .await;
 
@@ -1717,13 +1718,6 @@ fn command_palette_entries() -> Vec<CommandPaletteEntry> {
             "menu::CheckForUpdates",
             dispatch_check_for_updates,
         ),
-        command_palette_entry(
-            18,
-            "会員登録 / アカウント",
-            "menu::RegisterAccount",
-            dispatch_register_account,
-        ),
-        command_palette_entry(19, "サインアウト", "menu::SignOut", dispatch_sign_out),
         command_palette_entry(20, "終了", "menu::Quit", dispatch_quit),
     ]
 }
@@ -1812,14 +1806,6 @@ fn dispatch_open_settings(window: &mut Window, cx: &mut Context<SoukouApp>) {
 
 fn dispatch_check_for_updates(window: &mut Window, cx: &mut Context<SoukouApp>) {
     window.dispatch_action(Box::new(menu::CheckForUpdates), cx);
-}
-
-fn dispatch_register_account(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(RegisterAccount), cx);
-}
-
-fn dispatch_sign_out(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(SignOut), cx);
 }
 
 fn dispatch_quit(window: &mut Window, cx: &mut Context<SoukouApp>) {
