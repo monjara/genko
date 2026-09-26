@@ -210,21 +210,6 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(column) = self.page_break_drag_column_for_point(position) {
-            self.page_break_drag_column = Some(column);
-            return;
-        }
-
-        if let Some(request) = self.page_break_menu_request_for_point(position) {
-            cx.emit(crate::editor::Event::PageBreakMenuRequested(request));
-            return;
-        }
-
-        if let Some(request) = self.ruby_edit_request_for_point(position) {
-            cx.emit(crate::editor::Event::RubyEditRequested(request));
-            return;
-        }
-
         window.focus(&self.focus_handle, cx);
         let Some(bounds) = self.last_board_bounds else {
             return;
@@ -238,7 +223,7 @@ impl Editor {
             self.visible_columns(),
             self.visible_rows(),
             self.cell_size(),
-            self.ruby_gutter_size(),
+            self.column_gap_size(),
         ) {
             self.is_mouse_selecting = true;
             if shift {
@@ -253,16 +238,6 @@ impl Editor {
         }
     }
 
-    pub(crate) fn page_break_context_menu_command(
-        &mut self,
-        position: gpui::Point<Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(request) = self.page_break_context_menu_request_for_point(position) {
-            cx.emit(crate::editor::Event::PageBreakMenuRequested(request));
-        }
-    }
-
     pub(crate) fn mouse_selection_update_command(
         &mut self,
         event: &MouseMoveEvent,
@@ -270,18 +245,6 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         if !self.is_mouse_selecting {
-            if let Some(from_column) = self.page_break_drag_column {
-                let Some(to_column) = self.page_break_drop_column_for_point(event.position) else {
-                    return;
-                };
-                if from_column != to_column {
-                    self.page_break_drag_column = Some(to_column);
-                    cx.emit(crate::editor::Event::PageBreakMoved {
-                        from_column,
-                        to_column,
-                    });
-                }
-            }
             return;
         }
         let Some(anchor_cell) = self.mouse_selection_anchor_cell else {
@@ -297,7 +260,6 @@ impl Editor {
     pub(crate) fn mouse_selection_end_command(&mut self, _: &MouseUpEvent) {
         self.is_mouse_selecting = false;
         self.mouse_selection_anchor_cell = None;
-        self.page_break_drag_column = None;
     }
 
     pub(crate) fn scroll_wheel_command(

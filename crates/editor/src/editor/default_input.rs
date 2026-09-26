@@ -137,12 +137,11 @@ fn on_board_mouse_down(
 }
 
 fn on_board_context_mouse_down(
-    editor: &mut Editor,
-    event: &MouseDownEvent,
+    _editor: &mut Editor,
+    _event: &MouseDownEvent,
     _window: &mut Window,
-    cx: &mut Context<Editor>,
+    _cx: &mut Context<Editor>,
 ) {
-    editor.page_break_context_menu_command(event.position, cx);
 }
 
 fn on_board_mouse_up(
@@ -175,7 +174,6 @@ fn on_scroll_wheel(
 pub(super) fn render(editor: &mut Editor, cx: &mut Context<Editor>) -> impl IntoElement {
     div()
         .track_focus(&editor.focus_handle)
-        .key_context("Soukou")
         .on_action(cx.listener(backspace))
         .on_action(cx.listener(delete))
         .on_action(cx.listener(up))

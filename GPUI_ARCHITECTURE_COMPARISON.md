@@ -106,7 +106,7 @@ Zed:
 
 差分:
 
-- genko は軽量な独自 input。縦書きやルビ編集など目的特化の実装になっている。
+- genko は軽量な独自 input。縦書きの原稿編集に目的特化した実装になっている。
 - Zed は editor を基盤にして入力欄も抽象化する。
 - genko の text input が複数用途に広がる場合、`ErasedEditor` 的な trait で「入力欄として必要な操作」を抽象化すると依存方向を整理しやすい。
 
@@ -236,7 +236,7 @@ Zed:
   project-local 設定や拡張機構が必要になるまでは plain `AppSettings` で十分。
 
 - editor を全入力欄の基盤にする構成。
-  genko の `TextInput` は縦書き・ルビ編集に特化しており、今は独自実装の方が目的に合う。
+  genko の `TextInput` は縦書き入力に特化しており、今は独自実装の方が目的に合う。
 
 - telemetry / collaboration / remote / session restore を前提にした task graph。
   機能要求が出るまでは導入しない方がよい。

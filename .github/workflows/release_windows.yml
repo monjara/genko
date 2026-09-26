@@ -62,13 +62,3 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           files: target/${{ matrix.target }}-pc-windows-msvc/release/soukou-windows-${{ matrix.target }}.zip
-
-      - name: Upload Windows archive to public GitHub Release
-        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-        uses: softprops/action-gh-release@v2
-        with:
-          repository: monjara/Soukou.app
-          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
-          tag_name: ${{ github.ref_name }}
-          target_commitish: main
-          files: target/${{ matrix.target }}-pc-windows-msvc/release/soukou-windows-${{ matrix.target }}.zip

@@ -1470,7 +1470,6 @@ version = "0.1.0"
 dependencies = [
  "gpui",
  "icons",
- "rich_text",
  "rope",
  "settings",
  "theme",
@@ -4747,16 +4746,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rich_text"
-version = "0.1.0"
-dependencies = [
- "crc32fast",
- "serde",
- "serde_json",
- "xmlwriter",
-]
-
-[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5321,7 +5310,6 @@ dependencies = [
  "icons",
  "keymap",
  "menu",
- "rich_text",
  "rope",
  "settings",
  "theme",
