@@ -82,13 +82,3 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           files: target/${{ matrix.target }}/release/soukou-*.dmg
-
-      - name: Upload disk image to public GitHub Release
-        if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-        uses: softprops/action-gh-release@v2
-        with:
-          repository: monjara/Soukou.app
-          token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
-          tag_name: ${{ github.ref_name }}
-          target_commitish: main
-          files: target/${{ matrix.target }}/release/soukou-*.dmg

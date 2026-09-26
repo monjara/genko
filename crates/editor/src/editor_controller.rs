@@ -4,7 +4,6 @@ use gpui::{
     App, AppContext, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement, Pixels, Render,
     Window,
 };
-use rich_text::RichTextDocumentMeta;
 
 use crate::editor::{PlainTextLoadSettings, PreparedPlainText};
 use crate::vim::VimController;
@@ -42,10 +41,6 @@ impl EditorController {
         self.vim_controller.read(cx).snapshot_text(cx)
     }
 
-    pub fn rich_text_meta(&self, cx: &App) -> RichTextDocumentMeta {
-        self.vim_controller.read(cx).rich_text_meta(cx)
-    }
-
     pub fn selected_byte_range(&self, cx: &App) -> Range<usize> {
         self.vim_controller.read(cx).selected_byte_range(cx)
     }
@@ -58,16 +53,6 @@ impl EditorController {
     ) {
         self.vim_controller.update(cx, |vim_controller, cx| {
             vim_controller.replace_byte_range(range, new_text, cx);
-        });
-    }
-
-    pub fn set_rich_text_meta(
-        &mut self,
-        rich_text_meta: RichTextDocumentMeta,
-        cx: &mut Context<Self>,
-    ) {
-        self.vim_controller.update(cx, |vim_controller, cx| {
-            vim_controller.set_rich_text_meta(rich_text_meta, cx);
         });
     }
 

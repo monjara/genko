@@ -12,7 +12,6 @@ name = "editor"
 gpui = { workspace = true }
 icons = { workspace = true }
 rope = { workspace = true }
-rich_text = { workspace = true }
 settings = { workspace = true }
 theme = { workspace = true }
 tiny_segmenter = { workspace = true }

@@ -20,7 +20,7 @@ pub(crate) fn cell_bounds_for_logical_index(
     visible_columns: usize,
     visible_rows: usize,
     cell_size: f32,
-    ruby_gutter_size: f32,
+    column_gap: f32,
 ) -> Option<Bounds<Pixels>> {
     let (row, column) = row_column_for_logical_index(
         logical_index,
@@ -33,7 +33,7 @@ pub(crate) fn cell_bounds_for_logical_index(
     }
     Some(Bounds::new(
         point(
-            board_x_for_visible_column(board_bounds.left(), column, cell_size, ruby_gutter_size),
+            board_x_for_visible_column(board_bounds.left(), column, cell_size, column_gap),
             board_bounds.top() + px((row - first_visible_row) as f32 * cell_size),
         ),
         size(px(cell_size), px(cell_size)),
@@ -49,7 +49,7 @@ pub(crate) fn logical_index_for_point(
     visible_columns: usize,
     visible_rows: usize,
     cell_size: f32,
-    ruby_gutter_size: f32,
+    column_gap: f32,
 ) -> Option<usize> {
     let rows_per_column = rows_per_column.max(1);
     let visible_columns = visible_columns.max(1);
@@ -58,11 +58,11 @@ pub(crate) fn logical_index_for_point(
     }
 
     let local_x = position.x - board_bounds.left();
-    let stride = px(cell_size + ruby_gutter_size);
+    let stride = px(cell_size + column_gap);
     let column = (local_x / stride)
         .floor()
         .clamp(0.0, (visible_columns - 1) as f32) as usize;
-    let column_offset = local_x - px(column as f32 * (cell_size + ruby_gutter_size));
+    let column_offset = local_x - px(column as f32 * (cell_size + column_gap));
     if column_offset > px(cell_size) {
         return None;
     }
@@ -76,9 +76,9 @@ pub(crate) fn logical_index_for_point(
 pub(crate) fn visible_columns_for_window_width(
     width: Pixels,
     cell_size: f32,
-    ruby_gutter_size: f32,
+    column_gap: f32,
 ) -> usize {
-    ((width / px(cell_size + ruby_gutter_size)).floor() as usize)
+    ((width / px(cell_size + column_gap)).floor() as usize)
         .saturating_sub(2)
         .max(1)
 }
@@ -133,7 +133,7 @@ pub(crate) fn board_x_for_visible_column(
     board_left: Pixels,
     column: usize,
     cell_size: f32,
-    ruby_gutter_size: f32,
+    column_gap: f32,
 ) -> Pixels {
-    board_left + px(column as f32 * (cell_size + ruby_gutter_size))
+    board_left + px(column as f32 * (cell_size + column_gap))
 }

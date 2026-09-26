@@ -2,6 +2,8 @@
 
 日本語入力のための原稿用紙アプリです。
 
+現在は `.txt` ファイルだけを扱うテキスト専用エディタです。本文以外の補助ファイルは読み書きしません。
+
 ## 開発環境
 
 推奨は Nix flakes を使う方法です。Rust、cargo-make、cargo-watch、rust-analyzer、Linux の実行に必要なライブラリなどは dev shell に含まれます。
@@ -65,4 +67,3 @@ cargo make new <crate-name>
 ```
 
 新しい crate を手で追加する場合は、`lib.rs` ではなく `Cargo.toml` の `[lib] path = "...rs"` でライブラリファイル名を明示してください。
-

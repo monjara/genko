@@ -1,16 +1,15 @@
 mod modal;
-use modal::{ActiveModal, AppModal, EpubMetaFormOverlay};
+use modal::{ActiveModal, AppModal};
 
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use std::process::Command;
 
 use crate::{
-    CommandPaletteSelectNext, CommandPaletteSelectPrevious, ConfirmCommandPalette, ConfirmEpubMeta,
-    ConfirmFilePicker, DismissActiveModal, DismissCommandPalette, DismissEpubMetaForm,
-    DismissFilePicker, ExecuteCommandPaletteCommand, FilePickerSelectNext,
-    FilePickerSelectPrevious, OpenCommandPalette, OpenFilePicker, OpenFilePickerPath,
-    OpenModalPrimary,
+    CommandPaletteSelectNext, CommandPaletteSelectPrevious, ConfirmCommandPalette,
+    ConfirmFilePicker, DismissActiveModal, DismissCommandPalette, DismissFilePicker,
+    ExecuteCommandPaletteCommand, FilePickerSelectNext, FilePickerSelectPrevious,
+    OpenCommandPalette, OpenFilePicker, OpenFilePickerPath, OpenModalPrimary,
     notification::{
         DismissErrorNotification, ErrorNotification, ErrorNotificationStack, ErrorPresentation,
     },
@@ -23,19 +22,13 @@ use document::{
         current_directory_or_fallback, suggested_file_name, suggested_save_directory,
     },
 };
-use editor::{
-    ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
-    EditorController, OpenSearch, PreparedPlainText, RemovePageBreakCurrentColumn, RichTextToolbar,
-    SetPageBreakLeftOfCurrentColumn, SetPageBreakRightOfCurrentColumn, VimCommandQuit,
-    VimCommandWrite,
-};
+use editor::{EditorController, OpenSearch, PreparedPlainText, VimCommandQuit, VimCommandWrite};
 use gpui::{
     App, AppContext, BoxShadow, Context, Entity, ExternalPaths, FocusHandle, Focusable, FontWeight,
     Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Render, RenderOnce, Styled,
     Subscription, Window, div, point, prelude::FluentBuilder, px, transparent_black,
 };
 use menu::MenuActionHandler;
-use rich_text::{EpubBookMeta, RichTextDocumentMeta};
 use settings::AppSettings;
 use theme::{APP_FONT_FAMILY, Theme, ThemeMode};
 use title_bar::TitleBar;
@@ -59,7 +52,6 @@ pub(super) struct SoukouApp {
     editor_controller: Entity<EditorController>,
     workspace: Entity<Workspace>,
     active_document: ActiveDocument,
-    epub_meta_form: Option<EpubMetaFormState>,
     file_picker: Option<FilePickerState>,
     command_palette: Option<CommandPaletteState>,
     active_modal: Option<AppModal>,
@@ -69,11 +61,6 @@ pub(super) struct SoukouApp {
     appearance_subscription: Option<Subscription>,
     title_bar: Entity<TitleBar>,
     bottom_bar: Entity<BottomBar>,
-}
-
-struct EpubMetaFormState {
-    title_input: Entity<ui::TextInput>,
-    author_input: Entity<ui::TextInput>,
 }
 
 struct FilePickerState {
@@ -189,7 +176,6 @@ impl SoukouApp {
             editor_controller,
             workspace,
             active_document: ActiveDocument::default(),
-            epub_meta_form: None,
             file_picker: None,
             command_palette: None,
             active_modal: None,
@@ -614,10 +600,6 @@ impl SoukouApp {
         DocumentKind::PlainText
     }
 
-    fn selected_byte_range(&self, cx: &App) -> std::ops::Range<usize> {
-        self.editor_controller.read(cx).selected_byte_range(cx)
-    }
-
     fn workspace_pane_visible(&self, cx: &App) -> bool {
         WorkspaceState::global(cx).is_pane_visible()
     }
@@ -626,9 +608,6 @@ impl SoukouApp {
         let mut context = String::from("SoukouApp");
         if self.active_modal.is_some() {
             context.push_str(" active_modal");
-        }
-        if self.epub_meta_form.is_some() {
-            context.push_str(" epub_meta_form");
         }
         if self.file_picker.is_some() {
             context.push_str(" file_picker");
@@ -643,12 +622,10 @@ impl SoukouApp {
         &mut self,
         path: PathBuf,
         prepared_text: PreparedPlainText,
-        rich_text_meta: RichTextDocumentMeta,
         cx: &mut Context<Self>,
     ) {
         self.editor_controller.update(cx, |editor_controller, cx| {
             editor_controller.load_prepared_plain_text(prepared_text, cx);
-            editor_controller.set_rich_text_meta(rich_text_meta, cx);
         });
         self.active_document.set_path(path);
     }
@@ -661,11 +638,10 @@ impl SoukouApp {
         &mut self,
         path: PathBuf,
         prepared_text: PreparedPlainText,
-        rich_text_meta: RichTextDocumentMeta,
         cx: &mut Context<Self>,
     ) {
         WorkspaceState::global_mut(cx).open_file(path.clone());
-        self.load_plain_document(path, prepared_text, rich_text_meta, cx);
+        self.load_plain_document(path, prepared_text, cx);
         self.notify_workspace(cx);
     }
 
@@ -673,11 +649,10 @@ impl SoukouApp {
         &mut self,
         path: PathBuf,
         prepared_text: PreparedPlainText,
-        rich_text_meta: RichTextDocumentMeta,
         cx: &mut Context<Self>,
     ) {
         WorkspaceState::global_mut(cx).open_file_without_root(path.clone());
-        self.load_plain_document(path, prepared_text, rich_text_meta, cx);
+        self.load_plain_document(path, prepared_text, cx);
         self.notify_workspace(cx);
     }
 
@@ -697,13 +672,9 @@ impl SoukouApp {
     }
 
     fn save_document_to_path(&mut self, path: PathBuf, contents: String, cx: &mut Context<Self>) {
-        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
         cx.spawn(async move |this, cx| {
-            let save_rich_text_meta = true;
             let result = cx
-                .background_spawn(async move {
-                    write_plain_document_assets(path, contents, rich_text_meta, save_rich_text_meta)
-                })
+                .background_spawn(async move { write_plain_document_assets(path, contents) })
                 .await;
 
             match result {
@@ -751,34 +722,20 @@ impl SoukouApp {
             let path_for_read = path.clone();
             let result = cx
                 .background_spawn(async move {
-                    read_plain_document_assets(path_for_read).map(|(path, text, rich_text_meta)| {
-                        (
-                            path,
-                            PreparedPlainText::new(text, plain_text_load_settings),
-                            rich_text_meta,
-                        )
+                    read_document_to_string(path_for_read).map(|(path, text)| {
+                        (path, PreparedPlainText::new(text, plain_text_load_settings))
                     })
                 })
                 .await;
 
             match result {
-                Ok((path, prepared_text, rich_text_meta)) => {
+                Ok((path, prepared_text)) => {
                     if let Err(error) = this.update(cx, |this, cx| match document_kind {
                         DocumentKind::PlainText => {
                             if preserve_workspace {
-                                this.open_workspace_plain_document(
-                                    path,
-                                    prepared_text,
-                                    rich_text_meta,
-                                    cx,
-                                );
+                                this.open_workspace_plain_document(path, prepared_text, cx);
                             } else {
-                                this.open_standalone_plain_document(
-                                    path,
-                                    prepared_text,
-                                    rich_text_meta,
-                                    cx,
-                                );
+                                this.open_standalone_plain_document(path, prepared_text, cx);
                             }
                         }
                     }) {
@@ -888,24 +845,6 @@ impl MenuActionHandler for SoukouApp {
         self.open_menu_path(path, cx);
     }
 
-    fn export_epub_action(
-        &mut self,
-        _: &menu::ExportEpub,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.show_epub_meta_form(window, cx);
-    }
-
-    fn export_word_action(
-        &mut self,
-        _: &menu::ExportWord,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.export_word(window, cx);
-    }
-
     fn export_base_name(&self, _cx: &App) -> String {
         self.active_document
             .path()
@@ -927,56 +866,6 @@ impl MenuActionHandler for SoukouApp {
         match self.current_document_kind(cx) {
             DocumentKind::PlainText => self.editor_controller.read(cx).snapshot_text(cx),
         }
-    }
-
-    fn export_epub_path_from_menu(
-        &mut self,
-        path: PathBuf,
-        contents: String,
-        cx: &mut Context<Self>,
-    ) {
-        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    rich_text::export_epub(&path, contents.as_str(), &rich_text_meta)
-                })
-                .await;
-
-            if let Err(error) = result
-                && let Err(update_error) = this.update(cx, |this, cx| {
-                    this.show_error_modal("epubを書き出せませんでした", error.to_string(), cx);
-                })
-            {
-                eprintln!("failed to show epub export error: {update_error}");
-            }
-        })
-        .detach();
-    }
-
-    fn export_word_path_from_menu(
-        &mut self,
-        path: PathBuf,
-        contents: String,
-        cx: &mut Context<Self>,
-    ) {
-        let rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    rich_text::export_word(&path, contents.as_str(), &rich_text_meta)
-                })
-                .await;
-
-            if let Err(error) = result
-                && let Err(update_error) = this.update(cx, |this, cx| {
-                    this.show_error_modal("Wordを書き出せませんでした", error.to_string(), cx);
-                })
-            {
-                eprintln!("failed to show word export error: {update_error}");
-            }
-        })
-        .detach();
     }
 
     fn save_blocking_error(&self, cx: &App) -> Option<(&'static str, String)> {
@@ -1118,10 +1007,6 @@ impl Render for SoukouApp {
                     .on_action(cx.listener(Self::open_modal_primary_action))
                     .on_action(cx.listener(Self::save_file_action))
                     .on_action(cx.listener(Self::export_txt_action))
-                    .on_action(cx.listener(Self::export_word_action))
-                    .on_action(cx.listener(Self::export_epub_action))
-                    .on_action(cx.listener(Self::confirm_epub_meta_action))
-                    .on_action(cx.listener(Self::dismiss_epub_meta_form_action))
                     .on_action(cx.listener(Self::check_for_updates_action))
                     .on_action(cx.listener(Self::vim_command_write_action))
                     .on_action(cx.listener(Self::vim_command_quit_action))
@@ -1148,12 +1033,6 @@ impl Render for SoukouApp {
                                     .child(content),
                             ),
                     )
-                    .when_some(self.epub_meta_form.as_ref(), |this, form| {
-                        this.child(EpubMetaFormOverlay::new(
-                            form.title_input.clone(),
-                            form.author_input.clone(),
-                        ))
-                    })
                     .when_some(self.file_picker.as_ref(), |this, file_picker| {
                         this.child(FilePickerOverlay::new(
                             file_picker.input.clone(),
@@ -1176,9 +1055,6 @@ impl Render for SoukouApp {
                             self.error_notifications.clone(),
                             bottom_bar_height,
                         ))
-                    })
-                    .when_some(self.rich_text_toolbar_bounds(cx), |this, bounds| {
-                        this.child(RichTextToolbar::new(bounds))
                     })
                     .child(
                         div()
@@ -1645,66 +1521,12 @@ fn command_palette_entries() -> Vec<CommandPaletteEntry> {
         ),
         command_palette_entry(3, "保存", "menu::SaveFile", dispatch_save_file),
         command_palette_entry(4, "txtを書き出し", "menu::ExportTxt", dispatch_export_txt),
-        command_palette_entry(
-            5,
-            "Wordを書き出し",
-            "menu::ExportWord",
-            dispatch_export_word,
-        ),
-        command_palette_entry(
-            6,
-            "epubを書き出し",
-            "menu::ExportEpub",
-            dispatch_export_epub,
-        ),
         command_palette_entry(7, "検索", "editor::OpenSearch", dispatch_open_search),
         command_palette_entry(
             8,
             "ワークスペースペインを切り替え",
             "workspace::ToggleWorkspacePane",
             dispatch_toggle_workspace_pane,
-        ),
-        command_palette_entry(
-            9,
-            "太字を適用",
-            "editor::ApplyRichTextBold",
-            dispatch_apply_rich_text_bold,
-        ),
-        command_palette_entry(
-            10,
-            "強調を適用",
-            "editor::ApplyRichTextEmphasis",
-            dispatch_apply_rich_text_emphasis,
-        ),
-        command_palette_entry(
-            11,
-            "見出しを適用",
-            "editor::ApplyRichTextHeading",
-            dispatch_apply_rich_text_heading,
-        ),
-        command_palette_entry(
-            12,
-            "縦中横を適用",
-            "editor::ApplyRichTextRotated",
-            dispatch_apply_rich_text_rotated,
-        ),
-        command_palette_entry(
-            13,
-            "現在の列の左に改ページ",
-            "editor::SetPageBreakLeftOfCurrentColumn",
-            dispatch_set_page_break_left,
-        ),
-        command_palette_entry(
-            14,
-            "現在の列の右に改ページ",
-            "editor::SetPageBreakRightOfCurrentColumn",
-            dispatch_set_page_break_right,
-        ),
-        command_palette_entry(
-            15,
-            "現在の列の改ページを削除",
-            "editor::RemovePageBreakCurrentColumn",
-            dispatch_remove_page_break,
         ),
         command_palette_entry(
             16,
@@ -1756,48 +1578,12 @@ fn dispatch_export_txt(window: &mut Window, cx: &mut Context<SoukouApp>) {
     window.dispatch_action(Box::new(menu::ExportTxt), cx);
 }
 
-fn dispatch_export_word(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(menu::ExportWord), cx);
-}
-
-fn dispatch_export_epub(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(menu::ExportEpub), cx);
-}
-
 fn dispatch_open_search(window: &mut Window, cx: &mut Context<SoukouApp>) {
     window.dispatch_action(Box::new(OpenSearch), cx);
 }
 
 fn dispatch_toggle_workspace_pane(window: &mut Window, cx: &mut Context<SoukouApp>) {
     window.dispatch_action(Box::new(ToggleWorkspacePane), cx);
-}
-
-fn dispatch_apply_rich_text_bold(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(ApplyRichTextBold), cx);
-}
-
-fn dispatch_apply_rich_text_emphasis(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(ApplyRichTextEmphasis), cx);
-}
-
-fn dispatch_apply_rich_text_heading(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(ApplyRichTextHeading), cx);
-}
-
-fn dispatch_apply_rich_text_rotated(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(ApplyRichTextRotated), cx);
-}
-
-fn dispatch_set_page_break_left(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(SetPageBreakLeftOfCurrentColumn), cx);
-}
-
-fn dispatch_set_page_break_right(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(SetPageBreakRightOfCurrentColumn), cx);
-}
-
-fn dispatch_remove_page_break(window: &mut Window, cx: &mut Context<SoukouApp>) {
-    window.dispatch_action(Box::new(RemovePageBreakCurrentColumn), cx);
 }
 
 fn dispatch_open_settings(window: &mut Window, cx: &mut Context<SoukouApp>) {
@@ -1852,98 +1638,6 @@ fn command_palette_score(entry: &CommandPaletteEntry, query: &str) -> usize {
         2
     } else {
         3
-    }
-}
-
-impl SoukouApp {
-    fn rich_text_toolbar_bounds(&self, cx: &App) -> Option<gpui::Bounds<Pixels>> {
-        if self.selected_byte_range(cx).is_empty()
-            || WorkspaceState::global(cx).unsupported_file().is_some()
-        {
-            return None;
-        }
-
-        self.editor_controller.read(cx).selection_bounds(cx)
-    }
-
-    fn show_epub_meta_form(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let existing_epub_meta = self
-            .active_document
-            .path()
-            .and_then(|path| {
-                rich_text::load_meta_for_text_path(path)
-                    .ok()
-                    .map(|meta| meta.epub)
-            })
-            .unwrap_or_default();
-
-        let default_title = if existing_epub_meta.title.is_empty() {
-            self.export_base_name(cx)
-        } else {
-            existing_epub_meta.title.clone()
-        };
-
-        let title_input = cx.new(ui::TextInput::new);
-        title_input.update(cx, |input, cx| {
-            input.set_placeholder("タイトル", cx);
-            input.set_text(default_title.as_str(), cx);
-        });
-
-        let author_input = cx.new(ui::TextInput::new);
-        author_input.update(cx, |input, cx| {
-            input.set_placeholder("著者名", cx);
-            input.set_text(existing_epub_meta.author.as_str(), cx);
-        });
-
-        let title_focus = title_input.focus_handle(cx);
-        window.focus(&title_focus, cx);
-
-        self.epub_meta_form = Some(EpubMetaFormState {
-            title_input,
-            author_input,
-        });
-        cx.notify();
-    }
-
-    fn confirm_epub_meta(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(form) = self.epub_meta_form.take() else {
-            return;
-        };
-        let title = form.title_input.read(cx).text();
-        let author = form.author_input.read(cx).text();
-
-        let mut rich_text_meta = self.editor_controller.read(cx).rich_text_meta(cx);
-        rich_text_meta.epub = EpubBookMeta { title, author };
-        self.editor_controller.update(cx, |editor_controller, cx| {
-            editor_controller.set_rich_text_meta(rich_text_meta, cx);
-        });
-
-        cx.notify();
-
-        MenuActionHandler::export_epub(self, window, cx);
-    }
-
-    fn confirm_epub_meta_action(
-        &mut self,
-        _: &ConfirmEpubMeta,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.confirm_epub_meta(window, cx);
-    }
-
-    fn dismiss_epub_meta_form(&mut self, cx: &mut Context<Self>) {
-        self.epub_meta_form = None;
-        cx.notify();
-    }
-
-    fn dismiss_epub_meta_form_action(
-        &mut self,
-        _: &DismissEpubMetaForm,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.dismiss_epub_meta_form(cx);
     }
 }
 
@@ -2012,38 +1706,11 @@ fn read_document_to_string(path: PathBuf) -> Result<(PathBuf, String), DocumentE
     }
 }
 
-fn read_plain_document_assets(
-    path: PathBuf,
-) -> Result<(PathBuf, String, RichTextDocumentMeta), DocumentError> {
-    let (path, text) = read_document_to_string(path)?;
-    let rich_text_meta = rich_text::load_meta_for_text_path(path.as_path()).map_err(|source| {
-        DocumentError::MetadataOpenFailed {
-            path: path.clone(),
-            source,
-        }
-    })?;
-    Ok((path, text, rich_text_meta))
-}
-
-// TODO 設定の値で rich_text_meta を保存するかどうかを決めるようにする
-fn write_plain_document_assets(
-    path: PathBuf,
-    contents: String,
-    rich_text_meta: RichTextDocumentMeta,
-    save_rich_text_meta: bool,
-) -> Result<PathBuf, DocumentError> {
+fn write_plain_document_assets(path: PathBuf, contents: String) -> Result<PathBuf, DocumentError> {
     std::fs::write(&path, contents.as_bytes()).map_err(|source| DocumentError::SaveFailed {
         path: path.clone(),
         source,
     })?;
-    if save_rich_text_meta {
-        rich_text::save_meta_for_text_path(path.as_path(), &rich_text_meta).map_err(|source| {
-            DocumentError::MetadataSaveFailed {
-                path: path.clone(),
-                source,
-            }
-        })?;
-    }
     Ok(path)
 }
 
@@ -2054,8 +1721,6 @@ mod tests {
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
-
-    use rich_text::{RichTextDocumentMeta, RichTextKind};
 
     use super::write_plain_document_assets;
 
@@ -2075,61 +1740,13 @@ mod tests {
     }
 
     #[test]
-    fn saving_plain_document_writes_rich_text_meta_when_enabled() -> Result<(), Box<dyn Error>> {
-        let dir = unique_temp_dir("writes-meta")?;
+    fn saving_plain_document_writes_text_file() -> Result<(), Box<dyn Error>> {
+        let dir = unique_temp_dir("writes-text")?;
         let text_path = dir.join("draft.txt");
-        let meta_path = rich_text::meta_path_for_text_path(&text_path);
-        let mut rich_text_meta = RichTextDocumentMeta::default();
-        rich_text_meta.add_mark(0..2, RichTextKind::Bold);
 
-        write_plain_document_assets(text_path.clone(), "本文".to_string(), rich_text_meta, true)?;
+        write_plain_document_assets(text_path.clone(), "本文".to_string())?;
 
         assert_eq!(fs::read_to_string(&text_path)?, "本文");
-        assert!(meta_path.exists());
-
-        cleanup_temp_dir(&dir)?;
-        Ok(())
-    }
-
-    #[test]
-    fn saving_plain_document_does_not_write_meta_when_disabled() -> Result<(), Box<dyn Error>> {
-        let dir = unique_temp_dir("skips-meta")?;
-        let text_path = dir.join("draft.txt");
-        let meta_path = rich_text::meta_path_for_text_path(&text_path);
-
-        write_plain_document_assets(
-            text_path.clone(),
-            "本文".to_string(),
-            RichTextDocumentMeta::default(),
-            false,
-        )?;
-
-        assert_eq!(fs::read_to_string(&text_path)?, "本文");
-        assert!(!meta_path.exists());
-
-        cleanup_temp_dir(&dir)?;
-        Ok(())
-    }
-
-    #[test]
-    fn saving_plain_document_writes_empty_meta_when_enabled() -> Result<(), Box<dyn Error>> {
-        let dir = unique_temp_dir("writes-empty-meta")?;
-        let text_path = dir.join("draft.txt");
-        let meta_path = rich_text::meta_path_for_text_path(&text_path);
-
-        write_plain_document_assets(
-            text_path.clone(),
-            "本文".to_string(),
-            RichTextDocumentMeta::default(),
-            true,
-        )?;
-
-        assert_eq!(fs::read_to_string(&text_path)?, "本文");
-        assert!(meta_path.exists());
-        assert_eq!(
-            rich_text::load_meta_for_text_path(&text_path)?,
-            RichTextDocumentMeta::default()
-        );
 
         cleanup_temp_dir(&dir)?;
         Ok(())

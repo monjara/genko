@@ -9,26 +9,9 @@
       "ctrl-shift-o": "workspace::OpenWorkspace",
       "ctrl-shift-e": "workspace::ToggleWorkspacePane",
       "ctrl-alt-u": "menu::CheckForUpdates",
-      "ctrl-alt-a": "menu::RegisterAccount",
-      "ctrl-alt-shift-a": "menu::SignOut",
       "ctrl-shift-t": "menu::ExportTxt",
-      "ctrl-shift-w": "menu::ExportWord",
       "ctrl-shift-p": "soukou::OpenCommandPalette",
-      "ctrl-b": "editor::ApplyRichTextBold",
-      "ctrl-alt-e": "editor::ApplyRichTextEmphasis",
-      "ctrl-alt-h": "editor::ApplyRichTextHeading",
-      "ctrl-alt-r": "editor::ApplyRichTextRotated",
-      "ctrl-f": "editor::OpenSearch",
-      "ctrl-alt-[": "editor::SetPageBreakLeftOfCurrentColumn",
-      "ctrl-alt-]": "editor::SetPageBreakRightOfCurrentColumn",
-      "ctrl-alt-backspace": "editor::RemovePageBreakCurrentColumn"
-    }
-  },
-  {
-    "context": "SoukouTextInput && ruby_editor && !search_active",
-    "bindings": {
-      "enter": "editor::ApplyRubyEdit",
-      "escape": "editor::CancelRubyEdit"
+      "ctrl-f": "editor::OpenSearch"
     }
   },
   {
@@ -36,13 +19,6 @@
     "bindings": {
       "enter": "soukou::OpenModalPrimary",
       "escape": "soukou::DismissActiveModal"
-    }
-  },
-  {
-    "context": "epub_meta_form",
-    "bindings": {
-      "enter": "soukou::ConfirmEpubMeta",
-      "escape": "soukou::DismissEpubMetaForm"
     }
   },
   {
@@ -61,16 +37,6 @@
       "escape": "soukou::DismissFilePicker",
       "up": "soukou::FilePickerSelectPrevious",
       "down": "soukou::FilePickerSelectNext"
-    }
-  },
-  {
-    "context": "page_break_menu",
-    "bindings": {
-      "left": "editor::SetPageBreakLeftOfCurrentColumn",
-      "right": "editor::SetPageBreakRightOfCurrentColumn",
-      "backspace": "editor::RemovePageBreakCurrentColumn",
-      "delete": "editor::RemovePageBreakCurrentColumn",
-      "escape": "editor::DismissPageBreakMenu"
     }
   },
   {
