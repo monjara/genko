@@ -9,8 +9,10 @@ icon = ["resources/AppIcon.icns"]
 resources = ["resources/AppIcon.icns"]
 identifier = "dev.monj.soukou"
 name = "草稿"
-osx_minimum_system_version = "11.0"
-osx_info_plist_exts = ["crates/soukou/resources/info/*"]
+
+[package.metadata.bundle.osx]
+minimum_system_version = "11.0"
+info_plist_exts = ["crates/soukou/resources/info/*"]
 
 [[bin]]
 name = "soukou"

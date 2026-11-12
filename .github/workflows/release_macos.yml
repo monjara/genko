@@ -57,7 +57,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install cargo-bundle
-        run: cargo install cargo-bundle --locked
+        run: cargo install cargo-bundle --version 0.12.0 --locked
 
       - name: Build macOS release assets
         run: ./scripts/bundle-mac.sh ${{ matrix.target }}
