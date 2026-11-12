@@ -171,7 +171,7 @@ notarize_and_staple() {
     return
   fi
 
-  if [[ -z "${APPLE_NOTARIZATION_KEY:-}" || -z "${APPLE_NOTARIZATION_KEY_ID:-}" || -z "${APPLE_NOTARIZATION_ISSUER_ID:-}" ]]; then
+  if [[ -z "${APPLE_NOTARIZATION_KEY:-}" || -z "${APPLE_NOTARIZATION_KEY_ID:-}" ]]; then
     echo "Notarization secrets are missing; skipping notarization." >&2
     return
   fi
@@ -179,13 +179,17 @@ notarize_and_staple() {
   notarization_key_file="$(mktemp /tmp/soukou-notary-key.XXXXXX)"
   decode_secret_to_file "$APPLE_NOTARIZATION_KEY" "$notarization_key_file"
 
+  local authentication_arguments=(--key "$notarization_key_file" --key-id "$APPLE_NOTARIZATION_KEY_ID")
+  # Individual API keys require the issuer argument to be omitted.
+  if [[ -n "${APPLE_NOTARIZATION_ISSUER_ID:-}" ]]; then
+    authentication_arguments+=(--issuer "$APPLE_NOTARIZATION_ISSUER_ID")
+  fi
+
   local notarization_attempt=1
   local maximum_notarization_attempts=3
   until xcrun notarytool submit \
       --wait \
-      --key "$notarization_key_file" \
-      --key-id "$APPLE_NOTARIZATION_KEY_ID" \
-      --issuer "$APPLE_NOTARIZATION_ISSUER_ID" \
+      "${authentication_arguments[@]}" \
       "$path_to_notarize"; do
     if [[ "$notarization_attempt" -ge "$maximum_notarization_attempts" ]]; then
       echo "Notarization failed after ${maximum_notarization_attempts} attempts." >&2
