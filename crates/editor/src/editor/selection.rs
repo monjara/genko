@@ -1,12 +1,9 @@
 use std::ops::Range;
 
 use gpui::{Bounds, Context, Pixels, UTF16Selection, px};
-use rich_text::RichTextKind;
 
-use super::{BlockSelection, Editor, PageBreakMenuKind, PageBreakMenuRequest, RubyEditRequest};
-use crate::editor::layout::{
-    board_x_for_visible_column, cell_bounds_for_logical_index, logical_index_for_point,
-};
+use super::{BlockSelection, Editor};
+use crate::editor::layout::{cell_bounds_for_logical_index, logical_index_for_point};
 
 pub(super) fn previous_boundary(editor: &Editor, offset: usize) -> usize {
     let grapheme_index = editor.draft.grapheme_index_for_byte(offset);
@@ -263,24 +260,13 @@ pub(super) fn clamped_display_cell_for_point(
     let max_y = (bounds.bottom() - px(0.001)).max(bounds.top());
     let clamped_x = position.x.clamp(bounds.left(), max_x);
     let clamped_y = position.y.clamp(bounds.top(), max_y);
-    let stride_value = editor.cell_size() + editor.ruby_gutter_size();
+    let stride_value = editor.cell_size();
     let stride = px(stride_value);
     let local_x = clamped_x - bounds.left();
     let slot = (local_x / stride)
         .floor()
         .clamp(0.0, (visible_columns - 1) as f32) as usize;
-    let slot_offset = local_x - px(slot as f32 * stride_value);
-    let column = if slot_offset > px(editor.cell_size()) {
-        let gutter_offset = slot_offset - px(editor.cell_size());
-        let gutter_size = px(editor.ruby_gutter_size());
-        if gutter_offset >= gutter_size / 2.0 && slot + 1 < visible_columns {
-            slot + 1
-        } else {
-            slot
-        }
-    } else {
-        slot
-    };
+    let column = slot;
     let row = ((clamped_y - bounds.top()) / px(editor.cell_size()))
         .floor()
         .clamp(0.0, (visible_rows - 1) as f32) as usize;
@@ -306,200 +292,9 @@ pub(super) fn byte_offset_for_point(
         editor.visible_columns(),
         editor.visible_rows(),
         editor.cell_size(),
-        editor.ruby_gutter_size(),
+        editor.column_gap_size(),
     )?;
     Some(editor.draft.byte_offset_for_display_cell(index))
-}
-
-pub(super) fn ruby_edit_request_for_point(
-    editor: &Editor,
-    position: gpui::Point<Pixels>,
-) -> Option<RubyEditRequest> {
-    let bounds = editor.last_board_bounds?;
-    if !bounds.contains(&position) {
-        return None;
-    }
-
-    let visible_columns = editor.visible_columns().max(1);
-    let visible_rows = editor.visible_rows().max(1);
-    let cell_size = editor.cell_size();
-    let ruby_gutter_size = editor.ruby_gutter_size();
-    let local_x = position.x - bounds.left();
-    let stride_value = cell_size + ruby_gutter_size;
-    let slot = (local_x / px(stride_value))
-        .floor()
-        .clamp(0.0, (visible_columns - 1) as f32) as usize;
-    let slot_offset = local_x - px(slot as f32 * stride_value);
-    if slot_offset <= px(cell_size) || slot_offset > px(stride_value) {
-        return None;
-    }
-
-    let row = ((position.y - bounds.top()) / px(cell_size))
-        .floor()
-        .clamp(0.0, (visible_rows.saturating_sub(1)) as f32) as usize;
-    let column_from_right = visible_columns - 1 - slot;
-    let logical_index = (editor.scroll_column + column_from_right) * editor.rows_per_column()
-        + editor.scroll_row
-        + row;
-    let start = editor.draft.byte_offset_for_display_cell(logical_index);
-    let range = if !editor.selected_range.is_empty()
-        && editor.selected_range.start <= start
-        && start < editor.selected_range.end
-    {
-        editor.selected_range.clone()
-    } else {
-        start..next_boundary(editor, start)
-    };
-    if range.is_empty() {
-        return None;
-    }
-
-    let column_left = board_x_for_visible_column(bounds.left(), slot, cell_size, ruby_gutter_size);
-    let request_bounds = Bounds::new(
-        gpui::point(
-            column_left + px(cell_size),
-            bounds.top() + px(row as f32 * cell_size),
-        ),
-        gpui::size(px(ruby_gutter_size), px(cell_size)),
-    );
-    let text = editor
-        .rich_text_meta
-        .marks()
-        .iter()
-        .find_map(|mark| {
-            if mark.range().start == range.start {
-                if let rich_text::RichTextKind::Ruby { text } = mark.kind() {
-                    return Some(text.clone());
-                }
-            }
-            None
-        })
-        .unwrap_or_default();
-
-    Some(RubyEditRequest {
-        range,
-        bounds: request_bounds,
-        text,
-    })
-}
-
-pub(super) fn page_break_menu_request_for_point(
-    editor: &Editor,
-    position: gpui::Point<Pixels>,
-) -> Option<PageBreakMenuRequest> {
-    let bounds = editor.last_board_bounds?;
-    if !bounds.contains(&position) {
-        return None;
-    }
-    if position.y < bounds.top() || position.y >= bounds.top() + px(editor.cell_size()) {
-        return None;
-    }
-
-    let logical_index = logical_index_for_point(
-        bounds,
-        position,
-        editor.scroll_column,
-        editor.scroll_row,
-        editor.rows_per_column(),
-        editor.visible_columns(),
-        editor.visible_rows(),
-        editor.cell_size(),
-        editor.ruby_gutter_size(),
-    )?;
-    let column = logical_index / editor.rows_per_column().max(1);
-    let column_start_index = column * editor.rows_per_column().max(1) + editor.scroll_row;
-    let cell_bounds = cell_bounds_for_logical_index(
-        bounds,
-        column_start_index,
-        editor.scroll_column,
-        editor.scroll_row,
-        editor.rows_per_column(),
-        editor.visible_columns(),
-        editor.visible_rows(),
-        editor.cell_size(),
-        editor.ruby_gutter_size(),
-    )?;
-
-    Some(PageBreakMenuRequest {
-        column,
-        bounds: cell_bounds,
-        kind: PageBreakMenuKind::Set,
-    })
-}
-
-pub(super) fn page_break_context_menu_request_for_point(
-    editor: &Editor,
-    position: gpui::Point<Pixels>,
-) -> Option<PageBreakMenuRequest> {
-    let bounds = editor.last_board_bounds?;
-    let column = page_break_drag_column_for_point(editor, position)?;
-    let line_x = page_break_line_x(editor, bounds, column)?;
-    Some(PageBreakMenuRequest {
-        column,
-        bounds: Bounds::new(
-            gpui::point(line_x, position.y),
-            gpui::size(px(1.0), px(editor.cell_size())),
-        ),
-        kind: PageBreakMenuKind::Remove,
-    })
-}
-
-pub(super) fn page_break_drag_column_for_point(
-    editor: &Editor,
-    position: gpui::Point<Pixels>,
-) -> Option<usize> {
-    let bounds = editor.last_board_bounds?;
-    if !bounds.contains(&position) {
-        return None;
-    }
-
-    editor.rich_text_meta.marks().iter().find_map(|mark| {
-        let RichTextKind::PageBreak { column } = mark.kind() else {
-            return None;
-        };
-        let line_x = page_break_line_x(editor, bounds, *column)?;
-        if (position.x - line_x).abs() <= px(5.0) {
-            Some(*column)
-        } else {
-            None
-        }
-    })
-}
-
-pub(super) fn page_break_drop_column_for_point(
-    editor: &Editor,
-    position: gpui::Point<Pixels>,
-) -> Option<usize> {
-    let bounds = editor.last_board_bounds?;
-    if position.y < bounds.top() || position.y > bounds.bottom() {
-        return None;
-    }
-
-    let visible_columns = editor.visible_columns().max(1);
-    let stride = px(editor.cell_size() + editor.ruby_gutter_size());
-    let local_x = (position.x - bounds.left()).clamp(Pixels::ZERO, bounds.size.width);
-    let slot = (local_x / stride)
-        .floor()
-        .clamp(0.0, visible_columns.saturating_sub(1) as f32) as usize;
-    Some(editor.scroll_column + (visible_columns - 1 - slot))
-}
-
-fn page_break_line_x(editor: &Editor, bounds: Bounds<Pixels>, column: usize) -> Option<Pixels> {
-    if column < editor.scroll_column {
-        return None;
-    }
-    let visible_columns = editor.visible_columns().max(1);
-    let column_from_right = column - editor.scroll_column;
-    if column_from_right >= visible_columns {
-        return None;
-    }
-    let slot = visible_columns - 1 - column_from_right;
-    Some(board_x_for_visible_column(
-        bounds.left(),
-        slot,
-        editor.cell_size(),
-        editor.ruby_gutter_size(),
-    ))
 }
 
 pub(super) fn bounds_for_byte_range(
@@ -521,7 +316,7 @@ pub(super) fn bounds_for_byte_range(
         editor.visible_columns(),
         editor.visible_rows(),
         editor.cell_size(),
-        editor.ruby_gutter_size(),
+        editor.column_gap_size(),
     )?;
     Some(super::ime_anchor_bounds_for_cell(cell_bounds, board_bounds))
 }

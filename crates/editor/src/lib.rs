@@ -5,18 +5,9 @@ mod editor_ui;
 mod search;
 pub mod vim;
 
-pub use editor::{
-    Event, PageBreakMenuKind, PageBreakMenuRequest, PlainTextLoadSettings, PreparedPlainText,
-    RubyEditRequest,
-};
+pub use editor::{Event, PlainTextLoadSettings, PreparedPlainText};
 pub use editor_controller::EditorController;
-pub use editor_ui::{
-    ApplyRichTextBold, ApplyRichTextEmphasis, ApplyRichTextHeading, ApplyRichTextRotated,
-    ApplyRubyEdit, CancelRubyEdit, CloseSearch, FindNext, FindPrevious, OpenSearch, PageBreakMenu,
-    RemovePageBreakColumn, RemovePageBreakCurrentColumn, RichTextToolbar, RubyEditorPopover,
-    SetPageBreakLeftOfColumn, SetPageBreakLeftOfCurrentColumn, SetPageBreakRightOfColumn,
-    SetPageBreakRightOfCurrentColumn,
-};
+pub use editor_ui::{CloseSearch, FindNext, FindPrevious, OpenSearch};
 pub use vim::{VimCommandQuit, VimCommandWrite, VimController, VimMode, VimModeLabel, VimState};
 
 use gpui::App;

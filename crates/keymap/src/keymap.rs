@@ -238,25 +238,27 @@ mod tests {
 
     #[test]
     fn parses_default_action_keymap_files() {
-        assert_platform_keymap(DEFAULT_MACOS_KEYMAP_JSON, "cmd-b");
-        assert_platform_keymap(DEFAULT_LINUX_KEYMAP_JSON, "ctrl-b");
-        assert_platform_keymap(DEFAULT_WINDOWS_KEYMAP_JSON, "ctrl-b");
+        assert_platform_keymap(DEFAULT_MACOS_KEYMAP_JSON, "cmd-shift-t", "cmd-f");
+        assert_platform_keymap(DEFAULT_LINUX_KEYMAP_JSON, "ctrl-shift-t", "ctrl-f");
+        assert_platform_keymap(DEFAULT_WINDOWS_KEYMAP_JSON, "ctrl-shift-t", "ctrl-f");
     }
 
-    fn assert_platform_keymap(keymap_json: &str, bold_keystroke: &str) {
+    fn assert_platform_keymap(
+        keymap_json: &str,
+        export_txt_keystroke: &str,
+        search_keystroke: &str,
+    ) {
         let keymap_file = serde_json::from_str::<KeymapFile>(keymap_json).unwrap();
 
         assert!(keymap_file.0.iter().any(|section| {
-            section.bindings.get(bold_keystroke).map(String::as_str)
-                == Some("editor::ApplyRichTextBold")
+            section
+                .bindings
+                .get(export_txt_keystroke)
+                .map(String::as_str)
+                == Some("menu::ExportTxt")
         }));
         assert!(keymap_file.0.iter().any(|section| {
-            section
-                .context
-                .split("&&")
-                .any(|context| context.trim() == "SoukouTextInput")
-                && section.bindings.get("escape").map(String::as_str)
-                    == Some("editor::CancelRubyEdit")
+            section.bindings.get(search_keystroke).map(String::as_str) == Some("editor::OpenSearch")
         }));
     }
 }

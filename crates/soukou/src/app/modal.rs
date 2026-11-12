@@ -1,12 +1,12 @@
 use gpui::{
-    App, BoxShadow, Entity, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, Styled, Window, div, point, prelude::FluentBuilder, px, svg,
+    App, BoxShadow, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    Styled, Window, div, point, prelude::FluentBuilder, px, svg,
 };
 use theme::Theme;
-use ui::{TextInput, primary_button, secondary_button};
+use ui::{primary_button, secondary_button};
 
 use super::{mix, toolbar_border_color};
-use crate::{ConfirmEpubMeta, DismissActiveModal, DismissEpubMetaForm, OpenModalPrimary};
+use crate::{DismissActiveModal, OpenModalPrimary};
 
 const UPDATE_AVAILABLE_TITLE: &str = "新しいバージョンがあります";
 
@@ -194,121 +194,4 @@ impl RenderOnce for ActiveModal {
                     ),
             )
     }
-}
-
-#[derive(IntoElement)]
-pub(super) struct EpubMetaFormOverlay {
-    title_input: Entity<TextInput>,
-    author_input: Entity<TextInput>,
-}
-
-impl EpubMetaFormOverlay {
-    pub(super) fn new(title_input: Entity<TextInput>, author_input: Entity<TextInput>) -> Self {
-        Self {
-            title_input,
-            author_input,
-        }
-    }
-}
-
-impl RenderOnce for EpubMetaFormOverlay {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .right_0()
-            .bottom_0()
-            .bg(Hsla {
-                h: 0.61,
-                s: 0.32,
-                l: 0.08,
-                a: 0.58,
-            })
-            .flex()
-            .items_center()
-            .justify_center()
-            .on_mouse_down(gpui::MouseButton::Left, |_, window, cx| {
-                window.dispatch_action(Box::new(DismissEpubMetaForm), cx);
-            })
-            .child(
-                div()
-                    .w(px(420.0))
-                    .p_6()
-                    .flex()
-                    .flex_col()
-                    .gap_5()
-                    .bg(Theme::global(cx).surface())
-                    .border_1()
-                    .border_color(toolbar_border_color(cx))
-                    .rounded_lg()
-                    .shadow(vec![BoxShadow {
-                        color: Hsla {
-                            h: 0.0,
-                            s: 0.0,
-                            l: 0.0,
-                            a: 0.18,
-                        },
-                        offset: point(px(0.0), px(18.0)),
-                        blur_radius: px(42.0),
-                        spread_radius: px(0.0),
-                        inset: false,
-                    }])
-                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
-                        cx.stop_propagation();
-                    })
-                    .child(
-                        div()
-                            .text_size(px(20.0))
-                            .font_weight(FontWeight::BOLD)
-                            .child("epubエクスポート"),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_4()
-                            .child(epub_meta_field("タイトル", self.title_input, cx))
-                            .child(epub_meta_field("著者名", self.author_input, cx)),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_end()
-                            .gap_2()
-                            .child(secondary_button("キャンセル", cx).on_mouse_down(
-                                gpui::MouseButton::Left,
-                                |_, window, cx| {
-                                    window.dispatch_action(Box::new(DismissEpubMetaForm), cx);
-                                },
-                            ))
-                            .child(primary_button("書き出し", cx).on_mouse_down(
-                                gpui::MouseButton::Left,
-                                |_, window, cx| {
-                                    window.dispatch_action(Box::new(ConfirmEpubMeta), cx);
-                                },
-                            )),
-                    ),
-            )
-    }
-}
-
-fn epub_meta_field(label: &'static str, input: Entity<TextInput>, cx: &App) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .child(
-            div()
-                .text_sm()
-                .text_color(Theme::global(cx).text_senodary())
-                .child(label),
-        )
-        .child(
-            div()
-                .border_1()
-                .border_color(toolbar_border_color(cx))
-                .rounded_sm()
-                .child(input),
-        )
 }

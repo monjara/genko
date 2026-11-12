@@ -20,8 +20,6 @@ actions!(
     [
         DismissActiveModal,
         OpenModalPrimary,
-        ConfirmEpubMeta,
-        DismissEpubMetaForm,
         OpenFilePicker,
         DismissFilePicker,
         ConfirmFilePicker,

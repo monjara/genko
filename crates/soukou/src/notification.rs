@@ -41,12 +41,8 @@ impl From<keymap::Error> for ErrorPresentation {
 impl From<DocumentError> for ErrorPresentation {
     fn from(error: DocumentError) -> Self {
         let title = match &error {
-            DocumentError::OpenFailed { .. } | DocumentError::MetadataOpenFailed { .. } => {
-                FILE_OPEN_ERROR_TITLE
-            }
-            DocumentError::SaveFailed { .. } | DocumentError::MetadataSaveFailed { .. } => {
-                FILE_SAVE_ERROR_TITLE
-            }
+            DocumentError::OpenFailed { .. } => FILE_OPEN_ERROR_TITLE,
+            DocumentError::SaveFailed { .. } => FILE_SAVE_ERROR_TITLE,
         };
 
         Self {

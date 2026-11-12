@@ -13,7 +13,6 @@ use gpui::{
     App, Bounds, Context, EntityInputHandler, EventEmitter, FocusHandle, Focusable, IntoElement,
     Pixels, Render, Size, UTF16Selection, Window, actions, px,
 };
-use rich_text::{RichTextDocumentMeta, RichTextEdit, RichTextKind};
 use rope::{CellText, TextRope, utf16_to_byte_in_text};
 use settings::AppSettings;
 
@@ -26,9 +25,9 @@ use crate::editor_canvas::GridPathCache;
 use crate::search::{SearchState, find_matches, nearest_match_index};
 
 pub(crate) const DEFAULT_VISIBLE_COLUMNS: usize = 20;
-pub(crate) const DEFAULT_CELL_SIZE: f32 = 32.0;
-pub(crate) const DEFAULT_RUBY_GUTTER_SIZE: f32 = 14.0;
-pub(crate) const RUBY_GUTTER_RATIO: f32 = DEFAULT_RUBY_GUTTER_SIZE / DEFAULT_CELL_SIZE;
+const DEFAULT_CELL_SIZE_FOR_COLUMN_GAP: f32 = 32.0;
+const DEFAULT_COLUMN_GAP_SIZE: f32 = 14.0;
+const COLUMN_GAP_RATIO: f32 = DEFAULT_COLUMN_GAP_SIZE / DEFAULT_CELL_SIZE_FOR_COLUMN_GAP;
 const IME_ANCHOR_WIDTH: f32 = 2.0;
 const IME_ANCHOR_INSET: f32 = 3.0;
 const IME_CANDIDATE_GAP: f32 = 16.0;
@@ -63,34 +62,7 @@ actions!(
 );
 
 #[derive(Clone, Debug)]
-pub struct RubyEditRequest {
-    pub range: Range<usize>,
-    pub bounds: Bounds<Pixels>,
-    pub text: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct PageBreakMenuRequest {
-    pub column: usize,
-    pub bounds: Bounds<Pixels>,
-    pub kind: PageBreakMenuKind,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PageBreakMenuKind {
-    Set,
-    Remove,
-}
-
-#[derive(Clone, Debug)]
-pub enum Event {
-    RubyEditRequested(RubyEditRequest),
-    PageBreakMenuRequested(PageBreakMenuRequest),
-    PageBreakMoved {
-        from_column: usize,
-        to_column: usize,
-    },
-}
+pub enum Event {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EditorViewState {
@@ -113,25 +85,6 @@ pub(crate) struct EditOperation {
     pub(crate) start: usize,
     pub(crate) removed_text: String,
     pub(crate) inserted_text: String,
-    pub(crate) affects_rich_text: bool,
-}
-
-impl EditOperation {
-    pub(crate) fn start(&self) -> usize {
-        self.start
-    }
-
-    pub(crate) fn removed_text(&self) -> &str {
-        self.removed_text.as_str()
-    }
-
-    pub(crate) fn inserted_text(&self) -> &str {
-        self.inserted_text.as_str()
-    }
-
-    pub(crate) fn affects_rich_text(&self) -> bool {
-        self.affects_rich_text
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,16 +104,6 @@ pub(crate) struct PendingTransaction {
 pub(crate) struct AppliedEditBatch {
     revision: u64,
     edits: Vec<EditOperation>,
-}
-
-impl AppliedEditBatch {
-    pub(crate) fn revision(&self) -> u64 {
-        self.revision
-    }
-
-    pub(crate) fn edits(&self) -> &[EditOperation] {
-        &self.edits
-    }
 }
 
 #[derive(Default)]
@@ -187,7 +130,6 @@ pub struct PlainTextLoadSettings {
 }
 
 pub struct PreparedPlainText {
-    text: String,
     draft: TextRope,
 }
 
@@ -195,7 +137,7 @@ impl PreparedPlainText {
     pub fn new(text: String, settings: PlainTextLoadSettings) -> Self {
         let mut draft = TextRope::from_str_with_rows(&text, settings.rows_per_column);
         draft.set_hanging_punctuation(settings.hanging_punctuation);
-        Self { text, draft }
+        Self { draft }
     }
 }
 
@@ -218,19 +160,23 @@ pub(crate) struct Editor {
     pub(crate) history: EditorHistory,
     visible_text_cache: Option<VisibleTextCache>,
     last_applied_edit_batch: Option<AppliedEditBatch>,
-    rich_text_meta: RichTextDocumentMeta,
-    rich_text_synced_revision: u64,
-    rich_text_synced_text: String,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) last_board_bounds: Option<Bounds<Pixels>>,
     pub(crate) grid_path_cache: Option<GridPathCache>,
     last_viewport_size: Option<Size<Pixels>>,
     mouse_selection_anchor_cell: Option<usize>,
-    page_break_drag_column: Option<usize>,
     is_mouse_selecting: bool,
     pub(crate) search_state: Option<SearchState>,
 }
 impl Editor {
+    pub(crate) fn column_gap_for_cell_size(cell_size: f32) -> f32 {
+        (cell_size * COLUMN_GAP_RATIO).round()
+    }
+
+    pub(crate) fn column_gap_size(&self) -> f32 {
+        Self::column_gap_for_cell_size(self.cell_size())
+    }
+
     pub fn new(cx: &mut Context<Self>) -> Self {
         let rows_per_column = AppSettings::global(cx)
             .rows_per_column
@@ -255,15 +201,11 @@ impl Editor {
             history: EditorHistory::default(),
             visible_text_cache: None,
             last_applied_edit_batch: None,
-            rich_text_meta: RichTextDocumentMeta::default(),
-            rich_text_synced_revision: 0,
-            rich_text_synced_text: String::new(),
             focus_handle: cx.focus_handle(),
             grid_path_cache: None,
             last_board_bounds: None,
             last_viewport_size: None,
             mouse_selection_anchor_cell: None,
-            page_break_drag_column: None,
             is_mouse_selecting: false,
             search_state: None,
         }
@@ -275,10 +217,6 @@ impl Editor {
 
     pub(crate) fn cell_size(&self) -> f32 {
         self.cell_size
-    }
-
-    pub(crate) fn ruby_gutter_size(&self) -> f32 {
-        self.cell_size * RUBY_GUTTER_RATIO
     }
 
     pub(crate) fn cursor_offset(&self) -> usize {
@@ -318,73 +256,11 @@ impl Editor {
         cells
     }
 
-    pub(crate) fn rich_text_meta(&self) -> &RichTextDocumentMeta {
-        &self.rich_text_meta
-    }
-
     pub fn plain_text_load_settings(&self) -> PlainTextLoadSettings {
         PlainTextLoadSettings {
             rows_per_column: self.rows_per_column,
             hanging_punctuation: self.draft.hanging_punctuation(),
         }
-    }
-
-    pub fn rich_text_meta_snapshot(&self) -> RichTextDocumentMeta {
-        self.rich_text_meta.clone()
-    }
-
-    pub fn set_rich_text_meta(
-        &mut self,
-        rich_text_meta: RichTextDocumentMeta,
-        cx: &mut Context<Self>,
-    ) {
-        self.rich_text_meta = rich_text_meta;
-        self.rich_text_synced_revision = self.draft_revision;
-        self.rich_text_synced_text = self.snapshot_text();
-        cx.notify();
-    }
-
-    pub fn apply_rich_text_kind(&mut self, kind: RichTextKind, cx: &mut Context<Self>) {
-        self.sync_rich_text_meta_after_text_change();
-        let range = self.selected_byte_range();
-        self.rich_text_meta.toggle_mark(range, kind);
-        self.rich_text_synced_revision = self.draft_revision;
-        cx.notify();
-    }
-
-    pub fn set_ruby(&mut self, range: Range<usize>, text: String, cx: &mut Context<Self>) {
-        self.sync_rich_text_meta_after_text_change();
-        self.rich_text_meta.set_ruby(range, text);
-        self.rich_text_synced_revision = self.draft_revision;
-        cx.notify();
-    }
-
-    pub fn set_page_break_column(&mut self, column: usize, offset: usize, cx: &mut Context<Self>) {
-        self.sync_rich_text_meta_after_text_change();
-        self.rich_text_meta.set_page_break_column(column, offset);
-        self.rich_text_synced_revision = self.draft_revision;
-        cx.notify();
-    }
-
-    pub fn move_page_break_column(
-        &mut self,
-        from_column: usize,
-        to_column: usize,
-        offset: usize,
-        cx: &mut Context<Self>,
-    ) {
-        self.sync_rich_text_meta_after_text_change();
-        self.rich_text_meta
-            .move_page_break_column(from_column, to_column, offset);
-        self.rich_text_synced_revision = self.draft_revision;
-        cx.notify();
-    }
-
-    pub fn remove_page_break_column(&mut self, column: usize, cx: &mut Context<Self>) {
-        self.sync_rich_text_meta_after_text_change();
-        self.rich_text_meta.remove_page_break_column(column);
-        self.rich_text_synced_revision = self.draft_revision;
-        cx.notify();
     }
 
     pub(crate) fn visible_columns(&self) -> usize {
@@ -505,7 +381,6 @@ impl Editor {
                     start: inserted_start,
                     removed_text: String::new(),
                     inserted_text,
-                    affects_rich_text: true,
                 });
             }
         }
@@ -523,41 +398,6 @@ impl Editor {
 
     pub(crate) fn materialize_display_cell(&mut self, display_cell_index: usize) -> usize {
         editor_selection::materialize_display_cell(self, display_cell_index)
-    }
-
-    pub(crate) fn ruby_edit_request_for_point(
-        &self,
-        position: gpui::Point<Pixels>,
-    ) -> Option<RubyEditRequest> {
-        editor_selection::ruby_edit_request_for_point(self, position)
-    }
-
-    pub(crate) fn page_break_menu_request_for_point(
-        &self,
-        position: gpui::Point<Pixels>,
-    ) -> Option<PageBreakMenuRequest> {
-        editor_selection::page_break_menu_request_for_point(self, position)
-    }
-
-    pub(crate) fn page_break_drag_column_for_point(
-        &self,
-        position: gpui::Point<Pixels>,
-    ) -> Option<usize> {
-        editor_selection::page_break_drag_column_for_point(self, position)
-    }
-
-    pub(crate) fn page_break_context_menu_request_for_point(
-        &self,
-        position: gpui::Point<Pixels>,
-    ) -> Option<PageBreakMenuRequest> {
-        editor_selection::page_break_context_menu_request_for_point(self, position)
-    }
-
-    pub(crate) fn page_break_drop_column_for_point(
-        &self,
-        position: gpui::Point<Pixels>,
-    ) -> Option<usize> {
-        editor_selection::page_break_drop_column_for_point(self, position)
     }
 
     pub(crate) fn set_cursor_from_offset(&mut self, cursor_offset: usize) {
@@ -600,47 +440,6 @@ impl Editor {
         self.visible_text_cache = None;
     }
 
-    pub(crate) fn sync_rich_text_meta_after_text_change(&mut self) {
-        if self.draft_revision <= self.rich_text_synced_revision {
-            return;
-        }
-
-        let current_text = self.snapshot_text();
-        if current_text == self.rich_text_synced_text {
-            self.rich_text_synced_revision = self.draft_revision;
-            return;
-        }
-
-        let rich_text_edits = self
-            .last_applied_edit_batch
-            .as_ref()
-            .filter(|edit_batch| edit_batch.revision() == self.draft_revision)
-            .map(|edit_batch| {
-                edit_batch
-                    .edits()
-                    .iter()
-                    .map(|edit| {
-                        RichTextEdit::new(
-                            edit.start(),
-                            edit.removed_text(),
-                            edit.inserted_text(),
-                            edit.affects_rich_text(),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        rich_text::sync_meta_after_text_change(
-            &mut self.rich_text_meta,
-            self.rich_text_synced_text.as_str(),
-            current_text.as_str(),
-            rich_text_edits.as_slice(),
-        );
-        self.rich_text_synced_revision = self.draft_revision;
-        self.rich_text_synced_text = current_text;
-    }
-
     pub(crate) fn update_viewport_size(&mut self, size: Size<Pixels>, cx: &mut Context<Self>) {
         let needs_viewport_sync = self.last_viewport_size != Some(size);
         if needs_viewport_sync {
@@ -655,7 +454,7 @@ impl Editor {
             self.update_visible_columns(visible_columns_for_window_width(
                 size.width,
                 self.cell_size(),
-                self.ruby_gutter_size(),
+                self.column_gap_size(),
             ));
 
             let content_height = content_height_for_window_height(
@@ -847,8 +646,6 @@ impl Editor {
         self.bump_draft_revision();
         self.history = EditorHistory::default();
         self.last_applied_edit_batch = None;
-        self.rich_text_synced_revision = self.draft_revision;
-        self.rich_text_synced_text = prepared.text;
         self.scroll_column = 0;
         self.scroll_row = 0;
         self.scroll_remainder_columns = 0.0;
@@ -990,7 +787,6 @@ impl Editor {
                 start: range.start,
                 removed_text,
                 inserted_text: new_text.to_string(),
-                affects_rich_text: true,
             });
         }
         self.draft.replace_range(range.clone(), new_text);
@@ -1028,7 +824,6 @@ impl Editor {
                 start: range.start,
                 removed_text,
                 inserted_text: new_text.to_string(),
-                affects_rich_text: true,
             });
         }
         let cursor = range.start + new_text.len();
@@ -1175,7 +970,6 @@ impl EntityInputHandler for Editor {
                 start: range.start,
                 removed_text,
                 inserted_text: new_text.to_string(),
-                affects_rich_text: true,
             });
         }
         self.draft.replace_range(range.clone(), new_text);
