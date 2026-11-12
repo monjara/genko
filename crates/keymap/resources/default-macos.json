@@ -9,8 +9,6 @@
       "cmd-shift-o": "workspace::OpenWorkspace",
       "cmd-shift-e": "workspace::ToggleWorkspacePane",
       "cmd-alt-u": "menu::CheckForUpdates",
-      "cmd-alt-a": "menu::RegisterAccount",
-      "cmd-alt-shift-a": "menu::SignOut",
       "cmd-shift-t": "menu::ExportTxt",
       "cmd-shift-w": "menu::ExportWord",
       "cmd-shift-p": "soukou::OpenCommandPalette",
